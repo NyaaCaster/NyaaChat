@@ -1,0 +1,6 @@
+services:
+  app:
+    build: .
+    ports:
+      - "3095:3095"
+    restart: unless-stopped
