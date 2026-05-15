@@ -174,7 +174,7 @@ export function CharacterSelectionModal({
                             : "border-gray-200 dark:border-white/10 bg-white dark:bg-white/5 hover:border-gray-300 dark:hover:border-white/20 hover:bg-gray-50 dark:hover:bg-white/10"
                         }`}
                       >
-                        <div className="flex-1 min-w-0 pr-12">
+                        <div className="flex-1 min-w-0 pr-16">
                           <h4
                             className={`text-base font-medium mb-1 truncate ${
                               settings.currentCharacterId === character.id
@@ -189,7 +189,7 @@ export function CharacterSelectionModal({
                           </p>
                         </div>
                         
-                        <div className="absolute right-4 top-4 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div className="absolute right-4 top-4 flex items-center gap-1">
                           <button
                             onClick={(e) => handleOpenEdit(e, character)}
                             className="p-1.5 text-gray-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-500/20 rounded-md transition-colors"
