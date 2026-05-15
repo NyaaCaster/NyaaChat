@@ -232,7 +232,7 @@ export function ChatInterface({
               return { ...m, tokenCount: usageResult.prompt_tokens };
             }
             if (m.id === botMessageId) {
-              return { ...m, tokenCount: usageResult.completion_tokens };
+              return { ...m, tokenCount: usageResult.completion_tokens, model: settings.api.model };
             }
             return m;
           }),
@@ -299,6 +299,80 @@ export function ChatInterface({
   const clearChat = () => {
     onSessionChange(null);
     setMessages(buildFirstMes(currentCharacter));
+  };
+
+  const handleDeleteMessage = (id: string) => {
+    setMessages(prev => prev.filter(m => m.id !== id));
+  };
+
+  const handleRegenerate = (id: string) => {
+    setMessages(prev => {
+      const idx = prev.findIndex(m => m.id === id);
+      if (idx === -1) return prev;
+      const trimmed = prev.slice(0, idx);
+      const lastUser = [...trimmed].reverse().find(m => m.role === "user");
+      if (!lastUser) return trimmed;
+      const withoutLastUser = trimmed.filter(m => m.id !== lastUser.id);
+      setTimeout(() => handleSubmitWithContent(lastUser.content), 0);
+      return withoutLastUser;
+    });
+  };
+
+  const handleSubmitWithContent = async (content: string) => {
+    if (isLoading) return;
+    if (!settings.api.baseUrl || !settings.api.apiKey) { onOpenSettings(); return; }
+
+    const processedInput = content
+      .replace(/\{\{user\}\}/g, userName)
+      .replace(/\{\{char\}\}/g, charName);
+
+    const newUserMessage: Message = { id: Date.now().toString(), role: "user", content: processedInput, timestamp: Date.now() };
+    setMessages(prev => [...prev, newUserMessage]);
+    setIsLoading(true);
+    const botMessageId = (Date.now() + 1).toString();
+    setMessages(prev => [...prev, { id: botMessageId, role: "assistant", content: "", timestamp: Date.now() }]);
+
+    const checkKeywords = (text: string, keywordsStr?: string): boolean => {
+      if (!keywordsStr) return false;
+      const keywords = keywordsStr.split(",").map(k => k.trim().toLowerCase()).filter(k => k.length > 0);
+      return keywords.some(k => text.toLowerCase().includes(k));
+    };
+
+    try {
+      const history = messages.concat(newUserMessage).filter(m => m.role !== "system").map(m => ({ role: m.role, content: m.content }));
+      const activeRules = (currentCharacter?.worldInfo || []).filter(rule => {
+        if (!rule.enabled) return false;
+        if (rule.triggerType === "permanent") return true;
+        return checkKeywords(processedInput, rule.keywords);
+      });
+      if (activeRules.length > 0) {
+        const insertIndex = Math.max(0, history.length - 4);
+        history.splice(insertIndex, 0, ...activeRules.map(rule => ({ role: rule.position, content: rule.content.replace(/\{\{user\}\}/g, userName).replace(/\{\{char\}\}/g, charName) })));
+      }
+      if (currentCharacter?.description) history.unshift({ role: "system", content: `[Assistant Persona: ${currentCharacter.description.replace(/\{\{user\}\}/g, userName).replace(/\{\{char\}\}/g, charName)}]` });
+      if (settings.userRole?.profile) history.unshift({ role: "system", content: `[User Persona: ${settings.userRole.profile.replace(/\{\{user\}\}/g, userName).replace(/\{\{char\}\}/g, charName)}]` });
+      const messagesForApi = injectBypassPrompts(history, settings, charName, userName);
+      abortControllerRef.current = new AbortController();
+      let fullResponse = "";
+      const usageResult = await fetchChatCompletion(messagesForApi, settings.api, chunk => {
+        fullResponse += chunk;
+        setMessages(prev => prev.map(m => m.id === botMessageId ? { ...m, content: m.content + chunk } : m));
+        scrollToBottom();
+      }, abortControllerRef.current.signal);
+      if (usageResult) {
+        setMessages(prev => prev.map(m => {
+          if (m.id === newUserMessage.id) return { ...m, tokenCount: usageResult.prompt_tokens };
+          if (m.id === botMessageId) return { ...m, tokenCount: usageResult.completion_tokens, model: settings.api.model };
+          return m;
+        }));
+      }
+    } catch (error: any) {
+      const errMsg = error.name === "AbortError" ? "请求已终止" : error.message;
+      setMessages(prev => prev.map(m => m.id === botMessageId ? { ...m, content: m.content + (error.name === "AbortError" ? `\n\n**[已停止生成]**` : `\n\n**Error:** ${errMsg}`) } : m));
+    } finally {
+      setIsLoading(false);
+      abortControllerRef.current = null;
+    }
   };
 
   // Load session when selected from history
@@ -449,11 +523,9 @@ export function ChatInterface({
                     key={message.id}
                     message={message}
                     userName={settings.userRole?.name}
-                    charName={
-                      settings.characters?.find(
-                        (c) => c.id === settings.currentCharacterId,
-                      )?.name
-                    }
+                    charName={currentCharacter?.name}
+                    onDelete={handleDeleteMessage}
+                    onRegenerate={handleRegenerate}
                   />
                 ))}
               </AnimatePresence>

@@ -3,7 +3,7 @@ import Markdown from "react-markdown";
 import rehypeRaw from "rehype-raw";
 import { Message } from "../types";
 import { motion } from "motion/react";
-import { Copy, Check } from "lucide-react";
+import { Copy, Check, Trash2, RefreshCw } from "lucide-react";
 
 function CodeBlock({ children }: { children: string }) {
   const [copied, setCopied] = useState(false);
@@ -24,6 +24,11 @@ function CodeBlock({ children }: { children: string }) {
       <pre><code>{children}</code></pre>
     </div>
   );
+}
+
+function normalizeMarkdown(text: string): string {
+  // Ensure headings have a blank line before them
+  return text.replace(/(\S)\n(#{1,6} )/g, '$1\n\n$2');
 }
 
 const QUOTE_RE = /("[^"]*?"|'[^']*?'|“[^”]*?”|‘[^’]*?’|「[^」]*?」|『[^』]*?』|【[^】]*?】|《[^》]*?》)/g;
@@ -54,9 +59,17 @@ interface MessageItemProps {
   message: Message;
   userName?: string;
   charName?: string;
+  onDelete?: (id: string) => void;
+  onRegenerate?: (id: string) => void;
 }
 
-export function MessageItem({ message, userName, charName }: MessageItemProps) {
+export function MessageItem({ message, userName, charName, onDelete, onRegenerate }: MessageItemProps) {
+  const [copiedMsg, setCopiedMsg] = useState(false);
+  const handleCopyMsg = () => {
+    navigator.clipboard.writeText(message.content);
+    setCopiedMsg(true);
+    setTimeout(() => setCopiedMsg(false), 2000);
+  };
   const isUser = message.role === "user";
   const isSystem = message.role === "system";
 
@@ -95,8 +108,9 @@ export function MessageItem({ message, userName, charName }: MessageItemProps) {
       transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
       className={`flex w-full my-4 ${isUser ? "justify-end" : "justify-start"}`}
     >
+      <div className={`max-w-[85%] sm:max-w-[80%] flex flex-col gap-1 ${isUser ? "items-end" : "items-start"}`}>
       <div
-        className={`max-w-[85%] sm:max-w-[80%] rounded-2xl px-5 py-4 bg-white dark:bg-[#111111] text-gray-900 dark:text-gray-100 shadow-elevation-1 ${
+        className={`w-full rounded-2xl px-5 py-4 bg-white dark:bg-[#111111] text-gray-900 dark:text-gray-100 shadow-elevation-1 ${
           isUser
             ? "rounded-tr-sm self-end border border-blue-500"
             : "rounded-tl-sm border border-gray-100 dark:border-white/5"
@@ -141,6 +155,11 @@ export function MessageItem({ message, userName, charName }: MessageItemProps) {
                       {message.tokenCount} tokens
                     </span>
                   )}
+                  {message.model && (
+                    <span className="text-[10px] opacity-70 border border-gray-200 dark:border-gray-700 rounded px-1">
+                      {message.model}
+                    </span>
+                  )}
                 </div>
               )}
             </div>
@@ -165,9 +184,25 @@ export function MessageItem({ message, userName, charName }: MessageItemProps) {
                   return <CodeBlock>{code}</CodeBlock>;
                 },
               }}
-            >{message.content || "..."}</Markdown>
+            >{normalizeMarkdown(message.content || "...")}</Markdown>
           </div>
         </div>
+      </div>
+      <div className={`flex items-center gap-1 px-1 ${isUser ? "justify-end" : "justify-start"}`}>
+        {!isUser && onRegenerate && (
+          <button onClick={() => onRegenerate(message.id)} className="p-1 text-gray-400 hover:text-green-500 transition-colors rounded" title="重新生成">
+            <RefreshCw size={13} />
+          </button>
+        )}
+        <button onClick={handleCopyMsg} className="p-1 text-gray-400 hover:text-blue-500 transition-colors rounded" title="复制文本">
+          {copiedMsg ? <Check size={13} /> : <Copy size={13} />}
+        </button>
+        {onDelete && (
+          <button onClick={() => { if (window.confirm("确定要删除这条消息吗？")) onDelete(message.id); }} className="p-1 text-gray-400 hover:text-red-500 transition-colors rounded" title="删除消息">
+            <Trash2 size={13} />
+          </button>
+        )}
+      </div>
       </div>
     </motion.div>
   );

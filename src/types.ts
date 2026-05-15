@@ -4,6 +4,7 @@ export interface Message {
   content: string;
   timestamp?: number;
   tokenCount?: number;
+  model?: string;
 }
 
 export interface ApiSettings {
