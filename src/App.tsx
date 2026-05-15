@@ -11,7 +11,9 @@ import { BypassModal } from "./components/BypassModal";
 import { ConsoleModal } from "./components/ConsoleModal";
 import { UserRoleModal } from "./components/UserRoleModal";
 import { CharacterSelectionModal } from "./components/CharacterSelectionModal";
+import { ChatHistoryModal } from "./components/ChatHistoryModal";
 import { bypassTemplates } from "./lib/bypassTemplates";
+import { ChatSession } from "./types";
 
 const DEFAULT_SETTINGS: AppState = {
   api: {
@@ -75,6 +77,9 @@ export default function App() {
   const [isUserRoleOpen, setIsUserRoleOpen] = useState(false);
   const [isCharacterSelectionOpen, setIsCharacterSelectionOpen] =
     useState(false);
+  const [isChatHistoryOpen, setIsChatHistoryOpen] = useState(false);
+  const [currentSession, setCurrentSession] = useState<ChatSession | null>(null);
+  const [historyVersion, setHistoryVersion] = useState(0);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
 
@@ -166,6 +171,9 @@ export default function App() {
         onOpenConsole={() => setIsConsoleOpen(true)}
         onOpenUserRole={() => setIsUserRoleOpen(true)}
         onOpenCharacterSelection={() => setIsCharacterSelectionOpen(true)}
+        onOpenChatHistory={() => setIsChatHistoryOpen(true)}
+        currentSession={currentSession}
+        onSessionChange={setCurrentSession}
       />
       <SettingsModal
         isOpen={isSettingsOpen}
@@ -196,6 +204,13 @@ export default function App() {
         onClose={() => setIsCharacterSelectionOpen(false)}
         settings={settings}
         onSave={handleSaveSettings}
+      />
+      <ChatHistoryModal
+        isOpen={isChatHistoryOpen}
+        onClose={() => setIsChatHistoryOpen(false)}
+        currentSessionId={currentSession?.id ?? null}
+        onSelectSession={(session) => { setCurrentSession(session); }}
+        onSessionsChange={() => setHistoryVersion(v => v + 1)}
       />
     </>
   );

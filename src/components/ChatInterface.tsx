@@ -11,12 +11,15 @@ import {
   Flame,
   Terminal,
   User,
+  History,
 } from "lucide-react";
 import { Message, AppState, LogEntry } from "../types";
 import { fetchChatCompletion } from "../lib/api";
 import { injectBypassPrompts } from "../lib/bypassTemplates";
 import { MessageItem } from "./MessageItem";
 import { motion, AnimatePresence } from "motion/react";
+import { saveSession, loadSessions } from "./ChatHistoryModal";
+import { ChatSession } from "../types";
 
 interface ChatInterfaceProps {
   settings: AppState;
@@ -27,6 +30,9 @@ interface ChatInterfaceProps {
   onOpenConsole: () => void;
   onOpenUserRole: () => void;
   onOpenCharacterSelection: () => void;
+  onOpenChatHistory: () => void;
+  currentSession: ChatSession | null;
+  onSessionChange: (session: ChatSession | null) => void;
 }
 
 export function ChatInterface({
@@ -38,6 +44,9 @@ export function ChatInterface({
   onOpenConsole,
   onOpenUserRole,
   onOpenCharacterSelection,
+  onOpenChatHistory,
+  currentSession,
+  onSessionChange,
 }: ChatInterfaceProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -269,9 +278,35 @@ export function ChatInterface({
     }
   };
 
+  // Auto-save current session when messages change
+  useEffect(() => {
+    if (messages.length === 0) return;
+    const userMessages = messages.filter(m => m.role === "user");
+    if (userMessages.length === 0) return;
+    const session: ChatSession = {
+      id: currentSession?.id ?? Date.now().toString(),
+      characterId: currentCharacter?.id ?? "default",
+      characterName: charName,
+      messages,
+      createdAt: currentSession?.createdAt ?? Date.now(),
+    };
+    saveSession(session);
+    if (!currentSession || currentSession.id !== session.id) {
+      onSessionChange(session);
+    }
+  }, [messages]);
+
   const clearChat = () => {
+    onSessionChange(null);
     setMessages(buildFirstMes(currentCharacter));
   };
+
+  // Load session when selected from history
+  useEffect(() => {
+    if (currentSession) {
+      setMessages(currentSession.messages);
+    }
+  }, [currentSession?.id]);
 
   const isBypassActive = settings.bypass.enabled;
 
@@ -360,6 +395,13 @@ export function ChatInterface({
               title="用户角色"
             >
               <User size={16} />
+            </button>
+            <button
+              onClick={onOpenChatHistory}
+              className="p-1.5 text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100 hover:bg-gray-200 dark:hover:bg-white/10 rounded-md transition-all duration-200"
+              title="聊天记录"
+            >
+              <History size={16} />
             </button>
             <button
               onClick={clearChat}

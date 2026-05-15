@@ -66,6 +66,14 @@ export interface AppState {
   currentCharacterId: string;
 }
 
+export interface ChatSession {
+  id: string;
+  characterId: string;
+  characterName: string;
+  messages: Message[];
+  createdAt: number;
+}
+
 export interface LogEntry {
   id: string;
   timestamp: number;
