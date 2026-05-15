@@ -37,7 +37,7 @@ export function injectBypassPrompts(
 ) {
   if (!settings.bypass.enabled) return messages;
 
-  const injected = [];
+  const injected: { role: string; content: string }[] = [];
   const getPrompt = (key: keyof typeof bypassTemplates) => {
     const defaultTpl = bypassTemplates[key];
     const customContent =
@@ -80,11 +80,19 @@ export function injectBypassPrompts(
     const countTpl = getPrompt('wordCountControl');
     const lastUserIndex = result.map(m => m.role).lastIndexOf('user');
     if (lastUserIndex !== -1) {
-      // Create a new object to avoid mutating the original message
-      result[lastUserIndex] = {
-        ...result[lastUserIndex],
-        content: result[lastUserIndex].content + `\n\n${countTpl.content}`
-      };
+      const existing = result[lastUserIndex];
+      if (Array.isArray(existing.content)) {
+        // Append word count as an extra text part
+        result[lastUserIndex] = {
+          ...existing,
+          content: [...existing.content, { type: 'text', text: `\n\n${countTpl.content}` }]
+        };
+      } else {
+        result[lastUserIndex] = {
+          ...existing,
+          content: existing.content + `\n\n${countTpl.content}`
+        };
+      }
     } else {
       result.push(countTpl);
     }

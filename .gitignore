@@ -4,7 +4,6 @@ dist/
 coverage/
 .DS_Store
 *.log
-rebuild.ps1
 src/temp/
 .env*
 !.env.example

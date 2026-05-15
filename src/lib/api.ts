@@ -6,8 +6,10 @@ export interface ApiUsage {
   total_tokens?: number;
 }
 
+export type ApiMessage = { role: string; content: string | any[] };
+
 export async function fetchChatCompletion(
-  messages: Omit<Message, 'id'>[],
+  messages: ApiMessage[],
   settings: ApiSettings,
   onChunk: (chunk: string) => void,
   signal?: AbortSignal

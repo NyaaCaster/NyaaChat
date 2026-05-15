@@ -202,15 +202,10 @@ export function ChatInterface({
 
     try {
       const history = messages
-        .concat(newUserMessage)
         .filter((m) => m.role !== "system")
-        .map((m, idx, arr) => {
-          // For the last user message, use the full content with attachments
-          if (m.id === newUserMessage.id && attachments.length > 0) {
-            return { role: m.role, content: messageContent };
-          }
-          return { role: m.role, content: m.content };
-        });
+        .map((m) => ({ role: m.role, content: m.content }));
+      // Append current user message with full attachment content
+      history.push({ role: "user", content: messageContent });
 
       // World Info logic
       const activeRules = (currentCharacter?.worldInfo || []).filter((rule) => {
