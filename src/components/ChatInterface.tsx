@@ -45,6 +45,12 @@ export function ChatInterface({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
+  const currentCharacter = settings.characters?.find(
+    (c) => c.id === settings.currentCharacterId,
+  );
+  const charName = currentCharacter?.name || "AI助手";
+  const userName = settings.userRole?.name || "user";
+
   const handleStop = () => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -59,6 +65,20 @@ export function ChatInterface({
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  const buildFirstMes = (character: typeof currentCharacter): Message[] => {
+    if (!character?.firstMes?.trim()) return [];
+    return [{
+      id: Date.now().toString(),
+      role: "assistant",
+      content: character.firstMes,
+      timestamp: Date.now(),
+    }];
+  };
+
+  useEffect(() => {
+    setMessages(buildFirstMes(currentCharacter));
+  }, [settings.currentCharacterId]);
 
   const handleSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -76,12 +96,6 @@ export function ChatInterface({
       onOpenSettings();
       return;
     }
-
-    const userName = settings.userRole?.name || "user";
-    const currentCharacter = settings.characters?.find(
-      (c) => c.id === settings.currentCharacterId,
-    );
-    const charName = currentCharacter?.name || "AI助手";
 
     const processedInput = input
       .replace(/\{\{user\}\}/g, userName)
@@ -129,12 +143,6 @@ export function ChatInterface({
           role: m.role,
           content: m.content,
         }));
-
-      const currentCharacter = settings.characters?.find(
-        (c) => c.id === settings.currentCharacterId,
-      );
-      const charName = currentCharacter?.name || "AI助手";
-      const userName = settings.userRole?.name || "user";
 
       // World Info logic
       const activeRules = (currentCharacter?.worldInfo || []).filter((rule) => {
@@ -262,7 +270,7 @@ export function ChatInterface({
   };
 
   const clearChat = () => {
-    setMessages([]);
+    setMessages(buildFirstMes(currentCharacter));
   };
 
   const isBypassActive = settings.bypass.enabled;

@@ -53,6 +53,7 @@ export interface CharacterSettings {
   id: string;
   name: string;
   description: string;
+  firstMes?: string;
   worldInfo?: WorldInfoRule[];
 }
 

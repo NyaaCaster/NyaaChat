@@ -19,6 +19,7 @@ export function CharacterEditModal({
 }: CharacterEditModalProps) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [firstMes, setFirstMes] = useState("");
   const [worldInfo, setWorldInfo] = useState<WorldInfoRule[]>([]);
   const [isRuleModalOpen, setIsRuleModalOpen] = useState(false);
   const [editingRule, setEditingRule] = useState<WorldInfoRule | null>(null);
@@ -27,10 +28,12 @@ export function CharacterEditModal({
     if (initialCharacter) {
       setName(initialCharacter.name);
       setDescription(initialCharacter.description);
+      setFirstMes(initialCharacter.firstMes || "");
       setWorldInfo(initialCharacter.worldInfo || []);
     } else {
       setName("");
       setDescription("");
+      setFirstMes("");
       setWorldInfo([]);
     }
   }, [initialCharacter, isOpen]);
@@ -42,6 +45,7 @@ export function CharacterEditModal({
       id: initialCharacter?.id || Date.now().toString(),
       name: name.trim(),
       description: description.trim(),
+      firstMes: firstMes.trim() || undefined,
       worldInfo: worldInfo,
     });
 
@@ -52,6 +56,7 @@ export function CharacterEditModal({
     const data = {
       name: name.trim(),
       description: description.trim(),
+      firstMes: firstMes.trim() || undefined,
       worldInfo: worldInfo,
     };
     const json = JSON.stringify(data, null, 2);
@@ -155,6 +160,17 @@ export function CharacterEditModal({
                       value={description}
                       onChange={(e) => setDescription(e.target.value)}
                       placeholder="描述角色的核心设定、说话方式等..."
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">
+                      第一条消息 (First Message)
+                    </label>
+                    <textarea
+                      className="w-full px-3 py-2 text-sm bg-transparent border border-gray-200 dark:border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-shadow resize-none min-h-[80px]"
+                      value={firstMes}
+                      onChange={(e) => setFirstMes(e.target.value)}
+                      placeholder="对话开始时角色自动发送的第一条消息（可选）..."
                     />
                   </div>
 

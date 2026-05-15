@@ -1,6 +1,7 @@
 import React, { useState, useRef } from "react";
 import { Sparkles, X, Plus, Upload, Check, Edit2, Trash2 } from "lucide-react";
 import { AppState, CharacterSettings } from "../types";
+import { isSillyTavernFormat, convertSillyTavernCharacter, parseSillyTavernPng } from "../lib/sillyTavernImport";
 import { motion, AnimatePresence } from "motion/react";
 import { CharacterEditModal } from "./CharacterEditModal";
 
@@ -29,45 +30,42 @@ export function CharacterSelectionModal({
     onClose();
   };
 
-  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const content = event.target?.result as string;
+    try {
+      let newCharacter: CharacterSettings;
+
+      if (file.name.endsWith(".png")) {
+        newCharacter = await parseSillyTavernPng(file);
+      } else {
+        const content = await file.text();
         const parsed = JSON.parse(content);
-
-        // Validation for character format
-        if (!parsed || typeof parsed !== "object")
-          throw new Error("Invalid JSON object");
-        if (!parsed.name || typeof parsed.name !== "string")
-          throw new Error('Missing or invalid "name"');
-        if (!parsed.description || typeof parsed.description !== "string")
-          throw new Error('Missing or invalid "description"');
-
-        const newCharacter: CharacterSettings = {
-          id: Date.now().toString(),
-          name: parsed.name,
-          description: parsed.description,
-          worldInfo: Array.isArray(parsed.worldInfo) ? parsed.worldInfo : [],
-        };
-
-        onSave({
-          ...settings,
-          characters: [...(settings.characters || []), newCharacter],
-        });
-      } catch (err: any) {
-        alert("角色配置内容格式错误: " + err.message);
+        if (!parsed || typeof parsed !== "object") throw new Error("Invalid JSON object");
+        if (isSillyTavernFormat(parsed)) {
+          newCharacter = convertSillyTavernCharacter(parsed);
+        } else {
+          if (!parsed.name || typeof parsed.name !== "string") throw new Error('Missing or invalid "name"');
+          if (!parsed.description || typeof parsed.description !== "string") throw new Error('Missing or invalid "description"');
+          newCharacter = {
+            id: Date.now().toString(),
+            name: parsed.name,
+            description: parsed.description,
+            worldInfo: Array.isArray(parsed.worldInfo) ? parsed.worldInfo : [],
+          };
+        }
       }
 
-      // Reset input
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-      }
-    };
-    reader.readAsText(file);
+      onSave({
+        ...settings,
+        characters: [...(settings.characters || []), newCharacter],
+      });
+    } catch (err: any) {
+      alert("角色配置内容格式错误: " + err.message);
+    }
+
+    if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   const handleCreateCharacter = (character: CharacterSettings) => {
@@ -223,7 +221,7 @@ export function CharacterSelectionModal({
                 <div className="p-4 sm:p-5 border-t border-gray-100 dark:border-white/5 bg-gray-50/50 dark:bg-black/20 flex gap-3">
                   <input
                     type="file"
-                    accept=".json"
+                    accept=".json,.png"
                     className="hidden"
                     ref={fileInputRef}
                     onChange={handleImport}
