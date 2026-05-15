@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import Markdown from "react-markdown";
+import rehypeRaw from "rehype-raw";
 import { Message } from "../types";
 import { motion } from "motion/react";
 import { Copy, Check } from "lucide-react";
@@ -153,6 +154,7 @@ export function MessageItem({ message, userName, charName }: MessageItemProps) {
             style={{ fontFamily: "var(--font-sans)" }}
           >
             <Markdown
+              rehypePlugins={[rehypeRaw]}
               components={{
                 p: ({ children }) => <p>{renderTextWithQuotes(children)}</p>,
                 li: ({ children }) => <li>{renderTextWithQuotes(children)}</li>,
