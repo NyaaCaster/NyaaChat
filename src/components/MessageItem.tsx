@@ -1,7 +1,53 @@
-import React from "react";
+import React, { useState } from "react";
 import Markdown from "react-markdown";
 import { Message } from "../types";
 import { motion } from "motion/react";
+import { Copy, Check } from "lucide-react";
+
+function CodeBlock({ children }: { children: string }) {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = () => {
+    navigator.clipboard.writeText(children);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+  return (
+    <div className="relative group">
+      <button
+        onClick={handleCopy}
+        className="absolute right-2 top-2 p-1.5 rounded-md bg-white/10 hover:bg-white/20 text-gray-400 hover:text-gray-100 transition-colors"
+        title="复制代码"
+      >
+        {copied ? <Check size={13} /> : <Copy size={13} />}
+      </button>
+      <pre><code>{children}</code></pre>
+    </div>
+  );
+}
+
+const QUOTE_RE = /("[^"]*?"|'[^']*?'|“[^”]*?”|‘[^’]*?’|「[^」]*?」|『[^』]*?』|【[^】]*?】|《[^》]*?》)/g;
+
+function highlightQuotes(text: string): React.ReactNode[] {
+  const result: React.ReactNode[] = [];
+  let last = 0;
+  let match: RegExpExecArray | null;
+  QUOTE_RE.lastIndex = 0;
+  while ((match = QUOTE_RE.exec(text)) !== null) {
+    if (match.index > last) result.push(text.slice(last, match.index));
+    result.push(<span key={match.index} className="quote-highlight">{match[0]}</span>);
+    last = match.index + match[0].length;
+  }
+  if (last < text.length) result.push(text.slice(last));
+  return result;
+}
+
+function renderTextWithQuotes(children: React.ReactNode): React.ReactNode {
+  if (typeof children === "string") return highlightQuotes(children);
+  if (Array.isArray(children)) return children.map((c, i) =>
+    typeof c === "string" ? <React.Fragment key={i}>{highlightQuotes(c)}</React.Fragment> : c
+  );
+  return children;
+}
 
 interface MessageItemProps {
   message: Message;
@@ -106,7 +152,18 @@ export function MessageItem({ message, userName, charName }: MessageItemProps) {
             className="markdown-body"
             style={{ fontFamily: "var(--font-sans)" }}
           >
-            <Markdown>{message.content || "..."}</Markdown>
+            <Markdown
+              components={{
+                p: ({ children }) => <p>{renderTextWithQuotes(children)}</p>,
+                li: ({ children }) => <li>{renderTextWithQuotes(children)}</li>,
+                pre: ({ children }) => {
+                  const code = React.Children.toArray(children).map(c =>
+                    typeof c === "object" && "props" in c ? (c as any).props.children : c
+                  ).join("");
+                  return <CodeBlock>{code}</CodeBlock>;
+                },
+              }}
+            >{message.content || "..."}</Markdown>
           </div>
         </div>
       </div>

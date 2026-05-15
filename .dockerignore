@@ -4,3 +4,4 @@ dist
 *.md
 .git
 .gitignore
+src/temp/

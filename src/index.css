@@ -15,6 +15,12 @@
   --shadow-glow: 0 0 15px 0 rgb(59 130 246 / 0.3);
 }
 
+@layer components {
+  .quote-highlight {
+    @apply text-blue-600 dark:text-blue-400;
+  }
+}
+
 @layer base {
   html {
     font-family: var(--font-sans);
