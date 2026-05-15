@@ -27,8 +27,12 @@ function CodeBlock({ children }: { children: string }) {
 }
 
 function normalizeMarkdown(text: string): string {
-  // Ensure headings have a blank line before them
-  return text.replace(/(\S)\n(#{1,6} )/g, '$1\n\n$2');
+  return text
+    .replace(/(\S)\n(#{1,6} )/g, '$1\n\n$2')
+    .replace(/(\S)\n(> )/g, '$1\n\n$2')
+    .replace(/(\S)\n([-*+] )/g, '$1\n\n$2')
+    // Split inline "> " separators into real blockquote lines
+    .replace(/(`[^`]*)` > /g, '$1`\n> ');
 }
 
 const QUOTE_RE = /("[^"]*?"|'[^']*?'|“[^”]*?”|‘[^’]*?’|「[^」]*?」|『[^』]*?』|【[^】]*?】|《[^》]*?》)/g;

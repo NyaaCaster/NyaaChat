@@ -12,6 +12,10 @@ import {
   Terminal,
   User,
   History,
+  Paperclip,
+  X as XIcon,
+  FileText,
+  Image as ImageIcon,
 } from "lucide-react";
 import { Message, AppState, LogEntry } from "../types";
 import { fetchChatCompletion } from "../lib/api";
@@ -53,6 +57,43 @@ export function ChatInterface({
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const attachmentInputRef = useRef<HTMLInputElement>(null);
+
+  type Attachment = { name: string; type: "image" | "text"; data: string; mimeType: string };
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+
+  const processFile = async (file: File): Promise<Attachment | null> => {
+    const isImage = file.type.startsWith("image/");
+    return new Promise(resolve => {
+      const reader = new FileReader();
+      reader.onload = e => {
+        const result = e.target?.result as string;
+        if (isImage) {
+          // base64 data URL
+          resolve({ name: file.name, type: "image", data: result.split(",")[1], mimeType: file.type });
+        } else {
+          resolve({ name: file.name, type: "text", data: result, mimeType: file.type });
+        }
+      };
+      reader.onerror = () => resolve(null);
+      if (isImage) reader.readAsDataURL(file);
+      else reader.readAsText(file);
+    });
+  };
+
+  const handleAttachFiles = async (files: FileList | File[]) => {
+    const arr = Array.from(files);
+    const processed = await Promise.all(arr.map(processFile));
+    setAttachments(prev => [...prev, ...processed.filter(Boolean) as Attachment[]]);
+  };
+
+  const handlePaste = async (e: React.ClipboardEvent) => {
+    const files = Array.from(e.clipboardData.files);
+    if (files.length > 0) {
+      e.preventDefault();
+      await handleAttachFiles(files);
+    }
+  };
 
   const currentCharacter = settings.characters?.find(
     (c) => c.id === settings.currentCharacterId,
@@ -110,15 +151,30 @@ export function ChatInterface({
       .replace(/\{\{user\}\}/g, userName)
       .replace(/\{\{char\}\}/g, charName);
 
+    // Build content with attachments
+    let messageContent: any = processedInput;
+    if (attachments.length > 0) {
+      const parts: any[] = [{ type: "text", text: processedInput }];
+      for (const att of attachments) {
+        if (att.type === "image") {
+          parts.push({ type: "image_url", image_url: { url: `data:${att.mimeType};base64,${att.data}` } });
+        } else {
+          parts.push({ type: "text", text: `\n\n[附件: ${att.name}]\n${att.data}` });
+        }
+      }
+      messageContent = parts;
+    }
+
     const newUserMessage: Message = {
       id: Date.now().toString(),
       role: "user",
-      content: processedInput,
+      content: typeof messageContent === "string" ? messageContent : processedInput,
       timestamp: Date.now(),
     };
 
     setMessages((prev) => [...prev, newUserMessage]);
     setInput("");
+    setAttachments([]);
     setIsLoading(true);
 
     const botMessageId = (Date.now() + 1).toString();
@@ -148,10 +204,13 @@ export function ChatInterface({
       const history = messages
         .concat(newUserMessage)
         .filter((m) => m.role !== "system")
-        .map((m) => ({
-          role: m.role,
-          content: m.content,
-        }));
+        .map((m, idx, arr) => {
+          // For the last user message, use the full content with attachments
+          if (m.id === newUserMessage.id && attachments.length > 0) {
+            return { role: m.role, content: messageContent };
+          }
+          return { role: m.role, content: m.content };
+        });
 
       // World Info logic
       const activeRules = (currentCharacter?.worldInfo || []).filter((rule) => {
@@ -538,13 +597,42 @@ export function ChatInterface({
       {/* Input Area */}
       <footer className="flex-shrink-0 bg-transparent p-4 sm:px-6 sm:pb-6 z-20">
         <div className="max-w-3xl mx-auto relative">
+          <input
+            type="file"
+            multiple
+            className="hidden"
+            ref={attachmentInputRef}
+            onChange={e => e.target.files && handleAttachFiles(e.target.files)}
+          />
+          {attachments.length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-2 px-1">
+              {attachments.map((att, i) => (
+                <div key={i} className="flex items-center gap-1.5 px-2 py-1 bg-white dark:bg-white/10 border border-gray-200 dark:border-white/10 rounded-lg text-xs text-gray-700 dark:text-gray-300">
+                  {att.type === "image" ? <ImageIcon size={12} className="text-blue-500" /> : <FileText size={12} className="text-gray-400" />}
+                  <span className="max-w-[120px] truncate">{att.name}</span>
+                  <button onClick={() => setAttachments(prev => prev.filter((_, j) => j !== i))} className="text-gray-400 hover:text-red-500 transition-colors">
+                    <XIcon size={12} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
           <form
             onSubmit={handleSubmit}
             className="relative flex items-end shadow-elevation-2 rounded-2xl border border-gray-200/50 dark:border-white/10 bg-white/90 dark:bg-[#111111]/90 backdrop-blur-xl overflow-hidden focus-within:ring-2 focus-within:ring-blue-500/50 transition-all duration-300"
           >
+            <button
+              type="button"
+              onClick={() => attachmentInputRef.current?.click()}
+              className="absolute left-2 bottom-2 p-2.5 rounded-xl text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-white/10 transition-all"
+              title="添加附件"
+            >
+              <Paperclip size={18} />
+            </button>
             <textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
+              onPaste={handlePaste}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
                   e.preventDefault();
@@ -552,7 +640,7 @@ export function ChatInterface({
                 }
               }}
               placeholder="发送消息... (Ctrl + Enter 发送)"
-              className="flex-1 max-h-60 min-h-[60px] py-4 pl-5 pr-14 bg-transparent outline-none resize-none text-sm placeholder-gray-400 dark:placeholder-gray-600 focus:placeholder-transparent transition-all"
+              className="flex-1 max-h-60 min-h-[60px] py-4 pl-12 pr-14 bg-transparent outline-none resize-none text-sm placeholder-gray-400 dark:placeholder-gray-600 focus:placeholder-transparent transition-all"
               rows={1}
             />
             <button
