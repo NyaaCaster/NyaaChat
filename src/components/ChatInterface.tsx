@@ -216,38 +216,44 @@ export function ChatInterface({
         if (rule.triggerType === "permanent") return true;
         return checkKeywords(processedInput, rule.keywords);
       });
+      // Stable blocks (permanent) before volatile ones (keyword-triggered) so
+      // the keyword-triggered set, which can change turn-to-turn, sits at the
+      // tail of the system segment and breaks as little prefix as possible.
+      activeRules.sort(
+        (a, b) =>
+          Number(a.triggerType !== "permanent") -
+          Number(b.triggerType !== "permanent"),
+      );
 
-      // Inject World Info rules at Depth 4
-      if (activeRules.length > 0) {
-        const insertDepth = 4;
-        const insertIndex = Math.max(0, history.length - insertDepth);
-
-        const ruleMessages = activeRules.map((rule) => ({
-          role: rule.position,
-          content: rule.content
-            .replace(/\{\{user\}\}/g, userName)
-            .replace(/\{\{char\}\}/g, charName),
-        }));
-
-        history.splice(insertIndex, 0, ...ruleMessages);
-      }
-
-      if (currentCharacter?.description) {
-        history.unshift({
-          role: "system",
-          content: `[Assistant Persona: ${currentCharacter.description.replace(/\{\{user\}\}/g, userName).replace(/\{\{char\}\}/g, charName)}]`,
-        });
-      }
-
+      // Collect all system-level content up-front. Order is fixed so the
+      // request prefix stays byte-identical across turns (prompt cache hit).
+      const systemMessages: { role: string; content: string }[] = [];
       if (settings.userRole?.profile) {
-        history.unshift({
+        systemMessages.push({
           role: "system",
           content: `[User Persona: ${settings.userRole.profile.replace(/\{\{user\}\}/g, userName).replace(/\{\{char\}\}/g, charName)}]`,
         });
       }
+      if (currentCharacter?.description) {
+        systemMessages.push({
+          role: "system",
+          content: `[Assistant Persona: ${currentCharacter.description.replace(/\{\{user\}\}/g, userName).replace(/\{\{char\}\}/g, charName)}]`,
+        });
+      }
+      // World Info goes into the system block (not into the history mid-stream)
+      // so triggering a keyword rule does not invalidate the cached history prefix.
+      for (const rule of activeRules) {
+        const tag = rule.position === "assistant" ? "Assistant Note" : "World Info";
+        systemMessages.push({
+          role: "system",
+          content: `[${tag}] ${rule.content
+            .replace(/\{\{user\}\}/g, userName)
+            .replace(/\{\{char\}\}/g, charName)}`,
+        });
+      }
 
       const messagesForApi = injectBypassPrompts(
-        history,
+        [...systemMessages, ...history],
         settings,
         charName,
         userName,
@@ -402,13 +408,19 @@ export function ChatInterface({
         if (rule.triggerType === "permanent") return true;
         return checkKeywords(processedInput, rule.keywords);
       });
-      if (activeRules.length > 0) {
-        const insertIndex = Math.max(0, history.length - 4);
-        history.splice(insertIndex, 0, ...activeRules.map(rule => ({ role: rule.position, content: rule.content.replace(/\{\{user\}\}/g, userName).replace(/\{\{char\}\}/g, charName) })));
+      activeRules.sort((a, b) => Number(a.triggerType !== "permanent") - Number(b.triggerType !== "permanent"));
+      const systemMessages: { role: string; content: string }[] = [];
+      if (settings.userRole?.profile) {
+        systemMessages.push({ role: "system", content: `[User Persona: ${settings.userRole.profile.replace(/\{\{user\}\}/g, userName).replace(/\{\{char\}\}/g, charName)}]` });
       }
-      if (currentCharacter?.description) history.unshift({ role: "system", content: `[Assistant Persona: ${currentCharacter.description.replace(/\{\{user\}\}/g, userName).replace(/\{\{char\}\}/g, charName)}]` });
-      if (settings.userRole?.profile) history.unshift({ role: "system", content: `[User Persona: ${settings.userRole.profile.replace(/\{\{user\}\}/g, userName).replace(/\{\{char\}\}/g, charName)}]` });
-      const messagesForApi = injectBypassPrompts(history, settings, charName, userName);
+      if (currentCharacter?.description) {
+        systemMessages.push({ role: "system", content: `[Assistant Persona: ${currentCharacter.description.replace(/\{\{user\}\}/g, userName).replace(/\{\{char\}\}/g, charName)}]` });
+      }
+      for (const rule of activeRules) {
+        const tag = rule.position === "assistant" ? "Assistant Note" : "World Info";
+        systemMessages.push({ role: "system", content: `[${tag}] ${rule.content.replace(/\{\{user\}\}/g, userName).replace(/\{\{char\}\}/g, charName)}` });
+      }
+      const messagesForApi = injectBypassPrompts([...systemMessages, ...history], settings, charName, userName);
       abortControllerRef.current = new AbortController();
       let fullResponse = "";
       const usageResult = await fetchChatCompletion(messagesForApi, settings.api, chunk => {

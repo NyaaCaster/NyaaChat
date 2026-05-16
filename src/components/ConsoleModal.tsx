@@ -101,6 +101,27 @@ export function ConsoleModal({ isOpen, onClose, logs, onClearLogs }: ConsoleModa
                             IN: {log.meta.usage.prompt_tokens}
                           </span>
                         )}
+                        {(() => {
+                          const cached =
+                            log.meta?.usage?.cache_read_input_tokens ??
+                            log.meta?.usage?.prompt_tokens_details?.cached_tokens;
+                          return cached !== undefined ? (
+                            <span
+                              className="text-[10px] mr-1 px-1.5 py-0.5 rounded bg-amber-900/20 text-amber-400 border border-amber-900/50"
+                              title="Prompt cache hit (reused tokens, billed at discount)"
+                            >
+                              CACHED: {cached}
+                            </span>
+                          ) : null;
+                        })()}
+                        {log.meta?.usage?.cache_creation_input_tokens !== undefined && (
+                          <span
+                            className="text-[10px] mr-1 px-1.5 py-0.5 rounded bg-fuchsia-900/20 text-fuchsia-400 border border-fuchsia-900/50"
+                            title="Tokens written to cache this turn (Anthropic cache_control)"
+                          >
+                            CACHE_NEW: {log.meta.usage.cache_creation_input_tokens}
+                          </span>
+                        )}
                         {log.meta?.usage?.completion_tokens !== undefined && (
                           <span className="text-[10px] mr-1 px-1.5 py-0.5 rounded bg-emerald-900/20 text-emerald-400 border border-emerald-900/50">
                             OUT: {log.meta.usage.completion_tokens}

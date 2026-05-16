@@ -97,7 +97,12 @@ export default function App() {
   const hasAutoConnectedRef = React.useRef(false);
 
   useEffect(() => {
-    const saved = localStorage.getItem("rikkachat_settings");
+    // Read new key first, fall back to legacy `rikkachat_settings` for users
+    // who saved settings under the old name. We rewrite to the new key on the
+    // next save (handleSaveSettings), so the legacy key fades out naturally.
+    const saved =
+      localStorage.getItem("nyaachat_settings") ??
+      localStorage.getItem("rikkachat_settings");
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -161,7 +166,10 @@ export default function App() {
 
   const handleSaveSettings = (newSettings: AppState) => {
     setSettings(newSettings);
-    localStorage.setItem("rikkachat_settings", JSON.stringify(newSettings));
+    localStorage.setItem("nyaachat_settings", JSON.stringify(newSettings));
+    // Drop the legacy key on first save after migration so leftover state
+    // can't drift out of sync with the new one.
+    localStorage.removeItem("rikkachat_settings");
   };
 
   const handleAddLog = (logDraft: Omit<LogEntry, "id" | "timestamp">) => {

@@ -160,7 +160,7 @@ export function WorldInfoRuleModal({
             {/* Position */}
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-2 px-1">
-                插入位置 (Depth=4)
+                插入位置
               </label>
               <div className="grid grid-cols-2 gap-3">
                 <button

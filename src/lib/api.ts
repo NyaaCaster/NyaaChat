@@ -4,6 +4,14 @@ export interface ApiUsage {
   prompt_tokens?: number;
   completion_tokens?: number;
   total_tokens?: number;
+  // OpenAI / OpenAI-compatible (DeepSeek, Gemini-OAI) — automatic prefix cache
+  prompt_tokens_details?: {
+    cached_tokens?: number;
+    [k: string]: any;
+  };
+  // Anthropic — explicit cache_control breakpoints
+  cache_read_input_tokens?: number;
+  cache_creation_input_tokens?: number;
 }
 
 export type ApiMessage = { role: string; content: string | any[] };
@@ -234,13 +242,48 @@ async function fetchAnthropic(
 
   const { system, messages: anthMessages } = prepareAnthropicPayload(messages);
 
+  // Prompt cache: only enable on the official Anthropic host. Third-party
+  // gateways are inconsistent — most pass `cache_control` through unchanged
+  // (no harm), some strip it (no harm), but a few strict proxies reject the
+  // request outright. Gating by host preserves the previous behavior on those
+  // proxies while delivering the speedup on api.anthropic.com.
+  const useCacheControl = isOfficialAnthropicHost(baseUrl);
+
   const requestBody: any = {
     model,
     max_tokens: 4096,
     messages: anthMessages,
     stream: !!isStreaming,
   };
-  if (system) requestBody.system = system;
+  if (system) {
+    if (useCacheControl) {
+      requestBody.system = [
+        {
+          type: 'text',
+          text: system,
+          cache_control: { type: 'ephemeral' },
+        },
+      ];
+    } else {
+      requestBody.system = system;
+    }
+  }
+  // Second breakpoint: the last content part of the second-to-last message,
+  // so the entire history prefix is cached and only the latest user turn is
+  // billed at full rate. Skip on the first turn (when there is no prior history).
+  if (useCacheControl && anthMessages.length >= 2) {
+    const target = anthMessages[anthMessages.length - 2];
+    if (target.content.length > 0) {
+      const lastIdx = target.content.length - 1;
+      const lastPart = target.content[lastIdx];
+      if (lastPart && typeof lastPart === 'object') {
+        target.content[lastIdx] = {
+          ...lastPart,
+          cache_control: { type: 'ephemeral' },
+        };
+      }
+    }
+  }
 
   // Send both auth header styles so 3rd-party gateways that expect either
   // `x-api-key` (Anthropic native) or `Authorization: Bearer` (most proxies)
@@ -285,6 +328,8 @@ async function fetchAnthropic(
         usage.input_tokens != null && usage.output_tokens != null
           ? usage.input_tokens + usage.output_tokens
           : undefined,
+      cache_read_input_tokens: usage.cache_read_input_tokens,
+      cache_creation_input_tokens: usage.cache_creation_input_tokens,
     };
   }
 
@@ -297,6 +342,8 @@ async function fetchAnthropic(
   let buffer = '';
   let inputTokens: number | undefined;
   let outputTokens: number | undefined;
+  let cacheReadTokens: number | undefined;
+  let cacheCreationTokens: number | undefined;
 
   const flushUsage = (): ApiUsage => ({
     prompt_tokens: inputTokens,
@@ -305,6 +352,8 @@ async function fetchAnthropic(
       inputTokens != null && outputTokens != null
         ? inputTokens + outputTokens
         : undefined,
+    cache_read_input_tokens: cacheReadTokens,
+    cache_creation_input_tokens: cacheCreationTokens,
   });
 
   while (true) {
@@ -328,6 +377,8 @@ async function fetchAnthropic(
             const u = event.message?.usage;
             if (u?.input_tokens != null) inputTokens = u.input_tokens;
             if (u?.output_tokens != null) outputTokens = u.output_tokens;
+            if (u?.cache_read_input_tokens != null) cacheReadTokens = u.cache_read_input_tokens;
+            if (u?.cache_creation_input_tokens != null) cacheCreationTokens = u.cache_creation_input_tokens;
             break;
           }
           case 'content_block_delta': {
@@ -339,6 +390,8 @@ async function fetchAnthropic(
           }
           case 'message_delta': {
             if (event.usage?.output_tokens != null) outputTokens = event.usage.output_tokens;
+            if (event.usage?.cache_read_input_tokens != null) cacheReadTokens = event.usage.cache_read_input_tokens;
+            if (event.usage?.cache_creation_input_tokens != null) cacheCreationTokens = event.usage.cache_creation_input_tokens;
             break;
           }
           case 'message_stop':
