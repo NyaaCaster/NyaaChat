@@ -110,7 +110,7 @@ interface MessageItemProps {
   onRegenerate?: (id: string) => void;
 }
 
-export function MessageItem({ message, userName, charName, onDelete, onRegenerate }: MessageItemProps) {
+export const MessageItem = React.memo(function MessageItem({ message, userName, charName, onDelete, onRegenerate }: MessageItemProps) {
   const [copiedMsg, setCopiedMsg] = useState(false);
   const handleCopyMsg = async () => {
     const ok = await copyToClipboard(message.content);
@@ -120,6 +120,14 @@ export function MessageItem({ message, userName, charName, onDelete, onRegenerat
   };
   const isUser = message.role === "user";
   const isSystem = message.role === "system";
+
+  // Cache the normalized markdown so streaming siblings re-rendering doesn't
+  // make THIS message re-parse its body. Reparsing is the dominant cost
+  // during a long stream when every chunk causes a parent setMessages.
+  const normalizedContent = React.useMemo(
+    () => normalizeMarkdown(message.content || "..."),
+    [message.content],
+  );
 
   if (isSystem) {
     return (
@@ -232,7 +240,7 @@ export function MessageItem({ message, userName, charName, onDelete, onRegenerat
                   return <CodeBlock>{code}</CodeBlock>;
                 },
               }}
-            >{normalizeMarkdown(message.content || "...")}</Markdown>
+            >{normalizedContent}</Markdown>
           </div>
         </div>
       </div>
@@ -254,4 +262,4 @@ export function MessageItem({ message, userName, charName, onDelete, onRegenerat
       </div>
     </motion.div>
   );
-}
+});

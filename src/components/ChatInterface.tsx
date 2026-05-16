@@ -26,8 +26,32 @@ import { injectBypassPrompts } from "../lib/bypassTemplates";
 import { newId } from "../lib/id";
 import { MessageItem } from "./MessageItem";
 import { motion, AnimatePresence } from "motion/react";
-import { saveSession, loadSessions } from "./ChatHistoryModal";
+import { saveSession } from "../lib/sessionStorage";
 import { ChatSession } from "../types";
+
+/**
+ * Map a thrown error from the API layer to a user-friendly Chinese message.
+ * Recognizes HTTP status codes (via ApiHttpError.status), AbortController
+ * timeouts, and the network-level browser strings that indicate a CORS or
+ * DNS / TLS failure.
+ */
+function describeError(err: any): string {
+  if (!err) return "未知错误";
+  const status = err?.status;
+  if (typeof status === "number") {
+    if (status === 401) return "API Key 无效或已失效 (401)";
+    if (status === 403) return "没有访问权限,请检查 Key 与模型 (403)";
+    if (status === 404) return "接口或模型不存在,请检查 Base URL/模型名 (404)";
+    if (status === 429) return "触发速率限制或额度不足 (429)";
+    if (status >= 500) return `上游服务错误 (${status}),请稍后重试`;
+  }
+  const msg = err?.message || String(err);
+  if (/timeout|超时/i.test(msg)) return "请求超时,请检查网络或代理设置";
+  if (/Failed to fetch|Load failed|NetworkError|ERR_/i.test(msg)) {
+    return "网络请求失败,请检查 API URL、CORS 与网络连接";
+  }
+  return msg;
+}
 
 interface ChatInterfaceProps {
   settings: AppState;
@@ -230,14 +254,29 @@ export function ChatInterface({
     setMessages(buildFirstMes(currentCharacter));
   }, [settings.currentCharacterId]);
 
-  const handleSubmit = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (isLoading) {
-      handleStop();
-      return;
-    }
-    if (!input.trim()) return;
+  const checkKeywords = useCallback((text: string, keywordsStr?: string): boolean => {
+    if (!keywordsStr) return false;
+    const keywords = keywordsStr
+      .split(",")
+      .map((k) => k.trim().toLowerCase())
+      .filter((k) => k.length > 0);
+    if (keywords.length === 0) return false;
+    const lowerText = text.toLowerCase();
+    return keywords.some((kw) => lowerText.includes(kw));
+  }, []);
 
+  /**
+   * Single source of truth for "send a turn to the model". Used by both
+   * normal user submits and regenerate. Caller passes the base messages
+   * snapshot to use as history, so we sidestep the React batching pitfall
+   * where `messages` in closure may not yet reflect just-applied setMessages.
+   */
+  const sendChat = async (
+    content: string,
+    atts: Attachment[],
+    baseMessages: Message[],
+  ) => {
+    if (isLoading) return;
     if (!settings.api.baseUrl || !settings.api.apiKey) {
       onAddLog({
         direction: "error",
@@ -247,19 +286,24 @@ export function ChatInterface({
       return;
     }
 
-    const processedInput = input
+    const processedInput = content
       .replace(/\{\{user\}\}/g, userName)
       .replace(/\{\{char\}\}/g, charName);
 
-    // Build content with attachments
     let messageContent: any = processedInput;
-    if (attachments.length > 0) {
+    if (atts.length > 0) {
       const parts: any[] = [{ type: "text", text: processedInput }];
-      for (const att of attachments) {
+      for (const att of atts) {
         if (att.type === "image") {
-          parts.push({ type: "image_url", image_url: { url: `data:${att.mimeType};base64,${att.data}` } });
+          parts.push({
+            type: "image_url",
+            image_url: { url: `data:${att.mimeType};base64,${att.data}` },
+          });
         } else {
-          parts.push({ type: "text", text: `\n\n[附件: ${att.name}]\n${att.data}` });
+          parts.push({
+            type: "text",
+            text: `\n\n[附件: ${att.name}]\n${att.data}`,
+          });
         }
       }
       messageContent = parts;
@@ -268,46 +312,25 @@ export function ChatInterface({
     const newUserMessage: Message = {
       id: newId(),
       role: "user",
-      content: typeof messageContent === "string" ? messageContent : processedInput,
+      content:
+        typeof messageContent === "string" ? messageContent : processedInput,
       timestamp: Date.now(),
     };
-
-    setMessages((prev) => [...prev, newUserMessage]);
-    setInput("");
-    setAttachments([]);
-    setIsLoading(true);
-
     const botMessageId = newId();
+
     setMessages((prev) => [
       ...prev,
-      {
-        id: botMessageId,
-        role: "assistant",
-        content: "",
-        timestamp: Date.now(),
-      },
+      newUserMessage,
+      { id: botMessageId, role: "assistant", content: "", timestamp: Date.now() },
     ]);
-
-    // Keyword matching helper
-    const checkKeywords = (text: string, keywordsStr?: string): boolean => {
-      if (!keywordsStr) return false;
-      const keywords = keywordsStr
-        .split(",")
-        .map((k) => k.trim().toLowerCase())
-        .filter((k) => k.length > 0);
-      if (keywords.length === 0) return false;
-      const lowerText = text.toLowerCase();
-      return keywords.some((keyword) => lowerText.includes(keyword));
-    };
+    setIsLoading(true);
 
     try {
-      const history = messages
+      const history = baseMessages
         .filter((m) => m.role !== "system")
         .map((m) => ({ role: m.role, content: m.content }));
-      // Append current user message with full attachment content
       history.push({ role: "user", content: messageContent });
 
-      // World Info logic
       const activeRules = (currentCharacter?.worldInfo || []).filter((rule) => {
         if (!rule.enabled) return false;
         if (rule.triggerType === "permanent") return true;
@@ -322,8 +345,6 @@ export function ChatInterface({
           Number(b.triggerType !== "permanent"),
       );
 
-      // Collect all system-level content up-front. Order is fixed so the
-      // request prefix stays byte-identical across turns (prompt cache hit).
       const systemMessages: { role: string; content: string }[] = [];
       if (settings.userRole?.profile) {
         systemMessages.push({
@@ -337,8 +358,6 @@ export function ChatInterface({
           content: `[Assistant Persona: ${currentCharacter.description.replace(/\{\{user\}\}/g, userName).replace(/\{\{char\}\}/g, charName)}]`,
         });
       }
-      // World Info goes into the system block (not into the history mid-stream)
-      // so triggering a keyword rule does not invalidate the cached history prefix.
       for (const rule of activeRules) {
         const tag = rule.position === "assistant" ? "Assistant Note" : "World Info";
         systemMessages.push({
@@ -357,7 +376,6 @@ export function ChatInterface({
       );
 
       abortControllerRef.current = new AbortController();
-
       onAddLog({
         direction: "request",
         content: "Sending chat completion request",
@@ -369,7 +387,6 @@ export function ChatInterface({
       });
 
       let fullResponse = "";
-
       const usageResult = await fetchChatCompletion(
         messagesForApi,
         settings.api,
@@ -392,7 +409,11 @@ export function ChatInterface({
               return { ...m, tokenCount: usageResult.prompt_tokens };
             }
             if (m.id === botMessageId) {
-              return { ...m, tokenCount: usageResult.completion_tokens, model: settings.api.model };
+              return {
+                ...m,
+                tokenCount: usageResult.completion_tokens,
+                model: settings.api.model,
+              };
             }
             return m;
           }),
@@ -402,21 +423,18 @@ export function ChatInterface({
       onAddLog({
         direction: "response",
         content: "Received chat completion stream fully",
-        meta: {
-          response: fullResponse,
-          usage: usageResult,
-        },
+        meta: { response: fullResponse, usage: usageResult },
       });
     } catch (error: any) {
       console.error(error);
-      const errMsg = error.name === "AbortError" ? "请求已终止" : error.message;
+      const isAbort = error?.name === "AbortError";
+      const description = isAbort ? "请求已停止" : describeError(error);
       onAddLog({
         direction: "error",
-        content:
-          error.name === "AbortError"
-            ? "Chat completion aborted by user"
-            : "Failed during chat completion request",
-        meta: { error: errMsg },
+        content: isAbort
+          ? "Chat completion aborted by user"
+          : "Failed during chat completion request",
+        meta: { error: error?.message || String(error), status: error?.status },
       });
       setMessages((prev) =>
         prev.map((m) =>
@@ -425,9 +443,9 @@ export function ChatInterface({
                 ...m,
                 content:
                   m.content +
-                  (error.name === "AbortError"
+                  (isAbort
                     ? `\n\n**[已停止生成]**`
-                    : `\n\n**Error:** ${errMsg}`),
+                    : `\n\n**错误:** ${description}`),
               }
             : m,
         ),
@@ -437,6 +455,21 @@ export function ChatInterface({
       abortControllerRef.current = null;
     }
   };
+
+  const handleSubmit = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (isLoading) {
+      handleStop();
+      return;
+    }
+    if (!input.trim()) return;
+    const content = input;
+    const atts = attachments;
+    setInput("");
+    setAttachments([]);
+    await sendChat(content, atts, messages);
+  };
+
 
   // Auto-save current session when messages change. Debounced 800ms so the
   // stream-of-tokens path doesn't trigger a full JSON.stringify + setItem on
@@ -471,84 +504,20 @@ export function ChatInterface({
     setMessages(buildFirstMes(currentCharacter));
   };
 
-  const handleDeleteMessage = (id: string) => {
-    setMessages(prev => prev.filter(m => m.id !== id));
-  };
+  const handleDeleteMessage = useCallback((id: string) => {
+    setMessages((prev) => prev.filter((m) => m.id !== id));
+  }, []);
 
   const handleRegenerate = (id: string) => {
-    setMessages(prev => {
-      const idx = prev.findIndex(m => m.id === id);
-      if (idx === -1) return prev;
-      const trimmed = prev.slice(0, idx);
-      const lastUser = [...trimmed].reverse().find(m => m.role === "user");
-      if (!lastUser) return trimmed;
-      const withoutLastUser = trimmed.filter(m => m.id !== lastUser.id);
-      setTimeout(() => handleSubmitWithContent(lastUser.content), 0);
-      return withoutLastUser;
-    });
-  };
-
-  const handleSubmitWithContent = async (content: string) => {
     if (isLoading) return;
-    if (!settings.api.baseUrl || !settings.api.apiKey) { onOpenSettings(); return; }
-
-    const processedInput = content
-      .replace(/\{\{user\}\}/g, userName)
-      .replace(/\{\{char\}\}/g, charName);
-
-    const newUserMessage: Message = { id: newId(), role: "user", content: processedInput, timestamp: Date.now() };
-    setMessages(prev => [...prev, newUserMessage]);
-    setIsLoading(true);
-    const botMessageId = newId();
-    setMessages(prev => [...prev, { id: botMessageId, role: "assistant", content: "", timestamp: Date.now() }]);
-
-    const checkKeywords = (text: string, keywordsStr?: string): boolean => {
-      if (!keywordsStr) return false;
-      const keywords = keywordsStr.split(",").map(k => k.trim().toLowerCase()).filter(k => k.length > 0);
-      return keywords.some(k => text.toLowerCase().includes(k));
-    };
-
-    try {
-      const history = messages.concat(newUserMessage).filter(m => m.role !== "system").map(m => ({ role: m.role, content: m.content }));
-      const activeRules = (currentCharacter?.worldInfo || []).filter(rule => {
-        if (!rule.enabled) return false;
-        if (rule.triggerType === "permanent") return true;
-        return checkKeywords(processedInput, rule.keywords);
-      });
-      activeRules.sort((a, b) => Number(a.triggerType !== "permanent") - Number(b.triggerType !== "permanent"));
-      const systemMessages: { role: string; content: string }[] = [];
-      if (settings.userRole?.profile) {
-        systemMessages.push({ role: "system", content: `[User Persona: ${settings.userRole.profile.replace(/\{\{user\}\}/g, userName).replace(/\{\{char\}\}/g, charName)}]` });
-      }
-      if (currentCharacter?.description) {
-        systemMessages.push({ role: "system", content: `[Assistant Persona: ${currentCharacter.description.replace(/\{\{user\}\}/g, userName).replace(/\{\{char\}\}/g, charName)}]` });
-      }
-      for (const rule of activeRules) {
-        const tag = rule.position === "assistant" ? "Assistant Note" : "World Info";
-        systemMessages.push({ role: "system", content: `[${tag}] ${rule.content.replace(/\{\{user\}\}/g, userName).replace(/\{\{char\}\}/g, charName)}` });
-      }
-      const messagesForApi = injectBypassPrompts([...systemMessages, ...history], settings, charName, userName);
-      abortControllerRef.current = new AbortController();
-      let fullResponse = "";
-      const usageResult = await fetchChatCompletion(messagesForApi, settings.api, chunk => {
-        fullResponse += chunk;
-        setMessages(prev => prev.map(m => m.id === botMessageId ? { ...m, content: m.content + chunk } : m));
-        scrollToBottom();
-      }, abortControllerRef.current.signal);
-      if (usageResult) {
-        setMessages(prev => prev.map(m => {
-          if (m.id === newUserMessage.id) return { ...m, tokenCount: usageResult.prompt_tokens };
-          if (m.id === botMessageId) return { ...m, tokenCount: usageResult.completion_tokens, model: settings.api.model };
-          return m;
-        }));
-      }
-    } catch (error: any) {
-      const errMsg = error.name === "AbortError" ? "请求已终止" : error.message;
-      setMessages(prev => prev.map(m => m.id === botMessageId ? { ...m, content: m.content + (error.name === "AbortError" ? `\n\n**[已停止生成]**` : `\n\n**Error:** ${errMsg}`) } : m));
-    } finally {
-      setIsLoading(false);
-      abortControllerRef.current = null;
-    }
+    const idx = messages.findIndex((m) => m.id === id);
+    if (idx === -1) return;
+    const trimmed = messages.slice(0, idx);
+    const lastUser = [...trimmed].reverse().find((m) => m.role === "user");
+    if (!lastUser) return;
+    const withoutLastUser = trimmed.filter((m) => m.id !== lastUser.id);
+    setMessages(withoutLastUser);
+    void sendChat(lastUser.content, [], withoutLastUser);
   };
 
   // Load session when selected from history

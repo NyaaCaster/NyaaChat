@@ -17,6 +17,60 @@ export interface ApiUsage {
 export type ApiMessage = { role: string; content: string | any[] };
 
 /**
+ * HTTP-level error from an API response. The status code is preserved so the
+ * UI layer can give a specific Chinese message (401 vs 429 vs 5xx).
+ */
+export class ApiHttpError extends Error {
+  status: number;
+  body: string;
+  constructor(status: number, body: string) {
+    super(`API ${status}: ${(body || '').slice(0, 300)}`);
+    this.name = 'ApiHttpError';
+    this.status = status;
+    this.body = body;
+  }
+}
+
+/**
+ * fetch with a connection-establishment timeout. The watchdog is cleared as
+ * soon as response headers arrive, so a slow streaming response is not killed
+ * mid-stream — only a stuck handshake (DNS / TLS / unresponsive proxy) is.
+ *
+ * The user's external signal (Stop button) is forwarded into the same
+ * controller, so cancelling propagates correctly to the in-flight body.
+ */
+const REQUEST_TIMEOUT_MS = 60_000;
+async function fetchWithTimeout(
+  input: RequestInfo,
+  init: RequestInit,
+  userSignal: AbortSignal | undefined,
+  timeoutMs: number = REQUEST_TIMEOUT_MS,
+): Promise<Response> {
+  const ctrl = new AbortController();
+  let timedOut = false;
+  const linkUserAbort = () => ctrl.abort();
+  if (userSignal) {
+    if (userSignal.aborted) ctrl.abort();
+    else userSignal.addEventListener('abort', linkUserAbort, { once: true });
+  }
+  const timer = setTimeout(() => {
+    timedOut = true;
+    ctrl.abort();
+  }, timeoutMs);
+  try {
+    return await fetch(input, { ...init, signal: ctrl.signal });
+  } catch (err: any) {
+    if (err?.name === 'AbortError' && timedOut) {
+      throw new Error(`请求超时:${Math.round(timeoutMs / 1000)} 秒内未收到响应`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+    if (userSignal) userSignal.removeEventListener('abort', linkUserAbort);
+  }
+}
+
+/**
  * Normalize a user-provided base URL:
  * - trim whitespace and trailing slashes
  * - strip a trailing well-known endpoint path so the user can paste either
@@ -129,20 +183,19 @@ async function fetchOpenAI(
     requestBody.stream_options = { include_usage: true };
   }
 
-  const response = await fetch(url, {
+  const response = await fetchWithTimeout(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${apiKey}`,
     },
     body: JSON.stringify(requestBody),
-    signal,
     referrerPolicy: 'no-referrer',
-  });
+  }, signal);
 
   if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(`API Error ${response.status}: ${errText}`);
+    const errText = await response.text().catch(() => '');
+    throw new ApiHttpError(response.status, errText);
   }
 
   if (!isStreaming) {
@@ -347,17 +400,16 @@ async function fetchAnthropic(
     headers['anthropic-dangerous-direct-browser-access'] = 'true';
   }
 
-  const response = await fetch(url, {
+  const response = await fetchWithTimeout(url, {
     method: 'POST',
     headers,
     body: JSON.stringify(requestBody),
-    signal,
     referrerPolicy: 'no-referrer',
-  });
+  }, signal);
 
   if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(`API Error ${response.status}: ${errText}`);
+    const errText = await response.text().catch(() => '');
+    throw new ApiHttpError(response.status, errText);
   }
 
   if (!isStreaming) {
@@ -488,10 +540,10 @@ export async function fetchModels(
     headers['Authorization'] = `Bearer ${settings.apiKey}`;
   }
 
-  const response = await fetch(url, { method: 'GET', headers, signal, referrerPolicy: 'no-referrer' });
+  const response = await fetchWithTimeout(url, { method: 'GET', headers, referrerPolicy: 'no-referrer' }, signal);
   if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(`API Error ${response.status}: ${errText}`);
+    const errText = await response.text().catch(() => '');
+    throw new ApiHttpError(response.status, errText);
   }
 
   const data = await response.json();

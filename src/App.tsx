@@ -3,23 +3,57 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, lazy, Suspense } from "react";
 import { AppState, LogEntry } from "./types";
 import { ChatInterface } from "./components/ChatInterface";
-import { SettingsModal } from "./components/SettingsModal";
-import { BypassModal } from "./components/BypassModal";
-import { ConsoleModal } from "./components/ConsoleModal";
-import { UserRoleModal } from "./components/UserRoleModal";
-import { CharacterSelectionModal } from "./components/CharacterSelectionModal";
-import { ChatHistoryModal } from "./components/ChatHistoryModal";
-import { AppearanceModal } from "./components/AppearanceModal";
 import { bypassTemplates } from "./lib/bypassTemplates";
 import { fetchModels } from "./lib/api";
 import { inferProvider } from "./lib/providers";
 import { newId } from "./lib/id";
 import { ChatSession } from "./types";
 
+// Modals are rendered only when opened, so each one's chunk loads on-demand
+// rather than bloating the initial bundle. Trade-off: closing a modal unmounts
+// it immediately, so any built-in fade-out animation no longer plays.
+const SettingsModal = lazy(() =>
+  import("./components/SettingsModal").then((m) => ({ default: m.SettingsModal })),
+);
+const BypassModal = lazy(() =>
+  import("./components/BypassModal").then((m) => ({ default: m.BypassModal })),
+);
+const ConsoleModal = lazy(() =>
+  import("./components/ConsoleModal").then((m) => ({ default: m.ConsoleModal })),
+);
+const UserRoleModal = lazy(() =>
+  import("./components/UserRoleModal").then((m) => ({ default: m.UserRoleModal })),
+);
+const CharacterSelectionModal = lazy(() =>
+  import("./components/CharacterSelectionModal").then((m) => ({
+    default: m.CharacterSelectionModal,
+  })),
+);
+const ChatHistoryModal = lazy(() =>
+  import("./components/ChatHistoryModal").then((m) => ({ default: m.ChatHistoryModal })),
+);
+const AppearanceModal = lazy(() =>
+  import("./components/AppearanceModal").then((m) => ({ default: m.AppearanceModal })),
+);
+
 export type ConnectionStatus = "disconnected" | "connecting" | "connected";
+
+// Persisted settings are wrapped with a _version tag so future shape changes
+// have a clear migration path. Bump SCHEMA_VERSION and add a branch in
+// migrate() when adding/removing fields.
+const SCHEMA_VERSION = 1;
+
+function migrate(raw: any): any {
+  if (!raw || typeof raw !== "object") return raw;
+  const v = typeof raw._version === "number" ? raw._version : 0;
+  // Reserved for future migrations:
+  //   if (v < 2) raw = { ...raw, newField: defaultNewField };
+  void v;
+  return raw;
+}
 
 const DEFAULT_SETTINGS: AppState = {
   api: {
@@ -106,7 +140,7 @@ export default function App() {
       localStorage.getItem("rikkachat_settings");
     if (saved) {
       try {
-        const parsed = JSON.parse(saved);
+        const parsed = migrate(JSON.parse(saved));
         const mergedApi = { ...DEFAULT_SETTINGS.api, ...parsed.api };
         if (!mergedApi.apiProvider) {
           mergedApi.apiProvider = inferProvider(mergedApi.baseUrl, mergedApi.apiFormat);
@@ -168,7 +202,8 @@ export default function App() {
   const handleSaveSettings = (newSettings: AppState) => {
     setSettings(newSettings);
     try {
-      localStorage.setItem("nyaachat_settings", JSON.stringify(newSettings));
+      const payload = { _version: SCHEMA_VERSION, ...newSettings };
+      localStorage.setItem("nyaachat_settings", JSON.stringify(payload));
       // Drop the legacy key on first save after migration so leftover state
       // can't drift out of sync with the new one.
       localStorage.removeItem("rikkachat_settings");
@@ -244,53 +279,69 @@ export default function App() {
         currentSession={currentSession}
         onSessionChange={setCurrentSession}
       />
-      <SettingsModal
-        isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
-        settings={settings}
-        onSave={handleSaveSettings}
-        connectionStatus={connectionStatus}
-        connectionError={connectionError}
-        availableModels={availableModels}
-        onConnect={handleConnect}
-      />
-      <BypassModal
-        isOpen={isBypassOpen}
-        onClose={() => setIsBypassOpen(false)}
-        settings={settings}
-        onSave={handleSaveSettings}
-      />
-      <ConsoleModal
-        isOpen={isConsoleOpen}
-        onClose={() => setIsConsoleOpen(false)}
-        logs={logs}
-        onClearLogs={() => setLogs([])}
-      />
-      <UserRoleModal
-        isOpen={isUserRoleOpen}
-        onClose={() => setIsUserRoleOpen(false)}
-        settings={settings}
-        onSave={handleSaveSettings}
-      />
-      <CharacterSelectionModal
-        isOpen={isCharacterSelectionOpen}
-        onClose={() => setIsCharacterSelectionOpen(false)}
-        settings={settings}
-        onSave={handleSaveSettings}
-      />
-      <ChatHistoryModal
-        isOpen={isChatHistoryOpen}
-        onClose={() => setIsChatHistoryOpen(false)}
-        currentSessionId={currentSession?.id ?? null}
-        onSelectSession={(session) => { setCurrentSession(session); }}
-        onSessionsChange={() => setHistoryVersion(v => v + 1)}
-      />
-      <AppearanceModal
-        isOpen={isAppearanceOpen}
-        onClose={() => setIsAppearanceOpen(false)}
-        settings={settings}
-        onSave={handleSaveSettings}
-      />
+      <Suspense fallback={null}>
+        {isSettingsOpen && (
+          <SettingsModal
+            isOpen={isSettingsOpen}
+            onClose={() => setIsSettingsOpen(false)}
+            settings={settings}
+            onSave={handleSaveSettings}
+            connectionStatus={connectionStatus}
+            connectionError={connectionError}
+            availableModels={availableModels}
+            onConnect={handleConnect}
+          />
+        )}
+        {isBypassOpen && (
+          <BypassModal
+            isOpen={isBypassOpen}
+            onClose={() => setIsBypassOpen(false)}
+            settings={settings}
+            onSave={handleSaveSettings}
+          />
+        )}
+        {isConsoleOpen && (
+          <ConsoleModal
+            isOpen={isConsoleOpen}
+            onClose={() => setIsConsoleOpen(false)}
+            logs={logs}
+            onClearLogs={() => setLogs([])}
+          />
+        )}
+        {isUserRoleOpen && (
+          <UserRoleModal
+            isOpen={isUserRoleOpen}
+            onClose={() => setIsUserRoleOpen(false)}
+            settings={settings}
+            onSave={handleSaveSettings}
+          />
+        )}
+        {isCharacterSelectionOpen && (
+          <CharacterSelectionModal
+            isOpen={isCharacterSelectionOpen}
+            onClose={() => setIsCharacterSelectionOpen(false)}
+            settings={settings}
+            onSave={handleSaveSettings}
+          />
+        )}
+        {isChatHistoryOpen && (
+          <ChatHistoryModal
+            isOpen={isChatHistoryOpen}
+            onClose={() => setIsChatHistoryOpen(false)}
+            currentSessionId={currentSession?.id ?? null}
+            onSelectSession={(session) => { setCurrentSession(session); }}
+            onSessionsChange={() => setHistoryVersion((v) => v + 1)}
+          />
+        )}
+        {isAppearanceOpen && (
+          <AppearanceModal
+            isOpen={isAppearanceOpen}
+            onClose={() => setIsAppearanceOpen(false)}
+            settings={settings}
+            onSave={handleSaveSettings}
+          />
+        )}
+      </Suspense>
     </>
   );
 }
