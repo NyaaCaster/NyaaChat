@@ -1,8 +1,9 @@
 import React, { useRef, useState } from "react";
-import { History, Download, Trash2, Upload } from "lucide-react";
+import { History, Download, FileText, Trash2, Upload } from "lucide-react";
 import { ChatSession } from "../types";
 import { newId } from "../lib/id";
 import { loadSessions, saveSession, deleteSession } from "../lib/sessionStorage";
+import { sessionToMarkdown } from "../lib/exportSession";
 import { BaseModal } from "./BaseModal";
 import { ConfirmDialog } from "./ConfirmDialog";
 
@@ -45,6 +46,19 @@ export function ChatHistoryModal({
     const a = document.createElement("a");
     a.href = url;
     a.download = `${getSessionLabel(session)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportMarkdown = (e: React.MouseEvent, session: ChatSession) => {
+    e.stopPropagation();
+    const blob = new Blob([sessionToMarkdown(session)], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${getSessionLabel(session)}.md`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -158,9 +172,16 @@ export function ChatHistoryModal({
                   </div>
                   <div className="flex items-center gap-1 ml-2">
                     <button
+                      onClick={(e) => handleExportMarkdown(e, session)}
+                      className="p-1.5 text-gray-400 hover:text-purple-500 hover:bg-purple-50 dark:hover:bg-purple-500/20 rounded-md transition-colors"
+                      title="导出 Markdown"
+                    >
+                      <FileText size={14} />
+                    </button>
+                    <button
                       onClick={(e) => handleExport(e, session)}
                       className="p-1.5 text-gray-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-500/20 rounded-md transition-colors"
-                      title="导出"
+                      title="导出 JSON"
                     >
                       <Download size={14} />
                     </button>
