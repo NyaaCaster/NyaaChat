@@ -1,6 +1,7 @@
 import React, { useRef } from "react";
 import { X, History, Download, Trash2, Upload } from "lucide-react";
 import { ChatSession, Message } from "../types";
+import { newId } from "../lib/id";
 import { motion, AnimatePresence } from "motion/react";
 
 const STORAGE_KEY = "nyaachat_sessions";
@@ -15,12 +16,23 @@ export function loadSessions(): ChatSession[] {
 
 export function saveSession(session: ChatSession) {
   const sessions = loadSessions().filter(s => s.id !== session.id);
-  localStorage.setItem(STORAGE_KEY, JSON.stringify([session, ...sessions]));
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify([session, ...sessions]));
+  } catch (err: any) {
+    if (err?.name === "QuotaExceededError" || /quota/i.test(err?.message || "")) {
+      throw new Error("浏览器存储空间已满，无法保存会话。请在「聊天记录」中删除部分历史。");
+    }
+    throw err;
+  }
 }
 
 export function deleteSession(id: string) {
   const sessions = loadSessions().filter(s => s.id !== id);
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions));
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions));
+  } catch (err) {
+    console.error("Failed to delete session", err);
+  }
 }
 
 function getSessionLabel(session: ChatSession): string {
@@ -72,6 +84,12 @@ export function ChatHistoryModal({
   const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    const MAX_IMPORT_BYTES = 10 * 1024 * 1024;
+    if (file.size > MAX_IMPORT_BYTES) {
+      alert(`文件过大（${(file.size / 1024 / 1024).toFixed(2)} MB），上限 10 MB`);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
     try {
       const parsed = JSON.parse(await file.text());
       if (
@@ -81,7 +99,7 @@ export function ChatHistoryModal({
         !Array.isArray(parsed.messages) ||
         typeof parsed.createdAt !== "number"
       ) throw new Error("格式不符合本项目聊天记录格式");
-      const session: ChatSession = { ...parsed, id: Date.now().toString() };
+      const session: ChatSession = { ...parsed, id: newId() };
       saveSession(session);
       onSessionsChange();
     } catch (err: any) {

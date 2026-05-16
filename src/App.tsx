@@ -16,13 +16,14 @@ import { AppearanceModal } from "./components/AppearanceModal";
 import { bypassTemplates } from "./lib/bypassTemplates";
 import { fetchModels } from "./lib/api";
 import { inferProvider } from "./lib/providers";
+import { newId } from "./lib/id";
 import { ChatSession } from "./types";
 
 export type ConnectionStatus = "disconnected" | "connecting" | "connected";
 
 const DEFAULT_SETTINGS: AppState = {
   api: {
-    baseUrl: "https://openai.chatnewai.com/v1",
+    baseUrl: "https://openai.chatnewai.com/",
     apiKey: "",
     model: "gemini-2.5-pro",
     isStreaming: false,
@@ -166,10 +167,18 @@ export default function App() {
 
   const handleSaveSettings = (newSettings: AppState) => {
     setSettings(newSettings);
-    localStorage.setItem("nyaachat_settings", JSON.stringify(newSettings));
-    // Drop the legacy key on first save after migration so leftover state
-    // can't drift out of sync with the new one.
-    localStorage.removeItem("rikkachat_settings");
+    try {
+      localStorage.setItem("nyaachat_settings", JSON.stringify(newSettings));
+      // Drop the legacy key on first save after migration so leftover state
+      // can't drift out of sync with the new one.
+      localStorage.removeItem("rikkachat_settings");
+    } catch (err: any) {
+      const isQuota = err?.name === "QuotaExceededError" || /quota/i.test(err?.message || "");
+      console.error("Failed to persist settings", err);
+      alert(isQuota
+        ? "浏览器存储空间已满，设置未保存。请在「聊天记录」中清理部分历史。"
+        : "保存设置失败：" + (err?.message || String(err)));
+    }
   };
 
   const handleAddLog = (logDraft: Omit<LogEntry, "id" | "timestamp">) => {
@@ -177,7 +186,7 @@ export default function App() {
       ...prev,
       {
         ...logDraft,
-        id: Date.now().toString() + Math.random().toString(),
+        id: newId(),
         timestamp: Date.now(),
       },
     ]);

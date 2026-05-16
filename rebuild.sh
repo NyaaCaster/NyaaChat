@@ -10,7 +10,7 @@ docker compose -f $COMPOSE_FILE build --no-cache
 
 echo "Removing dangling images..."
 DANGLING=$(docker images -f "dangling=true" -q)
-if [ -n "$DANGLING" ]; then docker rmi $DANGLING; fi
+if [ -n "$DANGLING" ]; then docker rmi -f $DANGLING; fi
 
 echo "Starting containers..."
 docker compose -f $COMPOSE_FILE up -d

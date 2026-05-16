@@ -23,6 +23,7 @@ import {
 import { Message, AppState, LogEntry } from "../types";
 import { fetchChatCompletion } from "../lib/api";
 import { injectBypassPrompts } from "../lib/bypassTemplates";
+import { newId } from "../lib/id";
 import { MessageItem } from "./MessageItem";
 import { motion, AnimatePresence } from "motion/react";
 import { saveSession, loadSessions } from "./ChatHistoryModal";
@@ -218,7 +219,7 @@ export function ChatInterface({
   const buildFirstMes = (character: typeof currentCharacter): Message[] => {
     if (!character?.firstMes?.trim()) return [];
     return [{
-      id: Date.now().toString(),
+      id: newId(),
       role: "assistant",
       content: character.firstMes,
       timestamp: Date.now(),
@@ -265,7 +266,7 @@ export function ChatInterface({
     }
 
     const newUserMessage: Message = {
-      id: Date.now().toString(),
+      id: newId(),
       role: "user",
       content: typeof messageContent === "string" ? messageContent : processedInput,
       timestamp: Date.now(),
@@ -276,7 +277,7 @@ export function ChatInterface({
     setAttachments([]);
     setIsLoading(true);
 
-    const botMessageId = (Date.now() + 1).toString();
+    const botMessageId = newId();
     setMessages((prev) => [
       ...prev,
       {
@@ -437,22 +438,32 @@ export function ChatInterface({
     }
   };
 
-  // Auto-save current session when messages change
+  // Auto-save current session when messages change. Debounced 800ms so the
+  // stream-of-tokens path doesn't trigger a full JSON.stringify + setItem on
+  // every chunk — long sessions could otherwise stall the main thread and
+  // approach the localStorage quota much faster than necessary.
   useEffect(() => {
     if (messages.length === 0) return;
     const userMessages = messages.filter(m => m.role === "user");
     if (userMessages.length === 0) return;
-    const session: ChatSession = {
-      id: currentSession?.id ?? Date.now().toString(),
-      characterId: currentCharacter?.id ?? "default",
-      characterName: charName,
-      messages,
-      createdAt: currentSession?.createdAt ?? Date.now(),
-    };
-    saveSession(session);
-    if (!currentSession || currentSession.id !== session.id) {
-      onSessionChange(session);
-    }
+    const timer = setTimeout(() => {
+      const session: ChatSession = {
+        id: currentSession?.id ?? newId(),
+        characterId: currentCharacter?.id ?? "default",
+        characterName: charName,
+        messages,
+        createdAt: currentSession?.createdAt ?? Date.now(),
+      };
+      try {
+        saveSession(session);
+        if (!currentSession || currentSession.id !== session.id) {
+          onSessionChange(session);
+        }
+      } catch (err: any) {
+        console.error("Auto-save failed", err);
+      }
+    }, 800);
+    return () => clearTimeout(timer);
   }, [messages]);
 
   const clearChat = () => {
@@ -485,10 +496,10 @@ export function ChatInterface({
       .replace(/\{\{user\}\}/g, userName)
       .replace(/\{\{char\}\}/g, charName);
 
-    const newUserMessage: Message = { id: Date.now().toString(), role: "user", content: processedInput, timestamp: Date.now() };
+    const newUserMessage: Message = { id: newId(), role: "user", content: processedInput, timestamp: Date.now() };
     setMessages(prev => [...prev, newUserMessage]);
     setIsLoading(true);
-    const botMessageId = (Date.now() + 1).toString();
+    const botMessageId = newId();
     setMessages(prev => [...prev, { id: botMessageId, role: "assistant", content: "", timestamp: Date.now() }]);
 
     const checkKeywords = (text: string, keywordsStr?: string): boolean => {

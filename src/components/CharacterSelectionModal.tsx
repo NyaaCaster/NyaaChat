@@ -2,6 +2,7 @@ import React, { useState, useRef } from "react";
 import { Sparkles, X, Plus, Upload, Check, Edit2, Trash2 } from "lucide-react";
 import { AppState, CharacterSettings } from "../types";
 import { isSillyTavernFormat, convertSillyTavernCharacter, parseSillyTavernPng } from "../lib/sillyTavernImport";
+import { newId } from "../lib/id";
 import { motion, AnimatePresence } from "motion/react";
 import { CharacterEditModal } from "./CharacterEditModal";
 
@@ -34,6 +35,13 @@ export function CharacterSelectionModal({
     const file = e.target.files?.[0];
     if (!file) return;
 
+    const MAX_IMPORT_BYTES = 5 * 1024 * 1024;
+    if (file.size > MAX_IMPORT_BYTES) {
+      alert(`文件过大（${(file.size / 1024 / 1024).toFixed(2)} MB），上限 5 MB`);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+
     try {
       let newCharacter: CharacterSettings;
 
@@ -49,7 +57,7 @@ export function CharacterSelectionModal({
           if (!parsed.name || typeof parsed.name !== "string") throw new Error('Missing or invalid "name"');
           if (!parsed.description || typeof parsed.description !== "string") throw new Error('Missing or invalid "description"');
           newCharacter = {
-            id: Date.now().toString(),
+            id: newId(),
             name: parsed.name,
             description: parsed.description,
             worldInfo: Array.isArray(parsed.worldInfo) ? parsed.worldInfo : [],

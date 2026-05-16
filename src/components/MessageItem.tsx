@@ -1,9 +1,21 @@
 import React, { useState } from "react";
 import Markdown from "react-markdown";
 import rehypeRaw from "rehype-raw";
+import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import { Message } from "../types";
 import { motion } from "motion/react";
 import { Copy, Check, Trash2, RefreshCw } from "lucide-react";
+
+// rehype-sanitize schema: GitHub-flavored default + className passthrough so
+// our prose/markdown-body styles still apply. Anything not in the allowlist
+// (script, iframe, on*, javascript: URLs) is dropped.
+const sanitizeSchema = {
+  ...defaultSchema,
+  attributes: {
+    ...defaultSchema.attributes,
+    "*": [...(defaultSchema.attributes?.["*"] || []), "className"],
+  },
+};
 
 // navigator.clipboard requires a secure context (HTTPS or localhost). When the
 // app is served from a plain-HTTP IP/host, the modern API is unavailable, so
@@ -209,7 +221,7 @@ export function MessageItem({ message, userName, charName, onDelete, onRegenerat
             style={{ fontFamily: "var(--font-sans)" }}
           >
             <Markdown
-              rehypePlugins={[rehypeRaw]}
+              rehypePlugins={[rehypeRaw, [rehypeSanitize, sanitizeSchema]]}
               components={{
                 p: ({ children }) => <p>{renderTextWithQuotes(children)}</p>,
                 li: ({ children }) => <li>{renderTextWithQuotes(children)}</li>,

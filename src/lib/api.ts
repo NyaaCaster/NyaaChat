@@ -19,11 +19,20 @@ export type ApiMessage = { role: string; content: string | any[] };
 /**
  * Normalize a user-provided base URL:
  * - trim whitespace and trailing slashes
- * - strip a trailing well-known path so the user can paste either
+ * - strip a trailing well-known endpoint path so the user can paste either
  *   `https://host/v1` or the full endpoint URL
+ * - if only a host was provided (no path or just "/"), assume the conventional
+ *   `/v1` prefix that nearly every OpenAI-compatible provider uses. This lets
+ *   users paste a URL straight from their provider portal homepage:
+ *     https://openai.chatnewai.com         → https://openai.chatnewai.com/v1
+ *     https://openai.chatnewai.com/        → https://openai.chatnewai.com/v1
+ *     https://openai.chatnewai.com/v1      → unchanged
+ *     https://api.openai.com/v1/chat/completions → https://api.openai.com/v1
+ *     https://generativelanguage.googleapis.com/v1beta/openai → unchanged
  */
 function normalizeBaseUrl(raw: string): string {
   let url = (raw || '').trim().replace(/\/+$/, '');
+  if (!url) return '';
   const knownSuffixes = [
     '/chat/completions',
     '/v1/chat/completions',
@@ -38,7 +47,43 @@ function normalizeBaseUrl(raw: string): string {
       break;
     }
   }
-  return url.replace(/\/+$/, '');
+  url = url.replace(/\/+$/, '');
+
+  try {
+    const u = new URL(url);
+    if (u.pathname === '' || u.pathname === '/') {
+      url = `${u.origin}/v1`;
+    }
+  } catch {
+    // Invalid URL — let downstream assertSafeBaseUrl produce the user-facing error.
+  }
+  return url;
+}
+
+/**
+ * Reject anything that's not https:// (or http:// to a loopback host for
+ * local dev). Without this, a malicious / mistyped config could send the
+ * Authorization header to an attacker-controlled http endpoint, or trigger
+ * non-http schemes via fetch.
+ */
+function assertSafeBaseUrl(baseUrl: string): URL {
+  let parsed: URL;
+  try {
+    parsed = new URL(baseUrl);
+  } catch {
+    throw new Error(`无效的 API Base URL: ${baseUrl}`);
+  }
+  const host = parsed.hostname.toLowerCase();
+  const isLoopback =
+    host === 'localhost' ||
+    host === '127.0.0.1' ||
+    host === '[::1]' ||
+    host === '::1';
+  if (parsed.protocol === 'https:') return parsed;
+  if (parsed.protocol === 'http:' && isLoopback) return parsed;
+  throw new Error(
+    `不允许的 API 协议: ${parsed.protocol}。仅支持 https://，本地调试可使用 http://localhost`,
+  );
 }
 
 function isOfficialAnthropicHost(baseUrl: string): boolean {
@@ -71,6 +116,7 @@ async function fetchOpenAI(
 ): Promise<ApiUsage | void> {
   const { apiKey, model, isStreaming } = settings;
   const baseUrl = normalizeBaseUrl(settings.baseUrl);
+  assertSafeBaseUrl(baseUrl);
   const url = `${baseUrl}/chat/completions`;
 
   const requestBody: any = {
@@ -91,6 +137,7 @@ async function fetchOpenAI(
     },
     body: JSON.stringify(requestBody),
     signal,
+    referrerPolicy: 'no-referrer',
   });
 
   if (!response.ok) {
@@ -238,6 +285,7 @@ async function fetchAnthropic(
 ): Promise<ApiUsage | void> {
   const { apiKey, model, isStreaming } = settings;
   const baseUrl = normalizeBaseUrl(settings.baseUrl);
+  assertSafeBaseUrl(baseUrl);
   const url = `${baseUrl}/messages`;
 
   const { system, messages: anthMessages } = prepareAnthropicPayload(messages);
@@ -304,6 +352,7 @@ async function fetchAnthropic(
     headers,
     body: JSON.stringify(requestBody),
     signal,
+    referrerPolicy: 'no-referrer',
   });
 
   if (!response.ok) {
@@ -423,6 +472,7 @@ export async function fetchModels(
   const baseUrl = normalizeBaseUrl(settings.baseUrl);
   if (!baseUrl) throw new Error('Missing API Base URL');
   if (!settings.apiKey) throw new Error('Missing API Key');
+  assertSafeBaseUrl(baseUrl);
 
   const url = `${baseUrl}/models`;
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -438,7 +488,7 @@ export async function fetchModels(
     headers['Authorization'] = `Bearer ${settings.apiKey}`;
   }
 
-  const response = await fetch(url, { method: 'GET', headers, signal });
+  const response = await fetch(url, { method: 'GET', headers, signal, referrerPolicy: 'no-referrer' });
   if (!response.ok) {
     const errText = await response.text();
     throw new Error(`API Error ${response.status}: ${errText}`);

@@ -9,7 +9,7 @@ docker compose -f $COMPOSE_FILE build --no-cache
 
 Write-Host "Removing dangling images..." -ForegroundColor Cyan
 $dangling = docker images -f "dangling=true" -q
-if ($dangling) { docker rmi $dangling }
+if ($dangling) { docker rmi -f $dangling }
 
 Write-Host "Starting containers..." -ForegroundColor Cyan
 docker compose -f $COMPOSE_FILE up -d
