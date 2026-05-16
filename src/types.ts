@@ -7,11 +7,14 @@ export interface Message {
   model?: string;
 }
 
+export type ApiFormat = "openai" | "anthropic";
+
 export interface ApiSettings {
   baseUrl: string;
   apiKey: string;
   model: string;
   isStreaming?: boolean;
+  apiFormat?: ApiFormat;
 }
 
 export interface BypassSettings {

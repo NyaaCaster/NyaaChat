@@ -21,6 +21,7 @@ const DEFAULT_SETTINGS: AppState = {
     apiKey: "",
     model: "gpt-3.5-turbo",
     isStreaming: false,
+    apiFormat: "openai",
   },
   bypass: {
     enabled: true,

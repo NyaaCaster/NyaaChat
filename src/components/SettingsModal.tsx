@@ -101,12 +101,46 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
                 
                 <div className="space-y-5 pl-3">
                   <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">API 兼容模式</label>
+                    <div className="grid grid-cols-2 gap-3">
+                      {([
+                        { value: 'openai', label: 'OpenAI', hint: '/chat/completions' },
+                        { value: 'anthropic', label: 'Anthropic', hint: '/messages' },
+                      ] as const).map((opt) => {
+                        const active = (localSettings.api.apiFormat || 'openai') === opt.value;
+                        return (
+                          <button
+                            key={opt.value}
+                            type="button"
+                            onClick={() => handleApiChange('apiFormat', opt.value)}
+                            className={`px-4 py-3 rounded-xl border text-left transition-all ${
+                              active
+                                ? 'border-blue-500 bg-blue-500/10 dark:bg-blue-500/15 ring-1 ring-blue-500'
+                                : 'border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-[#1A1A1A] hover:border-gray-300 dark:hover:border-white/20'
+                            }`}
+                          >
+                            <div className={`text-sm font-medium ${active ? 'text-blue-600 dark:text-blue-400' : 'text-gray-900 dark:text-gray-100'}`}>
+                              {opt.label}
+                            </div>
+                            <div className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5 font-mono">
+                              {opt.hint}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-2">
+                      OpenAI 模式适用于 OpenAI 及大多数兼容代理；Anthropic 模式直连 Claude 官方 API（/v1/messages）。
+                    </p>
+                  </div>
+
+                  <div>
                     <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">API Base URL</label>
                     <input
                       type="text"
                       value={localSettings.api.baseUrl}
                       onChange={(e) => handleApiChange('baseUrl', e.target.value)}
-                      placeholder="https://api.openai.com/v1"
+                      placeholder={(localSettings.api.apiFormat || 'openai') === 'anthropic' ? 'https://api.anthropic.com/v1' : 'https://api.openai.com/v1'}
                       className="w-full px-4 py-3 border border-gray-200 dark:border-white/10 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-gray-50 dark:bg-[#1A1A1A] text-gray-900 dark:text-gray-100 outline-none transition-all placeholder:text-gray-400 dark:placeholder:text-gray-600"
                     />
                   </div>
@@ -128,7 +162,7 @@ export function SettingsModal({ isOpen, onClose, settings, onSave }: SettingsMod
                       type="text"
                       value={localSettings.api.model}
                       onChange={(e) => handleApiChange('model', e.target.value)}
-                      placeholder="gpt-3.5-turbo"
+                      placeholder={(localSettings.api.apiFormat || 'openai') === 'anthropic' ? 'claude-3-5-sonnet-latest' : 'gpt-3.5-turbo'}
                       className="w-full px-4 py-3 border border-gray-200 dark:border-white/10 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-gray-50 dark:bg-[#1A1A1A] text-gray-900 dark:text-gray-100 outline-none transition-all placeholder:text-gray-400 dark:placeholder:text-gray-600 font-mono"
                     />
                   </div>
