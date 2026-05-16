@@ -21,6 +21,8 @@ function normalizeBaseUrl(raw: string): string {
     '/v1/chat/completions',
     '/messages',
     '/v1/messages',
+    '/models',
+    '/v1/models',
   ];
   for (const suffix of knownSuffixes) {
     if (url.toLowerCase().endsWith(suffix)) {
@@ -351,4 +353,56 @@ async function fetchAnthropic(
   }
 
   return flushUsage();
+}
+
+/**
+ * Fetch the model list from the configured endpoint.
+ * - OpenAI compatible: GET `${baseUrl}/models` with `Authorization: Bearer`
+ * - Anthropic: GET `${baseUrl}/models` with `x-api-key` + `anthropic-version`
+ *
+ * Returns a sorted, deduplicated list of model IDs.
+ */
+export async function fetchModels(
+  settings: ApiSettings,
+  signal?: AbortSignal,
+): Promise<string[]> {
+  const format = settings.apiFormat || 'openai';
+  const baseUrl = normalizeBaseUrl(settings.baseUrl);
+  if (!baseUrl) throw new Error('Missing API Base URL');
+  if (!settings.apiKey) throw new Error('Missing API Key');
+
+  const url = `${baseUrl}/models`;
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+
+  if (format === 'anthropic') {
+    headers['x-api-key'] = settings.apiKey;
+    headers['Authorization'] = `Bearer ${settings.apiKey}`;
+    headers['anthropic-version'] = '2023-06-01';
+    if (isOfficialAnthropicHost(baseUrl)) {
+      headers['anthropic-dangerous-direct-browser-access'] = 'true';
+    }
+  } else {
+    headers['Authorization'] = `Bearer ${settings.apiKey}`;
+  }
+
+  const response = await fetch(url, { method: 'GET', headers, signal });
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`API Error ${response.status}: ${errText}`);
+  }
+
+  const data = await response.json();
+  const rawList: any[] = Array.isArray(data?.data)
+    ? data.data
+    : Array.isArray(data?.models)
+      ? data.models
+      : Array.isArray(data)
+        ? data
+        : [];
+
+  const ids = rawList
+    .map((m) => (typeof m === 'string' ? m : m?.id || m?.name || m?.model))
+    .filter((id): id is string => typeof id === 'string' && id.length > 0);
+
+  return Array.from(new Set(ids)).sort((a, b) => a.localeCompare(b));
 }

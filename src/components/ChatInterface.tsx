@@ -13,6 +13,7 @@ import {
   User,
   History,
   Paperclip,
+  Palette,
   X as XIcon,
   FileText,
   Image as ImageIcon,
@@ -35,6 +36,7 @@ interface ChatInterfaceProps {
   onOpenUserRole: () => void;
   onOpenCharacterSelection: () => void;
   onOpenChatHistory: () => void;
+  onOpenAppearance: () => void;
   currentSession: ChatSession | null;
   onSessionChange: (session: ChatSession | null) => void;
 }
@@ -49,6 +51,7 @@ export function ChatInterface({
   onOpenUserRole,
   onOpenCharacterSelection,
   onOpenChatHistory,
+  onOpenAppearance,
   currentSession,
   onSessionChange,
 }: ChatInterfaceProps) {
@@ -471,6 +474,13 @@ export function ChatInterface({
             )}
           </div>
           <div className="flex items-center space-x-1">
+            <button
+              onClick={onOpenAppearance}
+              className="p-2 text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-white/10 rounded-lg transition-all duration-200"
+              title="外观设置"
+            >
+              <Palette size={18} />
+            </button>
             <button
               onClick={onOpenConsole}
               className="p-2 text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-white/10 rounded-lg transition-all duration-200"

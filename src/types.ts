@@ -9,12 +9,16 @@ export interface Message {
 
 export type ApiFormat = "openai" | "anthropic";
 
+export type ApiProvider = "custom" | "openai" | "anthropic" | "gemini" | "deepseek";
+
 export interface ApiSettings {
   baseUrl: string;
   apiKey: string;
   model: string;
   isStreaming?: boolean;
   apiFormat?: ApiFormat;
+  apiProvider?: ApiProvider;
+  autoConnect?: boolean;
 }
 
 export interface BypassSettings {

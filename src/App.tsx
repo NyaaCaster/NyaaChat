@@ -12,16 +12,23 @@ import { ConsoleModal } from "./components/ConsoleModal";
 import { UserRoleModal } from "./components/UserRoleModal";
 import { CharacterSelectionModal } from "./components/CharacterSelectionModal";
 import { ChatHistoryModal } from "./components/ChatHistoryModal";
+import { AppearanceModal } from "./components/AppearanceModal";
 import { bypassTemplates } from "./lib/bypassTemplates";
+import { fetchModels } from "./lib/api";
+import { inferProvider } from "./lib/providers";
 import { ChatSession } from "./types";
+
+export type ConnectionStatus = "disconnected" | "connecting" | "connected";
 
 const DEFAULT_SETTINGS: AppState = {
   api: {
-    baseUrl: "https://api.openai.com/v1",
+    baseUrl: "https://openai.chatnewai.com/v1",
     apiKey: "",
-    model: "gpt-3.5-turbo",
+    model: "gemini-2.5-pro",
     isStreaming: false,
     apiFormat: "openai",
+    apiProvider: "custom",
+    autoConnect: false,
   },
   bypass: {
     enabled: true,
@@ -79,18 +86,27 @@ export default function App() {
   const [isCharacterSelectionOpen, setIsCharacterSelectionOpen] =
     useState(false);
   const [isChatHistoryOpen, setIsChatHistoryOpen] = useState(false);
+  const [isAppearanceOpen, setIsAppearanceOpen] = useState(false);
   const [currentSession, setCurrentSession] = useState<ChatSession | null>(null);
   const [historyVersion, setHistoryVersion] = useState(0);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("disconnected");
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
+  const hasAutoConnectedRef = React.useRef(false);
 
   useEffect(() => {
     const saved = localStorage.getItem("rikkachat_settings");
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
+        const mergedApi = { ...DEFAULT_SETTINGS.api, ...parsed.api };
+        if (!mergedApi.apiProvider) {
+          mergedApi.apiProvider = inferProvider(mergedApi.baseUrl, mergedApi.apiFormat);
+        }
         setSettings({
-          api: { ...DEFAULT_SETTINGS.api, ...parsed.api },
+          api: mergedApi,
           bypass: {
             ...DEFAULT_SETTINGS.bypass,
             ...parsed.bypass,
@@ -159,6 +175,40 @@ export default function App() {
     ]);
   };
 
+  const handleConnect = React.useCallback(
+    async (overrideApi?: AppState["api"]): Promise<boolean> => {
+      const api = overrideApi || settings.api;
+      if (!api.baseUrl || !api.apiKey) {
+        setConnectionStatus("disconnected");
+        setConnectionError("缺少 API Base URL 或 API Key");
+        return false;
+      }
+      setConnectionStatus("connecting");
+      setConnectionError(null);
+      try {
+        const models = await fetchModels(api);
+        setAvailableModels(models);
+        setConnectionStatus("connected");
+        return true;
+      } catch (err: any) {
+        setConnectionStatus("disconnected");
+        setConnectionError(err?.message || String(err));
+        return false;
+      }
+    },
+    [settings.api],
+  );
+
+  // Auto-connect once after settings load, if enabled and credentials present.
+  useEffect(() => {
+    if (!isLoaded) return;
+    if (hasAutoConnectedRef.current) return;
+    if (!settings.api.autoConnect) return;
+    if (!settings.api.baseUrl || !settings.api.apiKey) return;
+    hasAutoConnectedRef.current = true;
+    handleConnect(settings.api);
+  }, [isLoaded, settings.api, handleConnect]);
+
   if (!isLoaded) return null; // or a loading spinner
 
   return (
@@ -173,6 +223,7 @@ export default function App() {
         onOpenUserRole={() => setIsUserRoleOpen(true)}
         onOpenCharacterSelection={() => setIsCharacterSelectionOpen(true)}
         onOpenChatHistory={() => setIsChatHistoryOpen(true)}
+        onOpenAppearance={() => setIsAppearanceOpen(true)}
         currentSession={currentSession}
         onSessionChange={setCurrentSession}
       />
@@ -181,6 +232,10 @@ export default function App() {
         onClose={() => setIsSettingsOpen(false)}
         settings={settings}
         onSave={handleSaveSettings}
+        connectionStatus={connectionStatus}
+        connectionError={connectionError}
+        availableModels={availableModels}
+        onConnect={handleConnect}
       />
       <BypassModal
         isOpen={isBypassOpen}
@@ -212,6 +267,12 @@ export default function App() {
         currentSessionId={currentSession?.id ?? null}
         onSelectSession={(session) => { setCurrentSession(session); }}
         onSessionsChange={() => setHistoryVersion(v => v + 1)}
+      />
+      <AppearanceModal
+        isOpen={isAppearanceOpen}
+        onClose={() => setIsAppearanceOpen(false)}
+        settings={settings}
+        onSave={handleSaveSettings}
       />
     </>
   );
