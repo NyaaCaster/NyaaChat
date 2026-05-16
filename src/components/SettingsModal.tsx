@@ -1,9 +1,10 @@
 import React from 'react';
-import { X, Plug, List, Loader2, ChevronDown, Check, Wrench } from 'lucide-react';
+import { Plug, List, Loader2, ChevronDown, Check, Wrench } from 'lucide-react';
 import { AppState, ApiProvider } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { ConnectionStatus } from '../App';
 import { PROVIDER_ORDER, PROVIDER_LABELS, PROVIDER_PRESETS } from '../lib/providers';
+import { BaseModal } from './BaseModal';
 import OpenAI from '@lobehub/icons/es/OpenAI';
 import Anthropic from '@lobehub/icons/es/Anthropic';
 import Gemini from '@lobehub/icons/es/Gemini';
@@ -142,38 +143,30 @@ export function SettingsModal({
   const isCustom = provider === 'custom';
 
   return (
-    <AnimatePresence>
-      {isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+    <BaseModal
+      isOpen={isOpen}
+      onClose={onClose}
+      title="设置"
+      maxWidth="max-w-2xl"
+      footer={
+        <div className="flex flex-col-reverse sm:flex-row justify-end sm:space-x-4">
+          <button
             onClick={onClose}
-          />
-
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95, y: 20 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: 20 }}
-            transition={{ type: "spring", damping: 25, stiffness: 300 }}
-            className="relative w-full max-w-2xl bg-white dark:bg-[#111111] dark:border dark:border-white/10 rounded-2xl shadow-elevation-3 p-6 sm:p-8 max-h-[90vh] overflow-y-auto"
+            className="mt-3 sm:mt-0 px-6 py-2.5 text-sm font-semibold text-gray-600 dark:text-gray-300 bg-gray-100 hover:bg-gray-200 dark:bg-white/5 dark:hover:bg-white/10 rounded-xl transition-colors focus:ring-2 focus:ring-gray-300"
           >
-            <div className="flex items-center justify-between mb-8 pb-4 border-b border-gray-100 dark:border-white/10">
-              <h2 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100" style={{ fontFamily: 'var(--font-display)' }}>
-                设置
-              </h2>
-              <button
-                onClick={onClose}
-                className="p-2 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors rounded-full hover:bg-gray-100 dark:hover:bg-white/5"
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            <div className="space-y-5">
+            取消
+          </button>
+          <button
+            onClick={handleSave}
+            className="px-6 py-2.5 text-sm font-semibold text-white bg-blue-600 rounded-xl hover:bg-blue-700 hover:shadow-glow transition-all focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-[#111] active:translate-y-[1px]"
+          >
+            保存配置
+          </button>
+        </div>
+      }
+    >
+      <div className="p-6 sm:p-8">
+        <div className="space-y-5">
               <div>
                 <div className="flex items-center justify-between gap-3 mb-2">
                   <label className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">API 供应商</label>
@@ -407,24 +400,7 @@ export function SettingsModal({
                 </div>
               </div>
             </div>
-
-            <div className="mt-10 flex flex-col-reverse sm:flex-row justify-end sm:space-x-4">
-              <button
-                onClick={onClose}
-                className="mt-3 sm:mt-0 px-6 py-2.5 text-sm font-semibold text-gray-600 dark:text-gray-300 bg-gray-100 hover:bg-gray-200 dark:bg-white/5 dark:hover:bg-white/10 rounded-xl transition-colors focus:ring-2 focus:ring-gray-300"
-              >
-                取消
-              </button>
-              <button
-                onClick={handleSave}
-                className="px-6 py-2.5 text-sm font-semibold text-white bg-blue-600 rounded-xl hover:bg-blue-700 hover:shadow-glow transition-all focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-[#111] active:translate-y-[1px]"
-              >
-                保存配置
-              </button>
-            </div>
-          </motion.div>
         </div>
-      )}
-    </AnimatePresence>
+    </BaseModal>
   );
 }

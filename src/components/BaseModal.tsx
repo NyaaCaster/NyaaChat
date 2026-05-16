@@ -26,6 +26,13 @@ interface BaseModalProps {
 const FOCUSABLE_SELECTOR =
   'button:not([disabled]), [href], input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
+// Module-level stack of currently open modals' close handlers. Lets ESC
+// close only the topmost modal when several are nested (e.g.
+// CharacterSelection -> CharacterEdit -> WorldInfoRule). Without this,
+// every BaseModal's document-level keydown listener fires for the same
+// keypress and they'd all close at once.
+const modalStack: Array<() => void> = [];
+
 export function BaseModal({
   isOpen,
   onClose,
@@ -45,9 +52,13 @@ export function BaseModal({
     const previouslyFocused = document.activeElement as HTMLElement | null;
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
+    modalStack.push(onClose);
 
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
+        // Only react when this is the topmost modal on the stack — nested
+        // modals would otherwise all close from a single ESC.
+        if (modalStack[modalStack.length - 1] !== onClose) return;
         e.stopPropagation();
         onClose();
         return;
@@ -85,6 +96,8 @@ export function BaseModal({
     return () => {
       document.removeEventListener("keydown", handleKey);
       document.body.style.overflow = prevOverflow;
+      const idx = modalStack.indexOf(onClose);
+      if (idx >= 0) modalStack.splice(idx, 1);
       clearTimeout(t);
       // Restore focus to the trigger so keyboard users don't get lost.
       previouslyFocused?.focus?.();
