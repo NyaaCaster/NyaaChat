@@ -1,4 +1,4 @@
-"* text=auto eol=lf
+* text=auto eol=lf
 *.tsx text eol=lf
 *.ts text eol=lf
 *.json text eol=lf
@@ -7,4 +7,4 @@
 *.css text eol=lf
 *.html text eol=lf
 *.ps1 text eol=lf
-"
+*.sh text eol=lf
