@@ -5,6 +5,7 @@ import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import { Message } from "../types";
 import { motion } from "motion/react";
 import { Copy, Check, Trash2, RefreshCw } from "lucide-react";
+import { ConfirmDialog } from "./ConfirmDialog";
 
 // rehype-sanitize schema: GitHub-flavored default + className passthrough so
 // our prose/markdown-body styles still apply. Anything not in the allowlist
@@ -112,6 +113,7 @@ interface MessageItemProps {
 
 export const MessageItem = React.memo(function MessageItem({ message, userName, charName, onDelete, onRegenerate }: MessageItemProps) {
   const [copiedMsg, setCopiedMsg] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const handleCopyMsg = async () => {
     const ok = await copyToClipboard(message.content);
     if (!ok) return;
@@ -254,12 +256,26 @@ export const MessageItem = React.memo(function MessageItem({ message, userName, 
           {copiedMsg ? <Check size={13} /> : <Copy size={13} />}
         </button>
         {onDelete && (
-          <button onClick={() => { if (window.confirm("确定要删除这条消息吗？")) onDelete(message.id); }} className="p-1 text-gray-400 hover:text-red-500 transition-colors rounded" title="删除消息">
+          <button onClick={() => setConfirmDelete(true)} className="p-1 text-gray-400 hover:text-red-500 transition-colors rounded" title="删除消息">
             <Trash2 size={13} />
           </button>
         )}
       </div>
       </div>
+      {onDelete && (
+        <ConfirmDialog
+          isOpen={confirmDelete}
+          title="删除消息"
+          message="确定要删除这条消息吗？此操作不可撤销。"
+          destructive
+          confirmText="删除"
+          onConfirm={() => {
+            setConfirmDelete(false);
+            onDelete(message.id);
+          }}
+          onCancel={() => setConfirmDelete(false)}
+        />
+      )}
     </motion.div>
   );
 });
