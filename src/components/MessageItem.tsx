@@ -5,10 +5,41 @@ import { Message } from "../types";
 import { motion } from "motion/react";
 import { Copy, Check, Trash2, RefreshCw } from "lucide-react";
 
+// navigator.clipboard requires a secure context (HTTPS or localhost). When the
+// app is served from a plain-HTTP IP/host, the modern API is unavailable, so
+// we fall back to a hidden-textarea + execCommand path that still works there.
+async function copyToClipboard(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // fall through to legacy
+  }
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.top = "-9999px";
+    ta.style.left = "-9999px";
+    ta.setAttribute("readonly", "");
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    const ok = document.execCommand("copy");
+    document.body.removeChild(ta);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
 function CodeBlock({ children }: { children: string }) {
   const [copied, setCopied] = useState(false);
-  const handleCopy = () => {
-    navigator.clipboard.writeText(children);
+  const handleCopy = async () => {
+    const ok = await copyToClipboard(children);
+    if (!ok) return;
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -69,8 +100,9 @@ interface MessageItemProps {
 
 export function MessageItem({ message, userName, charName, onDelete, onRegenerate }: MessageItemProps) {
   const [copiedMsg, setCopiedMsg] = useState(false);
-  const handleCopyMsg = () => {
-    navigator.clipboard.writeText(message.content);
+  const handleCopyMsg = async () => {
+    const ok = await copyToClipboard(message.content);
+    if (!ok) return;
     setCopiedMsg(true);
     setTimeout(() => setCopiedMsg(false), 2000);
   };

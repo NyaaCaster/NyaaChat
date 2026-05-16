@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import {
   Send,
   Square,
@@ -14,6 +14,8 @@ import {
   History,
   Paperclip,
   Palette,
+  Maximize,
+  Minimize,
   X as XIcon,
   FileText,
   Image as ImageIcon,
@@ -64,6 +66,100 @@ export function ChatInterface({
 
   type Attachment = { name: string; type: "image" | "text"; data: string; mimeType: string };
   const [attachments, setAttachments] = useState<Attachment[]>([]);
+
+  // Fullscreen mode: button toggle + first-time edge-swipe-up auto-trigger.
+  // Capability gate hides the button on iOS Safari (no Element.requestFullscreen).
+  const isFullscreenSupported =
+    typeof document !== "undefined" &&
+    typeof document.documentElement.requestFullscreen === "function";
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  // One-shot gate for auto-trigger; lives in component memory only, so a page
+  // refresh resets it (matches the "session = page lifetime" choice).
+  const hasAutoTriggeredRef = useRef(false);
+
+  const enterFullscreen = useCallback(async () => {
+    if (!isFullscreenSupported) return;
+    try {
+      await document.documentElement.requestFullscreen();
+      hasAutoTriggeredRef.current = true;
+    } catch {
+      // silent: user gesture missing, permission denied, etc.
+    }
+  }, [isFullscreenSupported]);
+
+  const exitFullscreen = useCallback(async () => {
+    if (!document.fullscreenElement) return;
+    try {
+      await document.exitFullscreen();
+    } catch {
+      // silent
+    }
+  }, []);
+
+  const toggleFullscreen = useCallback(() => {
+    // Once the user touches the button, treat as "they know about fullscreen now"
+    // — never auto-trigger from swipe afterwards, regardless of direction.
+    hasAutoTriggeredRef.current = true;
+    if (document.fullscreenElement) {
+      void exitFullscreen();
+    } else {
+      void enterFullscreen();
+    }
+  }, [enterFullscreen, exitFullscreen]);
+
+  useEffect(() => {
+    if (!isFullscreenSupported) return;
+    const onChange = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, [isFullscreenSupported]);
+
+  // Edge-swipe-up auto trigger. Restricted to the bottom ~80px of the viewport
+  // to avoid colliding with the message-list's normal scroll gestures.
+  useEffect(() => {
+    if (!isFullscreenSupported) return;
+    let startY: number | null = null;
+    let startX: number | null = null;
+    let startTime = 0;
+    const EDGE_PX = 80;
+    const MIN_DY = 100;
+    const MAX_DX = 60;
+    const MAX_DURATION_MS = 600;
+
+    const onTouchStart = (e: TouchEvent) => {
+      if (hasAutoTriggeredRef.current) return;
+      if (document.fullscreenElement) return;
+      if (e.touches.length !== 1) return;
+      const t = e.touches[0];
+      if (t.clientY < window.innerHeight - EDGE_PX) return;
+      startY = t.clientY;
+      startX = t.clientX;
+      startTime = Date.now();
+    };
+
+    const onTouchEnd = (e: TouchEvent) => {
+      if (startY === null || startX === null) return;
+      const t = e.changedTouches[0];
+      const dy = t.clientY - startY;
+      const dx = t.clientX - startX;
+      const elapsed = Date.now() - startTime;
+      startY = null;
+      startX = null;
+      if (hasAutoTriggeredRef.current) return;
+      if (document.fullscreenElement) return;
+      if (elapsed > MAX_DURATION_MS) return;
+      if (Math.abs(dx) > MAX_DX) return;
+      if (dy > -MIN_DY) return;
+      void enterFullscreen();
+    };
+
+    document.addEventListener("touchstart", onTouchStart, { passive: true });
+    document.addEventListener("touchend", onTouchEnd, { passive: true });
+    return () => {
+      document.removeEventListener("touchstart", onTouchStart);
+      document.removeEventListener("touchend", onTouchEnd);
+    };
+  }, [isFullscreenSupported, enterFullscreen]);
 
   const processFile = async (file: File): Promise<Attachment | null> => {
     const isImage = file.type.startsWith("image/");
@@ -486,6 +582,15 @@ export function ChatInterface({
             )}
           </div>
           <div className="flex items-center space-x-1">
+            {isFullscreenSupported && (
+              <button
+                onClick={toggleFullscreen}
+                className="p-2 text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-white/10 rounded-lg transition-all duration-200"
+                title={isFullscreen ? "退出全屏" : "全屏模式"}
+              >
+                {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
+              </button>
+            )}
             <button
               onClick={onOpenAppearance}
               className="p-2 text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-white/10 rounded-lg transition-all duration-200"
@@ -694,7 +799,7 @@ export function ChatInterface({
           </form>
           <div className="text-center mt-3">
             <p className="text-[11px] text-gray-400 dark:text-gray-500 font-medium tracking-wide">
-              内容由自定义 LLM 服务提供。生成内容仅供参考。
+              内容由 LLM 服务提供。生成内容仅供参考。
             </p>
           </div>
         </div>
