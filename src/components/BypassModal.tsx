@@ -1,5 +1,5 @@
 import React, { useRef } from 'react';
-import { X, Flame, Edit2, Save, Download, Upload, RotateCcw } from 'lucide-react';
+import { X, Flame, Edit2, Download, Upload, RotateCcw } from 'lucide-react';
 import { AppState } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { bypassTemplates } from '../lib/bypassTemplates';

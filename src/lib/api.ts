@@ -237,7 +237,7 @@ async function fetchOpenAI(
           if (data.usage) {
             finalUsage = data.usage;
           }
-        } catch (e) {
+        } catch {
           console.warn('Failed to parse chunk:', dataStr);
         }
       }
@@ -500,7 +500,7 @@ async function fetchAnthropic(
           default:
             break;
         }
-      } catch (e) {
+      } catch {
         console.warn('Failed to parse Anthropic chunk:', dataStr);
       }
     }

@@ -74,17 +74,13 @@ export function ConsoleModal({ isOpen, onClose, logs, onClearLogs }: ConsoleModa
                   const date = new Date(log.timestamp);
                   const timeStr = `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}:${date.getSeconds().toString().padStart(2, '0')}.${date.getMilliseconds().toString().padStart(3, '0')}`;
                   
-                  let typeColor = 'text-gray-400';
                   let bgBadge = 'bg-gray-800/50 text-gray-300';
-                  
+
                   if (log.direction === 'request') {
-                    typeColor = 'text-blue-400';
                     bgBadge = 'bg-blue-900/30 text-blue-400 border border-blue-800/50';
                   } else if (log.direction === 'response') {
-                    typeColor = 'text-emerald-400';
                     bgBadge = 'bg-emerald-900/30 text-emerald-400 border border-emerald-800/50';
                   } else if (log.direction === 'error') {
-                    typeColor = 'text-red-400';
                     bgBadge = 'bg-red-900/30 text-red-400 border border-red-800/50';
                   }
 

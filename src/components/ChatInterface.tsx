@@ -3,8 +3,6 @@ import {
   Send,
   Square,
   Settings,
-  Check,
-  Download,
   PlusCircle,
   Sparkles,
   MessageSquare,
@@ -72,7 +70,7 @@ export function ChatInterface({
   settings,
   onOpenSettings,
   onOpenBypass,
-  logs,
+  logs: _logs,
   onAddLog,
   onOpenConsole,
   onOpenUserRole,
@@ -252,6 +250,9 @@ export function ChatInterface({
 
   useEffect(() => {
     setMessages(buildFirstMes(currentCharacter));
+    // Intentionally only depends on the character ID, not the whole character
+    // object — editing a character's content shouldn't reset the live chat.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings.currentCharacterId]);
 
   const checkKeywords = useCallback((text: string, keywordsStr?: string): boolean => {
@@ -497,6 +498,10 @@ export function ChatInterface({
       }
     }, 800);
     return () => clearTimeout(timer);
+    // TODO(#23 audit): effect reads currentSession/currentCharacter via stale
+    // closure. Plan: move auto-save to a useEffectEvent or refactor when
+    // ChatInterface is split (audit task #20).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages]);
 
   const clearChat = () => {
@@ -525,6 +530,9 @@ export function ChatInterface({
     if (currentSession) {
       setMessages(currentSession.messages);
     }
+    // Depending on the id alone is intentional: when the same session object
+    // is passed back (e.g. after rename) we don't want to re-import messages.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentSession?.id]);
 
   const isBypassActive = settings.bypass.enabled;

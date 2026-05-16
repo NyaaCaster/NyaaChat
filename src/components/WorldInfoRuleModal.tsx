@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { X, Sparkles, Globe, Key, Clock, Shield, User } from "lucide-react";
+import { X, Globe, Key, Clock, Shield, User } from "lucide-react";
 import { WorldInfoRule } from "../types";
 import { motion, AnimatePresence } from "motion/react";
 
