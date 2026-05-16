@@ -19,6 +19,20 @@ export function ConsoleModal({ isOpen, onClose, logs, onClearLogs }: ConsoleModa
     }
   }, [logs, isOpen]);
 
+  // ESC to close. ConsoleModal keeps its terminal-style chrome rather than
+  // adopting BaseModal, so the keybinding lives here directly.
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        onClose();
+      }
+    };
+    document.addEventListener('keydown', handleKey);
+    return () => document.removeEventListener('keydown', handleKey);
+  }, [isOpen, onClose]);
+
   return (
     <AnimatePresence>
       {isOpen && (
