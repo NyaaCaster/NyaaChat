@@ -4,8 +4,10 @@ import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import { Message } from "../types";
 import { motion } from "motion/react";
-import { Copy, Check, Trash2, RefreshCw, Pencil, X as XIcon } from "lucide-react";
+import { Copy, Check, Trash2, RefreshCw, Pencil, X as XIcon, ImagePlus, Download, Loader2 } from "lucide-react";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { ImageViewerModal } from "./ImageViewerModal";
+import { downloadImage } from "../lib/imageApi";
 
 // rehype-sanitize schema: GitHub-flavored default + className passthrough so
 // our prose/markdown-body styles still apply. Anything not in the allowlist
@@ -110,13 +112,35 @@ interface MessageItemProps {
   onDelete?: (id: string) => void;
   onRegenerate?: (id: string) => void;
   onEdit?: (id: string, newContent: string) => void;
+  /** Show the "generate image" button on this bubble. Hidden when undefined. */
+  onGenerateImage?: (id: string) => void;
+  /** Re-runs image generation for an image-message bubble. */
+  onRegenerateImage?: (id: string) => void;
+  /** True while THIS bubble is awaiting the image API response. */
+  imageGenerating?: boolean;
+  /** True while ANY chat / image request is in flight. Disables generate &
+   *  regenerate buttons across all bubbles so clicks don't get silently
+   *  dropped by the parent's loading guard. */
+  busy?: boolean;
 }
 
-export const MessageItem = React.memo(function MessageItem({ message, userName, charName, onDelete, onRegenerate, onEdit }: MessageItemProps) {
+export const MessageItem = React.memo(function MessageItem({
+  message,
+  userName,
+  charName,
+  onDelete,
+  onRegenerate,
+  onEdit,
+  onGenerateImage,
+  onRegenerateImage,
+  imageGenerating,
+  busy,
+}: MessageItemProps) {
   const [copiedMsg, setCopiedMsg] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState(message.content);
+  const [viewerOpen, setViewerOpen] = useState(false);
   const editRef = useRef<HTMLTextAreaElement>(null);
 
   // Refresh the editing buffer when the underlying message changes from
@@ -272,7 +296,13 @@ export const MessageItem = React.memo(function MessageItem({ message, userName, 
             className="markdown-body"
             style={{ fontFamily: "var(--font-sans)" }}
           >
-            {editing ? (
+            {message.imageUrl ? (
+              <ImageBubbleBody
+                src={message.imageUrl}
+                generating={!!imageGenerating}
+                onOpen={() => setViewerOpen(true)}
+              />
+            ) : editing ? (
               <div className="flex flex-col gap-2">
                 <textarea
                   ref={editRef}
@@ -325,33 +355,89 @@ export const MessageItem = React.memo(function MessageItem({ message, userName, 
         </div>
       </div>
       <div className={`flex items-center gap-1 px-1 ${isUser ? "justify-end" : "justify-start"}`}>
-        {!editing && !isUser && onRegenerate && (
-          <button onClick={() => onRegenerate(message.id)} className="p-1 text-gray-400 hover:text-green-500 transition-colors rounded" title="重新生成">
-            <RefreshCw size={13} />
-          </button>
-        )}
-        {!editing && onEdit && (
-          <button onClick={handleStartEdit} className="p-1 text-gray-400 hover:text-amber-500 transition-colors rounded" title="编辑消息">
-            <Pencil size={13} />
-          </button>
-        )}
-        {!editing && (
-          <button onClick={handleCopyMsg} className="p-1 text-gray-400 hover:text-blue-500 transition-colors rounded" title="复制文本">
-            {copiedMsg ? <Check size={13} /> : <Copy size={13} />}
-          </button>
-        )}
-        {!editing && onDelete && (
-          <button onClick={() => setConfirmDelete(true)} className="p-1 text-gray-400 hover:text-red-500 transition-colors rounded" title="删除消息">
-            <Trash2 size={13} />
-          </button>
-        )}
-        {editing && (
-          <button onClick={handleCancelEdit} className="p-1 text-gray-400 hover:text-red-500 transition-colors rounded" title="取消编辑">
-            <XIcon size={13} />
-          </button>
+        {message.imageUrl ? (
+          <>
+            {onRegenerateImage && (
+              <button
+                onClick={() => onRegenerateImage(message.id)}
+                disabled={busy || imageGenerating}
+                className="p-1 text-gray-400 hover:text-green-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors rounded"
+                title={busy && !imageGenerating ? "其他请求进行中" : "重新生成"}
+              >
+                {imageGenerating ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
+              </button>
+            )}
+            <button
+              onClick={() => void downloadImage(message.imageUrl!, `nyaachat-${message.id}`)}
+              className="p-1 text-gray-400 hover:text-blue-500 transition-colors rounded"
+              title="下载图片"
+            >
+              <Download size={13} />
+            </button>
+            {onDelete && (
+              <button
+                onClick={() => setConfirmDelete(true)}
+                className="p-1 text-gray-400 hover:text-red-500 transition-colors rounded"
+                title="删除消息"
+              >
+                <Trash2 size={13} />
+              </button>
+            )}
+          </>
+        ) : (
+          <>
+            {!editing && !isUser && onRegenerate && (
+              <button
+                onClick={() => onRegenerate(message.id)}
+                disabled={busy}
+                className="p-1 text-gray-400 hover:text-green-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors rounded"
+                title={busy ? "其他请求进行中" : "重新生成"}
+              >
+                <RefreshCw size={13} />
+              </button>
+            )}
+            {!editing && onEdit && (
+              <button onClick={handleStartEdit} className="p-1 text-gray-400 hover:text-amber-500 transition-colors rounded" title="编辑消息">
+                <Pencil size={13} />
+              </button>
+            )}
+            {!editing && onGenerateImage && (
+              <button
+                onClick={() => onGenerateImage(message.id)}
+                disabled={busy || imageGenerating}
+                className="p-1 text-gray-400 hover:text-purple-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors rounded"
+                title={busy && !imageGenerating ? "其他请求进行中" : "基于此消息生成图片"}
+              >
+                {imageGenerating ? <Loader2 size={13} className="animate-spin" /> : <ImagePlus size={13} />}
+              </button>
+            )}
+            {!editing && (
+              <button onClick={handleCopyMsg} className="p-1 text-gray-400 hover:text-blue-500 transition-colors rounded" title="复制文本">
+                {copiedMsg ? <Check size={13} /> : <Copy size={13} />}
+              </button>
+            )}
+            {!editing && onDelete && (
+              <button onClick={() => setConfirmDelete(true)} className="p-1 text-gray-400 hover:text-red-500 transition-colors rounded" title="删除消息">
+                <Trash2 size={13} />
+              </button>
+            )}
+            {editing && (
+              <button onClick={handleCancelEdit} className="p-1 text-gray-400 hover:text-red-500 transition-colors rounded" title="取消编辑">
+                <XIcon size={13} />
+              </button>
+            )}
+          </>
         )}
       </div>
       </div>
+      {message.imageUrl && (
+        <ImageViewerModal
+          isOpen={viewerOpen}
+          onClose={() => setViewerOpen(false)}
+          src={message.imageUrl}
+          filename={`nyaachat-${message.id}`}
+        />
+      )}
       {onDelete && (
         <ConfirmDialog
           isOpen={confirmDelete}
@@ -369,3 +455,44 @@ export const MessageItem = React.memo(function MessageItem({ message, userName, 
     </motion.div>
   );
 });
+
+function ImageBubbleBody({
+  src,
+  generating,
+  onOpen,
+}: {
+  src: string;
+  generating: boolean;
+  onOpen: () => void;
+}) {
+  const [loaded, setLoaded] = React.useState(false);
+  return (
+    <div className="not-prose relative">
+      <button
+        type="button"
+        onClick={onOpen}
+        className="block group relative overflow-hidden rounded-xl bg-gray-100 dark:bg-white/5 border border-gray-200/50 dark:border-white/10 max-w-full"
+        title="点击查看大图"
+      >
+        <img
+          src={src}
+          alt="生成图片"
+          onLoad={() => setLoaded(true)}
+          className={`block max-w-full max-h-[60vh] object-contain transition-opacity duration-300 ${loaded ? 'opacity-100' : 'opacity-0'}`}
+          draggable={false}
+        />
+        {!loaded && (
+          <div className="absolute inset-0 flex items-center justify-center min-h-32 min-w-48 text-gray-400 dark:text-gray-500">
+            <Loader2 size={20} className="animate-spin" />
+          </div>
+        )}
+      </button>
+      {generating && (
+        <div className="absolute inset-0 rounded-xl bg-black/30 backdrop-blur-[1px] flex items-center justify-center text-white text-xs gap-2">
+          <Loader2 size={16} className="animate-spin" />
+          重新生成中…
+        </div>
+      )}
+    </div>
+  );
+}

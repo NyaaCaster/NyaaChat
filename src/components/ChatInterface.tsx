@@ -2,10 +2,12 @@ import React, { useState, useRef, useEffect, useCallback } from "react";
 import { Sparkles } from "lucide-react";
 import { Message, AppState, LogEntry, ChatSession } from "../types";
 import { fetchChatCompletion } from "../lib/api";
+import { generateImage } from "../lib/imageApi";
 import { newId } from "../lib/id";
 import { saveSession } from "../lib/sessionStorage";
 import {
   applyPlaceholders,
+  buildImagePrompt,
   buildMessageContent,
   buildRequestMessages,
 } from "../lib/chatPipeline";
@@ -72,6 +74,7 @@ export function ChatInterface({
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [imageGeneratingId, setImageGeneratingId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -325,6 +328,174 @@ export function ChatInterface({
     void sendChat(lastUser.content, [], withoutLastUser);
   };
 
+  const isImageApiReady =
+    settings.imageApi?.enabled &&
+    settings.imageApi.provider === "qiny" &&
+    !!settings.imageApi.apiKey &&
+    !!settings.imageApi.model;
+
+  /**
+   * Run the image API for `prompt` and insert the resulting image as a new
+   * assistant bubble immediately after `anchorId`. If `replaceImageId` is
+   * given (regenerate path), the existing image bubble is replaced in place
+   * instead so position and id stay stable.
+   */
+  const runImageGeneration = useCallback(
+    async (prompt: string, anchorId: string, replaceImageId?: string) => {
+      if (!isImageApiReady) {
+        onAddLog({
+          direction: "error",
+          content: "Image API not configured",
+        });
+        return;
+      }
+      // Image gen and chat completion share the loading lock + abort controller
+      // so the composer's stop button can cancel either, and the user can't
+      // accidentally start a second request while one is in flight.
+      if (isLoading) return;
+
+      const targetId = replaceImageId ?? newId();
+      setImageGeneratingId(targetId);
+      setIsLoading(true);
+
+      // For first-time generation we add a placeholder bubble right away
+      // so the user has something to look at while the request runs.
+      if (!replaceImageId) {
+        setMessages((prev) => {
+          const idx = prev.findIndex((m) => m.id === anchorId);
+          const placeholder: Message = {
+            id: targetId,
+            role: "assistant",
+            content: prompt,
+            imagePrompt: prompt,
+            imageUrl: undefined,
+            timestamp: Date.now(),
+          };
+          if (idx === -1) return [...prev, placeholder];
+          return [...prev.slice(0, idx + 1), placeholder, ...prev.slice(idx + 1)];
+        });
+      }
+
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+
+      try {
+        // Wire-level size strategy (kept in sync with imageApi.ts):
+        //   默认           → field omitted (regardless of model)
+        //   gpt-image-2 4K → "3840x2160" → fallback "2048x2048"
+        //   其他模型 4K    → "3840x2160" → fallback omitted
+        const isGptImage2 = /gpt-image-2/i.test(settings.imageApi.model);
+        const sizeWirePlan =
+          settings.imageApi.size === "4k"
+            ? `3840x2160 → fallback ${isGptImage2 ? "2048x2048" : "(omitted)"}`
+            : "(omitted)";
+        onAddLog({
+          direction: "request",
+          content: "Sending image generation request",
+          meta: {
+            model: settings.imageApi.model,
+            sizeChoice: settings.imageApi.size,
+            sizeWire: sizeWirePlan,
+            prompt,
+          },
+        });
+        const url = await generateImage(prompt, settings.imageApi, controller.signal);
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === targetId
+              ? {
+                  ...m,
+                  role: "assistant",
+                  content: prompt,
+                  imagePrompt: prompt,
+                  imageUrl: url,
+                  model: settings.imageApi.model,
+                  timestamp: m.timestamp ?? Date.now(),
+                }
+              : m,
+          ),
+        );
+        onAddLog({
+          direction: "response",
+          content: "Received image",
+          meta: { model: settings.imageApi.model, url },
+        });
+      } catch (err: any) {
+        const isAbort =
+          err?.name === "AbortError" ||
+          controller.signal.aborted ||
+          /已取消|aborted/i.test(err?.message || "");
+        const description = isAbort ? "请求已停止" : describeError(err);
+        onAddLog({
+          direction: isAbort ? "info" : "error",
+          content: isAbort
+            ? "Image generation aborted by user"
+            : "Failed during image generation",
+          meta: { error: description },
+        });
+        if (replaceImageId) {
+          // Regenerate path: keep the existing image. On abort just dismiss
+          // the spinner silently; on real failures surface the reason so the
+          // user knows nothing changed.
+          if (!isAbort) alert(`生图失败:${description}`);
+        } else {
+          // First-time path: convert the placeholder into a status line so
+          // the bubble doesn't sit empty forever.
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === targetId
+                ? {
+                    ...m,
+                    imageUrl: undefined,
+                    imagePrompt: undefined,
+                    content: isAbort
+                      ? "**[已停止生成图片]**"
+                      : `**生图失败:** ${description}`,
+                  }
+                : m,
+            ),
+          );
+        }
+      } finally {
+        setImageGeneratingId((cur) => (cur === targetId ? null : cur));
+        setIsLoading(false);
+        if (abortControllerRef.current === controller) {
+          abortControllerRef.current = null;
+        }
+      }
+    },
+    [isImageApiReady, isLoading, settings.imageApi, onAddLog],
+  );
+
+  const handleGenerateImage = useCallback(
+    (id: string) => {
+      const msg = messages.find((m) => m.id === id);
+      if (!msg) return;
+      const prompt = buildImagePrompt({
+        targetMessage: msg,
+        baseMessages: messages,
+        currentCharacter,
+        settings,
+        userName,
+        charName,
+      }).trim();
+      if (!prompt) return;
+      void runImageGeneration(prompt, id);
+    },
+    [messages, runImageGeneration, currentCharacter, settings, userName, charName],
+  );
+
+  const handleRegenerateImage = useCallback(
+    (id: string) => {
+      const msg = messages.find((m) => m.id === id);
+      if (!msg || !msg.imageUrl) return;
+      const prompt = (msg.imagePrompt || msg.content || "").trim();
+      if (!prompt) return;
+      void runImageGeneration(prompt, id, id);
+    },
+    [messages, runImageGeneration],
+  );
+
   // Load session when selected from history
   useEffect(() => {
     if (currentSession) {
@@ -401,6 +572,10 @@ export function ChatInterface({
                     onDelete={handleDeleteMessage}
                     onRegenerate={handleRegenerate}
                     onEdit={handleEditMessage}
+                    onGenerateImage={isImageApiReady ? handleGenerateImage : undefined}
+                    onRegenerateImage={isImageApiReady ? handleRegenerateImage : undefined}
+                    imageGenerating={imageGeneratingId === message.id}
+                    busy={isLoading}
                   />
                 ))}
               </AnimatePresence>

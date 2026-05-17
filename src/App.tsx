@@ -41,6 +41,12 @@ const AppearanceModal = lazy(() =>
 
 export type ConnectionStatus = "disconnected" | "connecting" | "connected";
 
+// QinyAPI image generation endpoint. We hardcode it because the spec doesn't
+// expose it for editing — only the API key/model/size are user-configurable.
+// `fetchModels` strips the `/chat/completions` suffix during normalization,
+// so the same URL works for both `GET /v1/models` and `POST /v1/chat/completions`.
+export const QINY_IMAGE_BASE_URL = "https://openai.chatnewai.com/v1/chat/completions";
+
 // Persisted settings are wrapped with a _version tag so future shape changes
 // have a clear migration path. Bump SCHEMA_VERSION and add a branch in
 // migrate() when adding/removing fields.
@@ -64,6 +70,13 @@ const DEFAULT_SETTINGS: AppState = {
     apiFormat: "openai",
     apiProvider: "custom",
     autoConnect: false,
+  },
+  imageApi: {
+    enabled: false,
+    provider: "qiny",
+    apiKey: "",
+    model: "",
+    size: "default",
   },
   bypass: {
     enabled: true,
@@ -129,6 +142,9 @@ export default function App() {
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("disconnected");
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [imageConnectionStatus, setImageConnectionStatus] = useState<ConnectionStatus>("disconnected");
+  const [availableImageModels, setAvailableImageModels] = useState<string[]>([]);
+  const [imageConnectionError, setImageConnectionError] = useState<string | null>(null);
   const hasAutoConnectedRef = React.useRef(false);
 
   useEffect(() => {
@@ -147,6 +163,10 @@ export default function App() {
         }
         setSettings({
           api: mergedApi,
+          imageApi: {
+            ...DEFAULT_SETTINGS.imageApi,
+            ...(parsed.imageApi || {}),
+          },
           bypass: {
             ...DEFAULT_SETTINGS.bypass,
             ...parsed.bypass,
@@ -251,6 +271,43 @@ export default function App() {
     [settings.api],
   );
 
+  const handleImageConnect = React.useCallback(
+    async (overrideImageApi?: AppState["imageApi"]): Promise<boolean> => {
+      const imageApi = overrideImageApi || settings.imageApi;
+      // ComfyUI is not implemented — connect is only meaningful for QinyAPI.
+      if (imageApi.provider !== "qiny") {
+        setImageConnectionStatus("disconnected");
+        setImageConnectionError("当前 API 来源暂不支持");
+        return false;
+      }
+      if (!imageApi.apiKey) {
+        setImageConnectionStatus("disconnected");
+        setImageConnectionError("缺少 API Key");
+        return false;
+      }
+      setImageConnectionStatus("connecting");
+      setImageConnectionError(null);
+      try {
+        const models = await fetchModels({
+          baseUrl: QINY_IMAGE_BASE_URL,
+          apiKey: imageApi.apiKey,
+          model: imageApi.model,
+          apiFormat: "openai",
+        });
+        // Per spec: filter out any model whose id contains "video".
+        const filtered = models.filter((m) => !/video/i.test(m));
+        setAvailableImageModels(filtered);
+        setImageConnectionStatus("connected");
+        return true;
+      } catch (err: any) {
+        setImageConnectionStatus("disconnected");
+        setImageConnectionError(err?.message || String(err));
+        return false;
+      }
+    },
+    [settings.imageApi],
+  );
+
   // Auto-connect once after settings load, if enabled and credentials present.
   useEffect(() => {
     if (!isLoaded) return;
@@ -290,6 +347,10 @@ export default function App() {
             connectionError={connectionError}
             availableModels={availableModels}
             onConnect={handleConnect}
+            imageConnectionStatus={imageConnectionStatus}
+            imageConnectionError={imageConnectionError}
+            availableImageModels={availableImageModels}
+            onImageConnect={handleImageConnect}
           />
         )}
         {isBypassOpen && (

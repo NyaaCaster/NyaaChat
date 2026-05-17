@@ -5,6 +5,12 @@ export interface Message {
   timestamp?: number;
   tokenCount?: number;
   model?: string;
+  /** When set, the message represents a generated image. `content` is reused
+   *  to carry the prompt that produced it (used by 重新生成). */
+  imageUrl?: string;
+  /** Snapshot of the prompt at generation time so 重新生成 stays stable even
+   *  if the source bubble was edited or deleted afterwards. */
+  imagePrompt?: string;
 }
 
 export type ApiFormat = "openai" | "anthropic";
@@ -19,6 +25,18 @@ export interface ApiSettings {
   apiFormat?: ApiFormat;
   apiProvider?: ApiProvider;
   autoConnect?: boolean;
+}
+
+export type ImageApiProvider = "qiny" | "comfyui";
+
+export type ImageSize = "default" | "4k";
+
+export interface ImageApiSettings {
+  enabled: boolean;
+  provider: ImageApiProvider;
+  apiKey: string;
+  model: string;
+  size: ImageSize;
 }
 
 export interface BypassSettings {
@@ -67,6 +85,7 @@ export interface CharacterSettings {
 
 export interface AppState {
   api: ApiSettings;
+  imageApi: ImageApiSettings;
   bypass: BypassSettings;
   userRole: UserRoleSettings;
   theme: "light" | "dark" | "system";
