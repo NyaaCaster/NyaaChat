@@ -1,59 +1,4 @@
-import { ApiFormat, ApiProvider } from "../types";
-
-export interface ProviderPreset {
-  value: ApiProvider;
-  label: string;
-  baseUrl: string;
-  apiFormat: ApiFormat;
-  defaultModel: string;
-}
-
-export const PROVIDER_PRESETS: Record<Exclude<ApiProvider, "custom">, ProviderPreset> = {
-  gemini: {
-    value: "gemini",
-    label: "Google Gemini",
-    baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
-    apiFormat: "openai",
-    defaultModel: "",
-  },
-  anthropic: {
-    value: "anthropic",
-    label: "Anthropic Claude",
-    baseUrl: "https://api.anthropic.com/v1",
-    apiFormat: "anthropic",
-    defaultModel: "",
-  },
-  openai: {
-    value: "openai",
-    label: "OpenAI GPT",
-    baseUrl: "https://api.openai.com/v1",
-    apiFormat: "openai",
-    defaultModel: "",
-  },
-  deepseek: {
-    value: "deepseek",
-    label: "DeepSeek",
-    baseUrl: "https://api.deepseek.com/v1",
-    apiFormat: "openai",
-    defaultModel: "",
-  },
-};
-
-export const PROVIDER_ORDER: ApiProvider[] = [
-  "custom",
-  "gemini",
-  "anthropic",
-  "openai",
-  "deepseek",
-];
-
-export const PROVIDER_LABELS: Record<ApiProvider, string> = {
-  custom: "自定义 API",
-  gemini: PROVIDER_PRESETS.gemini.label,
-  anthropic: PROVIDER_PRESETS.anthropic.label,
-  openai: PROVIDER_PRESETS.openai.label,
-  deepseek: PROVIDER_PRESETS.deepseek.label,
-};
+import { ApiFormat, ApiProvider, ApiSettings, AppState, ImageApiSettings, ImageProvider, LlmProvider, LlmProviderKind } from "../types";
 
 /**
  * Best-effort detection of provider from existing baseUrl/apiFormat.
@@ -68,3 +13,185 @@ export function inferProvider(baseUrl: string, apiFormat?: ApiFormat): ApiProvid
   if (url.includes("generativelanguage.googleapis.com")) return "gemini";
   return "custom";
 }
+
+// ---------------------------------------------------------------------------
+// Multi-provider model (v2 schema). The data layer below powers the new
+// settings UI; the legacy single-endpoint `ApiSettings` shape above remains
+// in use by older code paths during the migration.
+// ---------------------------------------------------------------------------
+
+export interface LlmProviderPresetMeta {
+  kind: LlmProviderKind;
+  name: string;
+  baseUrl: string;
+  apiFormat: ApiFormat;
+  /** True when the user must edit baseUrl in the UI (custom + ollama). */
+  baseUrlEditable: boolean;
+}
+
+/**
+ * Built-in LLM provider presets in the default display order. Custom-created
+ * providers are always inserted at the head of the user's provider list;
+ * order here only governs the initial seeded defaults.
+ */
+export const LLM_PROVIDER_PRESETS: LlmProviderPresetMeta[] = [
+  {
+    kind: "qiny",
+    name: "QinyAPI",
+    baseUrl: "https://openai.chatnewai.com/v1/chat/completions",
+    apiFormat: "openai",
+    baseUrlEditable: false,
+  },
+  {
+    kind: "gemini",
+    name: "Google Gemini",
+    baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
+    apiFormat: "openai",
+    baseUrlEditable: false,
+  },
+  {
+    kind: "anthropic",
+    name: "Anthropic Claude",
+    baseUrl: "https://api.anthropic.com/v1",
+    apiFormat: "anthropic",
+    baseUrlEditable: false,
+  },
+  {
+    kind: "openai",
+    name: "OpenAI GPT",
+    baseUrl: "https://api.openai.com/v1",
+    apiFormat: "openai",
+    baseUrlEditable: false,
+  },
+  {
+    kind: "deepseek",
+    name: "DeepSeek",
+    baseUrl: "https://api.deepseek.com/v1",
+    apiFormat: "openai",
+    baseUrlEditable: false,
+  },
+  {
+    kind: "ollama",
+    name: "Ollama",
+    baseUrl: "http://localhost:11434",
+    apiFormat: "openai",
+    baseUrlEditable: true,
+  },
+];
+
+export function createDefaultLlmProviders(): LlmProvider[] {
+  return LLM_PROVIDER_PRESETS.map((preset) => ({
+    id: preset.kind,
+    kind: preset.kind,
+    name: preset.name,
+    enabled: false,
+    apiKey: "",
+    baseUrl: preset.baseUrl,
+    apiFormat: preset.apiFormat,
+    models: [],
+  }));
+}
+
+export interface ImageProviderPresetMeta {
+  kind: "qiny" | "comfyui";
+  name: string;
+  baseUrl: string;
+  /** ComfyUI is a placeholder ("尽请期待") and must not be enabled. */
+  selectable: boolean;
+}
+
+export const IMAGE_PROVIDER_PRESETS: ImageProviderPresetMeta[] = [
+  {
+    kind: "qiny",
+    name: "QinyAPI",
+    baseUrl: "https://openai.chatnewai.com/v1/chat/completions",
+    selectable: true,
+  },
+  {
+    kind: "comfyui",
+    name: "ComfyUI",
+    baseUrl: "",
+    selectable: false,
+  },
+];
+
+export function createDefaultImageProviders(): ImageProvider[] {
+  return IMAGE_PROVIDER_PRESETS.map((preset) => ({
+    id: preset.kind,
+    kind: preset.kind,
+    name: preset.name,
+    enabled: false,
+    apiKey: "",
+    baseUrl: preset.baseUrl,
+    models: [],
+    size: "default",
+  }));
+}
+
+// ---------------------------------------------------------------------------
+// v2 → legacy shape converters. Phase 3 introduces these so consumers that
+// still expect the single-endpoint `ApiSettings` / `ImageApiSettings` shapes
+// (chat pipeline, fetchModels, generateImage) can keep working while the
+// underlying source-of-truth shifts to the multi-provider model. Phases 5+
+// migrate the consumers themselves and these helpers become the canonical
+// way to derive a per-call request shape from the active provider.
+// ---------------------------------------------------------------------------
+
+/**
+ * Map an LlmProvider (v2) to the legacy ApiSettings (v1) shape used by
+ * fetchChatCompletion / fetchModels. `modelId` overrides the provider's
+ * lastUsedModel when given — useful when the caller has just picked a model
+ * but the provider state hasn't yet been updated.
+ */
+export function providerToApiSettings(
+  provider: LlmProvider,
+  modelId?: string,
+): ApiSettings {
+  return {
+    baseUrl: provider.baseUrl,
+    apiKey: provider.apiKey,
+    model: modelId ?? provider.lastUsedModel ?? provider.models[0]?.id ?? "",
+    apiFormat: provider.apiFormat,
+    // isStreaming is sourced globally from AppState now — caller must patch
+    // it after calling this helper. autoConnect is no longer wired in v2.
+    apiProvider: provider.kind === "qiny" || provider.kind === "ollama" ? "custom" : provider.kind,
+  };
+}
+
+/**
+ * Map an ImageProvider (v2) to the legacy ImageApiSettings (v1) shape used
+ * by generateImage. Only the QinyAPI-compatible OpenAI-format kind has a
+ * working call path today; ComfyUI is a placeholder.
+ */
+export function imageProviderToApiSettings(
+  provider: ImageProvider,
+  modelId?: string,
+): ImageApiSettings {
+  return {
+    enabled: provider.enabled,
+    provider: provider.kind,
+    apiKey: provider.apiKey,
+    model: modelId ?? provider.lastUsedModel ?? provider.models[0]?.id ?? "",
+    size: provider.size ?? "default",
+    baseUrl: provider.baseUrl || undefined,
+  };
+}
+
+/**
+ * Resolve the "currently active" LLM provider from AppState, or undefined if
+ * the settings haven't been migrated yet / the active id points nowhere.
+ */
+export function getActiveLlmProvider(settings: AppState): LlmProvider | undefined {
+  if (!Array.isArray(settings.llmProviders)) return undefined;
+  return settings.llmProviders.find((p) => p.id === settings.currentLlmProviderId);
+}
+
+/**
+ * Resolve the "currently active" image provider from AppState.
+ */
+export function getActiveImageProvider(settings: AppState): ImageProvider | undefined {
+  if (!Array.isArray(settings.imageProviders)) return undefined;
+  return settings.imageProviders.find((p) => p.id === settings.currentImageProviderId);
+}
+
+

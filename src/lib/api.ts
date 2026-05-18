@@ -84,7 +84,7 @@ async function fetchWithTimeout(
  *     https://api.openai.com/v1/chat/completions → https://api.openai.com/v1
  *     https://generativelanguage.googleapis.com/v1beta/openai → unchanged
  */
-function normalizeBaseUrl(raw: string): string {
+export function normalizeBaseUrl(raw: string): string {
   let url = (raw || '').trim().replace(/\/+$/, '');
   if (!url) return '';
   const knownSuffixes = [
@@ -183,12 +183,18 @@ async function fetchOpenAI(
     requestBody.stream_options = { include_usage: true };
   }
 
+  // apiKey is optional — local Ollama-style servers don't require it. We
+  // only attach Authorization when the user provided a key.
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (apiKey) {
+    headers['Authorization'] = `Bearer ${apiKey}`;
+  }
+
   const response = await fetchWithTimeout(url, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`,
-    },
+    headers,
     body: JSON.stringify(requestBody),
     referrerPolicy: 'no-referrer',
   }, signal);
@@ -389,13 +395,17 @@ async function fetchAnthropic(
   // Send both auth header styles so 3rd-party gateways that expect either
   // `x-api-key` (Anthropic native) or `Authorization: Bearer` (most proxies)
   // can authenticate. Only attach the dangerous-direct-browser-access header
-  // for the official Anthropic host to avoid tripping strict proxies.
+  // for the official Anthropic host to avoid tripping strict proxies. Auth
+  // headers are only attached when an apiKey is provided — empty-string key
+  // would otherwise produce `Bearer ` and trip strict servers.
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    'Authorization': `Bearer ${apiKey}`,
-    'x-api-key': apiKey,
     'anthropic-version': '2023-06-01',
   };
+  if (apiKey) {
+    headers['Authorization'] = `Bearer ${apiKey}`;
+    headers['x-api-key'] = apiKey;
+  }
   if (isOfficialAnthropicHost(baseUrl)) {
     headers['anthropic-dangerous-direct-browser-access'] = 'true';
   }
@@ -523,21 +533,28 @@ export async function fetchModels(
   const format = settings.apiFormat || 'openai';
   const baseUrl = normalizeBaseUrl(settings.baseUrl);
   if (!baseUrl) throw new Error('Missing API Base URL');
-  if (!settings.apiKey) throw new Error('Missing API Key');
+  // apiKey is intentionally optional here — local servers like Ollama
+  // don't require auth and would otherwise be unreachable. The downstream
+  // request still 401s on real-Auth providers (OpenAI/Anthropic), giving
+  // the user a precise error from the server.
   assertSafeBaseUrl(baseUrl);
 
   const url = `${baseUrl}/models`;
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
 
   if (format === 'anthropic') {
-    headers['x-api-key'] = settings.apiKey;
-    headers['Authorization'] = `Bearer ${settings.apiKey}`;
+    if (settings.apiKey) {
+      headers['x-api-key'] = settings.apiKey;
+      headers['Authorization'] = `Bearer ${settings.apiKey}`;
+    }
     headers['anthropic-version'] = '2023-06-01';
     if (isOfficialAnthropicHost(baseUrl)) {
       headers['anthropic-dangerous-direct-browser-access'] = 'true';
     }
   } else {
-    headers['Authorization'] = `Bearer ${settings.apiKey}`;
+    if (settings.apiKey) {
+      headers['Authorization'] = `Bearer ${settings.apiKey}`;
+    }
   }
 
   const response = await fetchWithTimeout(url, { method: 'GET', headers, referrerPolicy: 'no-referrer' }, signal);

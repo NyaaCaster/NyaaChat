@@ -8,7 +8,6 @@ import {
   Terminal,
   User,
   History,
-  Palette,
   Maximize,
   Minimize,
 } from "lucide-react";
@@ -22,7 +21,6 @@ interface ChatHeaderProps {
   isFullscreenSupported: boolean;
   isFullscreen: boolean;
   onToggleFullscreen: () => void;
-  onOpenAppearance: () => void;
   onOpenConsole: () => void;
   onOpenBypass: () => void;
   onOpenSettings: () => void;
@@ -44,7 +42,6 @@ export function ChatHeader({
   isFullscreenSupported,
   isFullscreen,
   onToggleFullscreen,
-  onOpenAppearance,
   onOpenConsole,
   onOpenBypass,
   onOpenSettings,
@@ -90,13 +87,6 @@ export function ChatHeader({
               {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
             </button>
           )}
-          <button
-            onClick={onOpenAppearance}
-            className="p-2 text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-white/10 rounded-lg transition-all duration-200"
-            title="外观设置"
-          >
-            <Palette size={18} />
-          </button>
           <button
             onClick={onOpenConsole}
             className="p-2 text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-white/10 rounded-lg transition-all duration-200"

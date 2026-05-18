@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" fill="none" role="img" aria-label="QinyAPI">
+  <defs>
+    <linearGradient id="qinyCloudFill" x1="0" y1="32" x2="0" y2="208" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFB870"/>
+      <stop offset=".55" stop-color="#FF9A3C"/>
+      <stop offset="1" stop-color="#EF6A11"/>
+    </linearGradient>
+    <linearGradient id="qinyCloudShade" x1="0" y1="120" x2="0" y2="208" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7A2E00" stop-opacity="0"/>
+      <stop offset="1" stop-color="#7A2E00" stop-opacity=".22"/>
+    </linearGradient>
+    <radialGradient id="qinyCloudHi" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(116 78) rotate(28) scale(46 14)">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity=".85"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <g fill="url(#qinyCloudFill)">
+    <circle cx="84" cy="148" r="50"/>
+    <circle cx="132" cy="100" r="56"/>
+    <circle cx="178" cy="138" r="46"/>
+    <ellipse cx="132" cy="168" rx="82" ry="44"/>
+  </g>
+
+  <ellipse cx="132" cy="168" rx="82" ry="44" fill="url(#qinyCloudShade)"/>
+
+  <ellipse cx="116" cy="78" rx="46" ry="14" fill="url(#qinyCloudHi)"/>
+</svg>

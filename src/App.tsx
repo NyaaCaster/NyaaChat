@@ -7,10 +7,9 @@ import React, { useState, useEffect, lazy, Suspense } from "react";
 import { AppState, LogEntry } from "./types";
 import { ChatInterface } from "./components/ChatInterface";
 import { bypassTemplates } from "./lib/bypassTemplates";
-import { fetchModels } from "./lib/api";
-import { inferProvider } from "./lib/providers";
+import { createDefaultImageProviders, createDefaultLlmProviders, inferProvider } from "./lib/providers";
 import { newId } from "./lib/id";
-import { ChatSession } from "./types";
+import { ChatSession, LlmProvider, ImageProvider, LlmProviderKind } from "./types";
 
 // Modals are rendered only when opened, so each one's chunk loads on-demand
 // rather than bloating the initial bundle. Trade-off: closing a modal unmounts
@@ -35,49 +34,155 @@ const CharacterSelectionModal = lazy(() =>
 const ChatHistoryModal = lazy(() =>
   import("./components/ChatHistoryModal").then((m) => ({ default: m.ChatHistoryModal })),
 );
-const AppearanceModal = lazy(() =>
-  import("./components/AppearanceModal").then((m) => ({ default: m.AppearanceModal })),
+const LlmProvidersModal = lazy(() =>
+  import("./components/LlmProvidersModal").then((m) => ({ default: m.LlmProvidersModal })),
+);
+const ImageProvidersModal = lazy(() =>
+  import("./components/ImageProvidersModal").then((m) => ({ default: m.ImageProvidersModal })),
 );
 
 export type ConnectionStatus = "disconnected" | "connecting" | "connected";
 
-// QinyAPI image generation endpoint. We hardcode it because the spec doesn't
-// expose it for editing — only the API key/model/size are user-configurable.
-// `fetchModels` strips the `/chat/completions` suffix during normalization,
-// so the same URL works for both `GET /v1/models` and `POST /v1/chat/completions`.
-export const QINY_IMAGE_BASE_URL = "https://openai.chatnewai.com/v1/chat/completions";
-
 // Persisted settings are wrapped with a _version tag so future shape changes
 // have a clear migration path. Bump SCHEMA_VERSION and add a branch in
 // migrate() when adding/removing fields.
-const SCHEMA_VERSION = 1;
+//
+// v2 introduces the multi-provider model: `llmProviders[]` / `imageProviders[]`
+// with per-provider apiKey/baseUrl/models. The legacy single-endpoint `api`
+// and `imageApi` blocks are retained on AppState during the transition until
+// chatPipeline is switched over (phase 3).
+const SCHEMA_VERSION = 2;
 
 function migrate(raw: any): any {
   if (!raw || typeof raw !== "object") return raw;
   const v = typeof raw._version === "number" ? raw._version : 0;
-  // Reserved for future migrations:
-  //   if (v < 2) raw = { ...raw, newField: defaultNewField };
-  void v;
+
+  if (v < 2) {
+    raw = migrateV1ToV2(raw);
+  }
+
   return raw;
 }
 
+/**
+ * v1 → v2: derive `llmProviders[]` / `imageProviders[]` from the user's
+ * existing single-endpoint `api` / `imageApi` blocks so the new settings UI
+ * shows their working configuration on first open.
+ *
+ * Strategy:
+ *  - If the saved `apiProvider` is one of the built-in presets
+ *    (gemini/anthropic/openai/deepseek), seed the matching default provider
+ *    with the user's apiKey + model and mark it enabled.
+ *  - Otherwise (custom / unknown), prepend a new `custom`-kind provider at
+ *    the head of the list inheriting baseUrl/apiKey/apiFormat/model.
+ *  - The active `currentLlmProviderId` is set to whichever entry was seeded.
+ *  - The legacy `api` / `imageApi` blocks are left untouched so the existing
+ *    chat / image-gen code paths keep working until phase 3 cuts them over.
+ */
+function migrateV1ToV2(raw: any): any {
+  const api = raw.api || {};
+  const imageApi = raw.imageApi || {};
+
+  const llmProviders = createDefaultLlmProviders();
+  let currentLlmProviderId = llmProviders[0]?.id || "qiny";
+
+  if (api.apiKey || api.baseUrl || api.model) {
+    const detectedKind = pickLlmProviderKind(api);
+    if (detectedKind === "custom") {
+      const customId = newId();
+      const customProvider: LlmProvider = {
+        id: customId,
+        kind: "custom",
+        name: "自定义 API",
+        enabled: !!api.apiKey,
+        apiKey: api.apiKey || "",
+        baseUrl: api.baseUrl || "",
+        apiFormat: api.apiFormat === "anthropic" ? "anthropic" : "openai",
+        models: api.model ? [{ id: api.model }] : [],
+        lastUsedModel: api.model || undefined,
+      };
+      llmProviders.unshift(customProvider);
+      currentLlmProviderId = customId;
+    } else {
+      const idx = llmProviders.findIndex((p) => p.kind === detectedKind);
+      if (idx >= 0) {
+        const base = llmProviders[idx];
+        llmProviders[idx] = {
+          ...base,
+          enabled: !!api.apiKey,
+          apiKey: api.apiKey || "",
+          // Built-in presets keep their canonical baseUrl / apiFormat. Ollama
+          // is the one preset where the user is expected to override baseUrl,
+          // so honor a saved value if present.
+          baseUrl:
+            detectedKind === "ollama" && api.baseUrl
+              ? api.baseUrl
+              : base.baseUrl,
+          models: api.model ? [{ id: api.model }] : [],
+          lastUsedModel: api.model || undefined,
+        };
+        currentLlmProviderId = base.id;
+      }
+    }
+  }
+
+  const imageProviders = createDefaultImageProviders();
+  const currentImageProviderId = imageProviders[0]?.id || "qiny";
+
+  if (imageApi.apiKey || imageApi.model) {
+    const idx = imageProviders.findIndex((p) => p.kind === "qiny");
+    if (idx >= 0) {
+      const base = imageProviders[idx];
+      const seeded: ImageProvider = {
+        ...base,
+        enabled: !!imageApi.enabled || !!imageApi.apiKey,
+        apiKey: imageApi.apiKey || "",
+        models: imageApi.model ? [{ id: imageApi.model }] : [],
+        lastUsedModel: imageApi.model || undefined,
+        size: imageApi.size === "4k" ? "4k" : "default",
+      };
+      imageProviders[idx] = seeded;
+    }
+  }
+
+  return {
+    ...raw,
+    llmProviders,
+    imageProviders,
+    currentLlmProviderId,
+    currentImageProviderId,
+    isWebSearchEnabled:
+      typeof raw.isWebSearchEnabled === "boolean" ? raw.isWebSearchEnabled : false,
+    // isStreaming is now a global setting (was per-provider in v1's api block).
+    // Promote the legacy api.isStreaming to the top level if present.
+    isStreaming: !!api.isStreaming,
+    _version: 2,
+  };
+}
+
+/**
+ * Map a v1 `api` block to the matching v2 LlmProvider kind. Honors the
+ * explicit `apiProvider` field when present, otherwise falls back to URL-based
+ * inference. The v1 enum has no "qiny" or "ollama" — those are v2 additions.
+ */
+function pickLlmProviderKind(api: any): LlmProviderKind {
+  const explicit = api?.apiProvider;
+  if (
+    explicit === "gemini" ||
+    explicit === "anthropic" ||
+    explicit === "openai" ||
+    explicit === "deepseek" ||
+    explicit === "custom"
+  ) {
+    return explicit;
+  }
+  // Fall back to URL inference for legacy saves that pre-date the apiProvider
+  // field. inferProvider returns the v1 enum (no qiny/ollama), so the result
+  // is safely assignable to LlmProviderKind.
+  return inferProvider(api?.baseUrl, api?.apiFormat) as LlmProviderKind;
+}
+
 const DEFAULT_SETTINGS: AppState = {
-  api: {
-    baseUrl: "https://openai.chatnewai.com/",
-    apiKey: "",
-    model: "gemini-2.5-pro",
-    isStreaming: false,
-    apiFormat: "openai",
-    apiProvider: "custom",
-    autoConnect: false,
-  },
-  imageApi: {
-    enabled: false,
-    provider: "qiny",
-    apiKey: "",
-    model: "",
-    size: "default",
-  },
   bypass: {
     enabled: true,
     identityReset: true,
@@ -123,6 +228,12 @@ const DEFAULT_SETTINGS: AppState = {
     },
   ],
   currentCharacterId: "default",
+  llmProviders: createDefaultLlmProviders(),
+  imageProviders: createDefaultImageProviders(),
+  currentLlmProviderId: "qiny",
+  currentImageProviderId: "qiny",
+  isWebSearchEnabled: false,
+  isStreaming: false,
 };
 
 export default function App() {
@@ -134,18 +245,12 @@ export default function App() {
   const [isCharacterSelectionOpen, setIsCharacterSelectionOpen] =
     useState(false);
   const [isChatHistoryOpen, setIsChatHistoryOpen] = useState(false);
-  const [isAppearanceOpen, setIsAppearanceOpen] = useState(false);
+  const [isLlmProvidersOpen, setIsLlmProvidersOpen] = useState(false);
+  const [isImageProvidersOpen, setIsImageProvidersOpen] = useState(false);
   const [currentSession, setCurrentSession] = useState<ChatSession | null>(null);
   const [_historyVersion, setHistoryVersion] = useState(0);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
-  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("disconnected");
-  const [availableModels, setAvailableModels] = useState<string[]>([]);
-  const [connectionError, setConnectionError] = useState<string | null>(null);
-  const [imageConnectionStatus, setImageConnectionStatus] = useState<ConnectionStatus>("disconnected");
-  const [availableImageModels, setAvailableImageModels] = useState<string[]>([]);
-  const [imageConnectionError, setImageConnectionError] = useState<string | null>(null);
-  const hasAutoConnectedRef = React.useRef(false);
 
   useEffect(() => {
     // Read new key first, fall back to legacy `rikkachat_settings` for users
@@ -157,16 +262,7 @@ export default function App() {
     if (saved) {
       try {
         const parsed = migrate(JSON.parse(saved));
-        const mergedApi = { ...DEFAULT_SETTINGS.api, ...parsed.api };
-        if (!mergedApi.apiProvider) {
-          mergedApi.apiProvider = inferProvider(mergedApi.baseUrl, mergedApi.apiFormat);
-        }
         setSettings({
-          api: mergedApi,
-          imageApi: {
-            ...DEFAULT_SETTINGS.imageApi,
-            ...(parsed.imageApi || {}),
-          },
           bypass: {
             ...DEFAULT_SETTINGS.bypass,
             ...parsed.bypass,
@@ -186,6 +282,33 @@ export default function App() {
               : DEFAULT_SETTINGS.characters,
           currentCharacterId:
             parsed.currentCharacterId || DEFAULT_SETTINGS.currentCharacterId,
+          llmProviders: Array.isArray(parsed.llmProviders) && parsed.llmProviders.length > 0
+            ? parsed.llmProviders
+            : DEFAULT_SETTINGS.llmProviders,
+          imageProviders: Array.isArray(parsed.imageProviders) && parsed.imageProviders.length > 0
+            ? parsed.imageProviders
+            : DEFAULT_SETTINGS.imageProviders,
+          currentLlmProviderId:
+            parsed.currentLlmProviderId || DEFAULT_SETTINGS.currentLlmProviderId,
+          currentImageProviderId:
+            parsed.currentImageProviderId || DEFAULT_SETTINGS.currentImageProviderId,
+          isWebSearchEnabled:
+            typeof parsed.isWebSearchEnabled === "boolean"
+              ? parsed.isWebSearchEnabled
+              : DEFAULT_SETTINGS.isWebSearchEnabled,
+          // isStreaming was moved from per-provider (v1's api.isStreaming
+          // and early-v2 provider.isStreaming) to a top-level AppState
+          // field. Migration order: top-level → any provider that still
+          // carries the old per-provider flag → legacy api.isStreaming →
+          // default.
+          isStreaming:
+            typeof parsed.isStreaming === "boolean"
+              ? parsed.isStreaming
+              : Array.isArray(parsed.llmProviders)
+                ? !!parsed.llmProviders.find(
+                    (p: any) => typeof p?.isStreaming === "boolean",
+                  )?.isStreaming
+                : !!parsed.api?.isStreaming,
         });
       } catch (e) {
         console.error("Failed to load settings", e);
@@ -247,77 +370,6 @@ export default function App() {
     ]);
   };
 
-  const handleConnect = React.useCallback(
-    async (overrideApi?: AppState["api"]): Promise<boolean> => {
-      const api = overrideApi || settings.api;
-      if (!api.baseUrl || !api.apiKey) {
-        setConnectionStatus("disconnected");
-        setConnectionError("缺少 API Base URL 或 API Key");
-        return false;
-      }
-      setConnectionStatus("connecting");
-      setConnectionError(null);
-      try {
-        const models = await fetchModels(api);
-        setAvailableModels(models);
-        setConnectionStatus("connected");
-        return true;
-      } catch (err: any) {
-        setConnectionStatus("disconnected");
-        setConnectionError(err?.message || String(err));
-        return false;
-      }
-    },
-    [settings.api],
-  );
-
-  const handleImageConnect = React.useCallback(
-    async (overrideImageApi?: AppState["imageApi"]): Promise<boolean> => {
-      const imageApi = overrideImageApi || settings.imageApi;
-      // ComfyUI is not implemented — connect is only meaningful for QinyAPI.
-      if (imageApi.provider !== "qiny") {
-        setImageConnectionStatus("disconnected");
-        setImageConnectionError("当前 API 来源暂不支持");
-        return false;
-      }
-      if (!imageApi.apiKey) {
-        setImageConnectionStatus("disconnected");
-        setImageConnectionError("缺少 API Key");
-        return false;
-      }
-      setImageConnectionStatus("connecting");
-      setImageConnectionError(null);
-      try {
-        const models = await fetchModels({
-          baseUrl: QINY_IMAGE_BASE_URL,
-          apiKey: imageApi.apiKey,
-          model: imageApi.model,
-          apiFormat: "openai",
-        });
-        // Per spec: filter out any model whose id contains "video".
-        const filtered = models.filter((m) => !/video/i.test(m));
-        setAvailableImageModels(filtered);
-        setImageConnectionStatus("connected");
-        return true;
-      } catch (err: any) {
-        setImageConnectionStatus("disconnected");
-        setImageConnectionError(err?.message || String(err));
-        return false;
-      }
-    },
-    [settings.imageApi],
-  );
-
-  // Auto-connect once after settings load, if enabled and credentials present.
-  useEffect(() => {
-    if (!isLoaded) return;
-    if (hasAutoConnectedRef.current) return;
-    if (!settings.api.autoConnect) return;
-    if (!settings.api.baseUrl || !settings.api.apiKey) return;
-    hasAutoConnectedRef.current = true;
-    handleConnect(settings.api);
-  }, [isLoaded, settings.api, handleConnect]);
-
   if (!isLoaded) return null; // or a loading spinner
 
   return (
@@ -332,7 +384,7 @@ export default function App() {
         onOpenUserRole={() => setIsUserRoleOpen(true)}
         onOpenCharacterSelection={() => setIsCharacterSelectionOpen(true)}
         onOpenChatHistory={() => setIsChatHistoryOpen(true)}
-        onOpenAppearance={() => setIsAppearanceOpen(true)}
+        onSettingsChange={handleSaveSettings}
         currentSession={currentSession}
         onSessionChange={setCurrentSession}
       />
@@ -343,14 +395,8 @@ export default function App() {
             onClose={() => setIsSettingsOpen(false)}
             settings={settings}
             onSave={handleSaveSettings}
-            connectionStatus={connectionStatus}
-            connectionError={connectionError}
-            availableModels={availableModels}
-            onConnect={handleConnect}
-            imageConnectionStatus={imageConnectionStatus}
-            imageConnectionError={imageConnectionError}
-            availableImageModels={availableImageModels}
-            onImageConnect={handleImageConnect}
+            onOpenLlmProviders={() => setIsLlmProvidersOpen(true)}
+            onOpenImageProviders={() => setIsImageProvidersOpen(true)}
           />
         )}
         {isBypassOpen && (
@@ -394,10 +440,18 @@ export default function App() {
             onSessionsChange={() => setHistoryVersion((v) => v + 1)}
           />
         )}
-        {isAppearanceOpen && (
-          <AppearanceModal
-            isOpen={isAppearanceOpen}
-            onClose={() => setIsAppearanceOpen(false)}
+        {isLlmProvidersOpen && (
+          <LlmProvidersModal
+            isOpen={isLlmProvidersOpen}
+            onClose={() => setIsLlmProvidersOpen(false)}
+            settings={settings}
+            onSave={handleSaveSettings}
+          />
+        )}
+        {isImageProvidersOpen && (
+          <ImageProvidersModal
+            isOpen={isImageProvidersOpen}
+            onClose={() => setIsImageProvidersOpen(false)}
             settings={settings}
             onSave={handleSaveSettings}
           />

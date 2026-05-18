@@ -10,7 +10,7 @@ import { ImageApiSettings } from "../types";
  * to ignore the parameter. We pass it through unconditionally when the user
  * picked "4k" so the supplier-side gating is the single source of truth.
  */
-const QINY_IMAGE_URL = "https://openai.chatnewai.com/v1/chat/completions";
+const QINY_IMAGE_URL_DEFAULT = "https://openai.chatnewai.com/v1/chat/completions";
 
 // 120s is the supplier's rough upper bound for normal-length prompts. With
 // the bounded prompt enforced in chatPipeline.buildImagePrompt, runs should
@@ -269,8 +269,13 @@ async function performImageRequest(
   };
   if (sizeValue) body.size = sizeValue;
 
+  // The endpoint is taken from the caller's settings when present (v2 multi-
+  // provider path) and falls back to the original hardcoded QinyAPI URL so
+  // legacy v1 callers — which never set baseUrl — keep working unchanged.
+  const endpoint = imageApi.baseUrl?.trim() || QINY_IMAGE_URL_DEFAULT;
+
   const response = await fetchWithTimeout(
-    QINY_IMAGE_URL,
+    endpoint,
     {
       method: "POST",
       headers: {

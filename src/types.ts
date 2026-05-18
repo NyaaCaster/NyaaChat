@@ -37,6 +37,10 @@ export interface ImageApiSettings {
   apiKey: string;
   model: string;
   size: ImageSize;
+  /** Optional override for the image-gen endpoint. When omitted the legacy
+   *  hardcoded QinyAPI URL is used. Populated by the v2 multi-provider call
+   *  path so generateImage can target arbitrary OpenAI-compatible image hosts. */
+  baseUrl?: string;
 }
 
 export interface BypassSettings {
@@ -84,13 +88,76 @@ export interface CharacterSettings {
 }
 
 export interface AppState {
-  api: ApiSettings;
-  imageApi: ImageApiSettings;
   bypass: BypassSettings;
   userRole: UserRoleSettings;
   theme: "light" | "dark" | "system";
   characters: CharacterSettings[];
   currentCharacterId: string;
+  llmProviders: LlmProvider[];
+  imageProviders: ImageProvider[];
+  currentLlmProviderId: string;
+  currentImageProviderId: string;
+  isWebSearchEnabled: boolean;
+  isStreaming: boolean;
+}
+
+export type ModelCapability =
+  | "vision"
+  | "web"
+  | "reasoning"
+  | "tools"
+  | "rerank"
+  | "embed";
+
+export interface ModelHealth {
+  ok: boolean;
+  latencyMs?: number;
+  testedAt?: number;
+  error?: string;
+}
+
+export interface ModelEntry {
+  id: string;
+  name?: string;
+  capabilities?: ModelCapability[];
+  contextWindow?: number;
+  maxOutput?: number;
+  health?: ModelHealth;
+}
+
+export type LlmProviderKind =
+  | "qiny"
+  | "gemini"
+  | "anthropic"
+  | "openai"
+  | "deepseek"
+  | "ollama"
+  | "custom";
+
+export interface LlmProvider {
+  id: string;
+  kind: LlmProviderKind;
+  name: string;
+  enabled: boolean;
+  apiKey: string;
+  baseUrl: string;
+  apiFormat: ApiFormat;
+  models: ModelEntry[];
+  lastUsedModel?: string;
+}
+
+export type ImageProviderKind = "qiny" | "comfyui";
+
+export interface ImageProvider {
+  id: string;
+  kind: ImageProviderKind;
+  name: string;
+  enabled: boolean;
+  apiKey: string;
+  baseUrl: string;
+  models: ModelEntry[];
+  lastUsedModel?: string;
+  size?: ImageSize;
 }
 
 export interface ChatSession {

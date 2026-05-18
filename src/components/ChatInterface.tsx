@@ -1,15 +1,18 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { Sparkles } from "lucide-react";
-import { Message, AppState, LogEntry, ChatSession } from "../types";
+import { ApiSettings, Message, AppState, LogEntry, ChatSession } from "../types";
 import { fetchChatCompletion } from "../lib/api";
 import { generateImage } from "../lib/imageApi";
 import { newId } from "../lib/id";
 import { saveSession } from "../lib/sessionStorage";
+import { getActiveImageProvider, getActiveLlmProvider, imageProviderToApiSettings, providerToApiSettings } from "../lib/providers";
+import { searchWeb, WebSearchError } from "../lib/searchApi";
 import {
   applyPlaceholders,
   buildImagePrompt,
   buildMessageContent,
   buildRequestMessages,
+  buildSearchSystemMessage,
 } from "../lib/chatPipeline";
 import { MessageItem } from "./MessageItem";
 import { ChatHeader } from "./ChatHeader";
@@ -52,7 +55,7 @@ interface ChatInterfaceProps {
   onOpenUserRole: () => void;
   onOpenCharacterSelection: () => void;
   onOpenChatHistory: () => void;
-  onOpenAppearance: () => void;
+  onSettingsChange: (next: AppState) => void;
   currentSession: ChatSession | null;
   onSessionChange: (session: ChatSession | null) => void;
 }
@@ -67,7 +70,7 @@ export function ChatInterface({
   onOpenUserRole,
   onOpenCharacterSelection,
   onOpenChatHistory,
-  onOpenAppearance,
+  onSettingsChange,
   currentSession,
   onSessionChange,
 }: ChatInterfaceProps) {
@@ -135,10 +138,37 @@ export function ChatInterface({
     baseMessages: Message[],
   ) => {
     if (isLoading) return;
-    if (!settings.api.baseUrl || !settings.api.apiKey) {
+
+    // Resolve the request shape from the active v2 provider rather than the
+    // legacy `settings.api`. The provider's lastUsedModel takes precedence;
+    // if not set yet (e.g. user has only enabled the provider but never
+    // picked a model in the composer), providerToApiSettings falls back to
+    // the first model in the provider's list. An empty model means no model
+    // is configured at all and the user has to add one via 管理模型 first.
+    const activeProvider = getActiveLlmProvider(settings);
+    const activeApi: ApiSettings | null = activeProvider
+      ? { ...providerToApiSettings(activeProvider), isStreaming: settings.isStreaming }
+      : null;
+
+    // apiKey is exempt for Ollama-style local servers; baseUrl + model
+    // remain required.
+    const requiresKey = activeProvider?.kind !== "ollama";
+    if (
+      !activeApi ||
+      !activeApi.baseUrl ||
+      (requiresKey && !activeApi.apiKey)
+    ) {
       onAddLog({
         direction: "error",
         content: "API configuration is missing",
+      });
+      onOpenSettings();
+      return;
+    }
+    if (!activeApi.model) {
+      onAddLog({
+        direction: "error",
+        content: "No model selected for the active provider",
       });
       onOpenSettings();
       return;
@@ -163,6 +193,57 @@ export function ChatInterface({
     ]);
     setIsLoading(true);
 
+    // Web search runs first when enabled. The chat AbortController is
+    // created up-front so the user's Stop button cancels both phases (in
+    // flight search OR in flight chat completion).
+    abortControllerRef.current = new AbortController();
+    let searchSystemMessage: ReturnType<typeof buildSearchSystemMessage> = null;
+    if (settings.isWebSearchEnabled) {
+      try {
+        onAddLog({
+          direction: "info",
+          content: "Web search: querying SearXNG",
+          meta: { query: processedInput },
+        });
+        const results = await searchWeb(
+          processedInput,
+          abortControllerRef.current.signal,
+        );
+        searchSystemMessage = buildSearchSystemMessage(processedInput, results);
+        onAddLog({
+          direction: "response",
+          content: `Web search: got ${results.length} results`,
+          meta: {
+            engines: Array.from(new Set(results.map((r) => r.engine))),
+            urls: results.map((r) => r.url),
+          },
+        });
+      } catch (err: any) {
+        // Silent degrade: keep the chat path going without search context.
+        // If the abort came from the user, propagate it so chat doesn't
+        // continue against the user's intent.
+        if (err?.name === "AbortError" || abortControllerRef.current.signal.aborted) {
+          setIsLoading(false);
+          abortControllerRef.current = null;
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === botMessageId
+                ? { ...m, content: m.content + "\n\n**[已停止生成]**" }
+                : m,
+            ),
+          );
+          return;
+        }
+        const reason =
+          err instanceof WebSearchError ? err.message : err?.message || String(err);
+        onAddLog({
+          direction: "error",
+          content: "Web search failed; continuing without context",
+          meta: { error: reason },
+        });
+      }
+    }
+
     try {
       const messagesForApi = buildRequestMessages({
         processedInput,
@@ -172,15 +253,15 @@ export function ChatInterface({
         currentCharacter,
         userName,
         charName,
+        extraSystemMessages: searchSystemMessage ? [searchSystemMessage] : undefined,
       });
 
-      abortControllerRef.current = new AbortController();
       onAddLog({
         direction: "request",
         content: "Sending chat completion request",
         meta: {
-          url: settings.api.baseUrl,
-          model: settings.api.model,
+          url: activeApi.baseUrl,
+          model: activeApi.model,
           renderedMessages: messagesForApi,
         },
       });
@@ -188,7 +269,7 @@ export function ChatInterface({
       let fullResponse = "";
       const usageResult = await fetchChatCompletion(
         messagesForApi,
-        settings.api,
+        activeApi,
         (chunk) => {
           fullResponse += chunk;
           setMessages((prev) =>
@@ -211,7 +292,7 @@ export function ChatInterface({
               return {
                 ...m,
                 tokenCount: usageResult.completion_tokens,
-                model: settings.api.model,
+                model: activeApi.model,
               };
             }
             return m;
@@ -328,11 +409,21 @@ export function ChatInterface({
     void sendChat(lastUser.content, [], withoutLastUser);
   };
 
+  // Resolve image-gen state from the v2 active image provider rather than
+  // the legacy single-endpoint settings.imageApi. The provider must be
+  // enabled, of kind "qiny" (only working backend), have an apiKey, and
+  // have at least one model entry — providerToApiSettings derives the
+  // model id from lastUsedModel || models[0].
+  const activeImageProvider = getActiveImageProvider(settings);
+  const activeImageApi = activeImageProvider
+    ? imageProviderToApiSettings(activeImageProvider)
+    : null;
   const isImageApiReady =
-    settings.imageApi?.enabled &&
-    settings.imageApi.provider === "qiny" &&
-    !!settings.imageApi.apiKey &&
-    !!settings.imageApi.model;
+    !!activeImageProvider &&
+    activeImageProvider.enabled &&
+    activeImageProvider.kind === "qiny" &&
+    !!activeImageApi?.apiKey &&
+    !!activeImageApi?.model;
 
   /**
    * Run the image API for `prompt` and insert the resulting image as a new
@@ -384,22 +475,25 @@ export function ChatInterface({
         //   默认           → field omitted (regardless of model)
         //   gpt-image-2 4K → "3840x2160" → fallback "2048x2048"
         //   其他模型 4K    → "3840x2160" → fallback omitted
-        const isGptImage2 = /gpt-image-2/i.test(settings.imageApi.model);
+        if (!activeImageApi) {
+          throw new Error("Image provider not configured");
+        }
+        const isGptImage2 = /gpt-image-2/i.test(activeImageApi.model);
         const sizeWirePlan =
-          settings.imageApi.size === "4k"
+          activeImageApi.size === "4k"
             ? `3840x2160 → fallback ${isGptImage2 ? "2048x2048" : "(omitted)"}`
             : "(omitted)";
         onAddLog({
           direction: "request",
           content: "Sending image generation request",
           meta: {
-            model: settings.imageApi.model,
-            sizeChoice: settings.imageApi.size,
+            model: activeImageApi.model,
+            sizeChoice: activeImageApi.size,
             sizeWire: sizeWirePlan,
             prompt,
           },
         });
-        const url = await generateImage(prompt, settings.imageApi, controller.signal);
+        const url = await generateImage(prompt, activeImageApi, controller.signal);
         setMessages((prev) =>
           prev.map((m) =>
             m.id === targetId
@@ -409,7 +503,7 @@ export function ChatInterface({
                   content: prompt,
                   imagePrompt: prompt,
                   imageUrl: url,
-                  model: settings.imageApi.model,
+                  model: activeImageApi.model,
                   timestamp: m.timestamp ?? Date.now(),
                 }
               : m,
@@ -418,7 +512,7 @@ export function ChatInterface({
         onAddLog({
           direction: "response",
           content: "Received image",
-          meta: { model: settings.imageApi.model, url },
+          meta: { model: activeImageApi.model, url },
         });
       } catch (err: any) {
         const isAbort =
@@ -464,7 +558,7 @@ export function ChatInterface({
         }
       }
     },
-    [isImageApiReady, isLoading, settings.imageApi, onAddLog],
+    [isImageApiReady, isLoading, activeImageApi, onAddLog],
   );
 
   const handleGenerateImage = useCallback(
@@ -523,7 +617,6 @@ export function ChatInterface({
         isFullscreenSupported={isFullscreenSupported}
         isFullscreen={isFullscreen}
         onToggleFullscreen={toggleFullscreen}
-        onOpenAppearance={onOpenAppearance}
         onOpenConsole={onOpenConsole}
         onOpenBypass={onOpenBypass}
         onOpenSettings={onOpenSettings}
@@ -595,6 +688,8 @@ export function ChatInterface({
         onSubmit={handleSubmit}
         onStop={handleStop}
         isLoading={isLoading}
+        settings={settings}
+        onSettingsChange={onSettingsChange}
       />
     </div>
   );

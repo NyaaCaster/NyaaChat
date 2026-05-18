@@ -1,6 +1,7 @@
 import { ApiMessage } from "./api";
 import { injectBypassPrompts } from "./bypassTemplates";
 import { AppState, CharacterSettings, Message } from "../types";
+import { SearchResult } from "./searchApi";
 
 export type Attachment = {
   name: string;
@@ -59,6 +60,11 @@ interface BuildRequestArgs {
   currentCharacter: CharacterSettings | undefined;
   userName: string;
   charName: string;
+  /** Optional extra system messages to append to the system segment. Used
+   *  for web-search context injection — these are appended AFTER persona /
+   *  world-info / bypass so the model sees them right next to the latest
+   *  user turn. */
+  extraSystemMessages?: ApiMessage[];
 }
 
 /**
@@ -81,6 +87,7 @@ export function buildRequestMessages(args: BuildRequestArgs): ApiMessage[] {
     currentCharacter,
     userName,
     charName,
+    extraSystemMessages,
   } = args;
 
   // Image-generation bubbles carry the rich image prompt (or a placeholder /
@@ -126,6 +133,13 @@ export function buildRequestMessages(args: BuildRequestArgs): ApiMessage[] {
     });
   }
 
+  // Web-search context goes at the tail of the system block — appended
+  // here so it sits AFTER bypass injection (injectBypassPrompts only
+  // splices in at the head) and adjacent to the latest user turn.
+  if (extraSystemMessages && extraSystemMessages.length > 0) {
+    systemMessages.push(...extraSystemMessages);
+  }
+
   return injectBypassPrompts(
     [...systemMessages, ...history],
     settings,
@@ -139,6 +153,43 @@ export function buildRequestMessages(args: BuildRequestArgs): ApiMessage[] {
  */
 export function applyPlaceholders(text: string, userName: string, charName: string): string {
   return text.replace(/\{\{user\}\}/g, userName).replace(/\{\{char\}\}/g, charName);
+}
+
+/** Per-result snippet truncation when assembling the search system message. */
+const SEARCH_RESULT_MAX_CHARS = 240;
+/** Hard cap on the assembled web-search system message. Prevents an
+ *  unusually verbose engine response from blowing out the prompt budget. */
+const SEARCH_BLOCK_HARD_CAP = 1500;
+
+/**
+ * Build a system message that injects fresh web-search context next to
+ * the user's latest turn. Returns `null` when there are no usable results
+ * so the caller can skip injection cleanly.
+ */
+export function buildSearchSystemMessage(
+  query: string,
+  results: SearchResult[],
+): ApiMessage | null {
+  if (!results || results.length === 0) return null;
+
+  const lines: string[] = [`[Web Search Context · 检索词:${query.trim()}]`];
+  for (let i = 0; i < results.length; i++) {
+    const r = results[i];
+    const snippet = (r.content || "").trim().slice(0, SEARCH_RESULT_MAX_CHARS);
+    const trailing = (r.content || "").length > SEARCH_RESULT_MAX_CHARS ? "…" : "";
+    lines.push(`${i + 1}. ${r.title} — ${r.url}`);
+    if (snippet) lines.push(`   ${snippet}${trailing}`);
+  }
+  lines.push(
+    "",
+    "请基于上述实时检索结果回答用户问题。检索结果与问题无关时可以忽略。引用网址时使用 markdown [文本](url) 格式。",
+  );
+
+  let content = lines.join("\n");
+  if (content.length > SEARCH_BLOCK_HARD_CAP) {
+    content = content.slice(0, SEARCH_BLOCK_HARD_CAP) + "…";
+  }
+  return { role: "system", content };
 }
 
 /** Max history bubbles to feed into an image-gen prompt as scene context. */
