@@ -1,6 +1,7 @@
 import { ChatSession } from "../types";
 
 const STORAGE_KEY = "nyaachat_sessions";
+const LAST_SESSION_KEY = "nyaachat_last_session_id";
 
 export function loadSessions(): ChatSession[] {
   try {
@@ -28,5 +29,29 @@ export function deleteSession(id: string) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions));
   } catch (err) {
     console.error("Failed to delete session", err);
+  }
+}
+
+// Tracks which session was active when the page was last left, so a hard
+// refresh can resume in the same conversation instead of always starting a
+// new one. Null (or a missing id) means "blank/new chat" — explicitly
+// preserved so that refreshing while on the new-chat scratchpad keeps you
+// there rather than jumping into the most recent saved session.
+export function loadLastSessionId(): string | null {
+  try {
+    const raw = localStorage.getItem(LAST_SESSION_KEY);
+    return raw && raw.length > 0 ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveLastSessionId(id: string | null) {
+  try {
+    if (id) localStorage.setItem(LAST_SESSION_KEY, id);
+    else localStorage.removeItem(LAST_SESSION_KEY);
+  } catch {
+    // Quota errors are not actionable here — losing the resume hint is fine,
+    // it just falls back to the new-chat blank state on next load.
   }
 }

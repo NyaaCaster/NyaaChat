@@ -101,6 +101,18 @@ export interface AppState {
   currentImageProviderId: string;
   isWebSearchEnabled: boolean;
   isStreaming: boolean;
+  /** Whether the MCP toolbar entry is "armed" — this only governs whether
+   *  enabled MCP tools get advertised to the LLM on the next request.
+   *  Per-tool toggles in `mcpToolsEnabled` apply on top of this. */
+  isMcpEnabled: boolean;
+  /** User-chosen "where the role-play is set" city. Passed to MCP tools as
+   *  the default `timezone` / `location` argument when the LLM does not
+   *  specify one explicitly. Null = no override (tools fall back to Beijing). */
+  mcpUserCity: string | null;
+  /** Per-tool enabled flag, keyed by MCP tool `name`. Missing keys are
+   *  treated as enabled (default-on). Persisted across reloads so a user's
+   *  manual disable survives even when the resulting object is empty. */
+  mcpToolsEnabled: Record<string, boolean>;
 }
 
 export type ModelCapability =

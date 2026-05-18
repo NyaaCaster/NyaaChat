@@ -9,6 +9,7 @@ import { ChatInterface } from "./components/ChatInterface";
 import { bypassTemplates } from "./lib/bypassTemplates";
 import { createDefaultImageProviders, createDefaultLlmProviders, inferProvider } from "./lib/providers";
 import { newId } from "./lib/id";
+import { loadLastSessionId, loadSessions, saveLastSessionId } from "./lib/sessionStorage";
 import { ChatSession, LlmProvider, ImageProvider, LlmProviderKind } from "./types";
 
 // Modals are rendered only when opened, so each one's chunk loads on-demand
@@ -51,7 +52,7 @@ export type ConnectionStatus = "disconnected" | "connecting" | "connected";
 // with per-provider apiKey/baseUrl/models. The legacy single-endpoint `api`
 // and `imageApi` blocks are retained on AppState during the transition until
 // chatPipeline is switched over (phase 3).
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 function migrate(raw: any): any {
   if (!raw || typeof raw !== "object") return raw;
@@ -60,8 +61,36 @@ function migrate(raw: any): any {
   if (v < 2) {
     raw = migrateV1ToV2(raw);
   }
+  if (v < 3) {
+    raw = migrateV2ToV3(raw);
+  }
 
   return raw;
+}
+
+/**
+ * v2 → v3: add MCP toolbar fields with sensible defaults. The toolbar entry
+ * is armed by default and individual tools default to enabled — once the
+ * user starts toggling, their explicit choice is preserved verbatim (an
+ * empty `mcpToolsEnabled` map after the user disabled everything is kept
+ * as-is, not refilled with defaults). `mcpUserCity` is null = "tools fall
+ * back to Beijing".
+ */
+function migrateV2ToV3(raw: any): any {
+  return {
+    ...raw,
+    isMcpEnabled:
+      typeof raw.isMcpEnabled === "boolean" ? raw.isMcpEnabled : true,
+    mcpUserCity:
+      typeof raw.mcpUserCity === "string" && raw.mcpUserCity.trim()
+        ? raw.mcpUserCity
+        : null,
+    mcpToolsEnabled:
+      raw.mcpToolsEnabled && typeof raw.mcpToolsEnabled === "object"
+        ? raw.mcpToolsEnabled
+        : { get_current_time: true, get_weather: true },
+    _version: 3,
+  };
 }
 
 /**
@@ -236,6 +265,9 @@ const DEFAULT_SETTINGS: AppState = {
   currentImageProviderId: "qiny",
   isWebSearchEnabled: false,
   isStreaming: false,
+  isMcpEnabled: true,
+  mcpUserCity: null,
+  mcpToolsEnabled: { get_current_time: true, get_weather: true },
 };
 
 export default function App() {
@@ -249,7 +281,14 @@ export default function App() {
   const [isChatHistoryOpen, setIsChatHistoryOpen] = useState(false);
   const [isLlmProvidersOpen, setIsLlmProvidersOpen] = useState(false);
   const [isImageProvidersOpen, setIsImageProvidersOpen] = useState(false);
-  const [currentSession, setCurrentSession] = useState<ChatSession | null>(null);
+  // Resume the conversation that was active before the last refresh. If the
+  // saved id is missing (first visit, "new chat" scratchpad, or the session
+  // was deleted from history), fall back to null = blank new-chat state.
+  const [currentSession, setCurrentSession] = useState<ChatSession | null>(() => {
+    const lastId = loadLastSessionId();
+    if (!lastId) return null;
+    return loadSessions().find((s) => s.id === lastId) ?? null;
+  });
   const [_historyVersion, setHistoryVersion] = useState(0);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
@@ -311,6 +350,20 @@ export default function App() {
                     (p: any) => typeof p?.isStreaming === "boolean",
                   )?.isStreaming
                 : !!parsed.api?.isStreaming,
+          isMcpEnabled:
+            typeof parsed.isMcpEnabled === "boolean"
+              ? parsed.isMcpEnabled
+              : DEFAULT_SETTINGS.isMcpEnabled,
+          mcpUserCity:
+            typeof parsed.mcpUserCity === "string" && parsed.mcpUserCity.trim()
+              ? parsed.mcpUserCity
+              : DEFAULT_SETTINGS.mcpUserCity,
+          // Honour explicit empty objects — once the user has disabled every
+          // tool we don't want defaults to silently re-enable them.
+          mcpToolsEnabled:
+            parsed.mcpToolsEnabled && typeof parsed.mcpToolsEnabled === "object"
+              ? parsed.mcpToolsEnabled
+              : DEFAULT_SETTINGS.mcpToolsEnabled,
         });
       } catch (e) {
         console.error("Failed to load settings", e);
@@ -318,6 +371,13 @@ export default function App() {
     }
     setIsLoaded(true);
   }, []);
+
+  // Persist the active session id so a hard refresh resumes here. Null is a
+  // valid value (= "new chat" scratchpad) and is also persisted, so refresh
+  // doesn't bounce a deliberately-blank state into the most recent session.
+  useEffect(() => {
+    saveLastSessionId(currentSession?.id ?? null);
+  }, [currentSession?.id]);
 
   useEffect(() => {
     const root = window.document.documentElement;

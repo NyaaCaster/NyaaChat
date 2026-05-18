@@ -1,22 +1,33 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import {
   FileText,
   Globe,
   Image as ImageIcon,
   ImagePlus,
+  MapPin,
   MessageSquare,
   Paperclip,
+  Plug,
   Send,
   Square,
   X as XIcon,
 } from "lucide-react";
 import type { Attachment } from "../lib/chatPipeline";
-import { AppState, LlmProvider, ImageProvider } from "../types";
+import { AppState, LlmProvider, ImageProvider, ModelCapability } from "../types";
 import {
   getActiveImageProvider,
   getActiveLlmProvider,
 } from "../lib/providers";
 import { LlmProviderIcon, ImageProviderIcon } from "./icons/providerIcons";
+import { CAPABILITY_META } from "./icons/capabilityMeta";
+import { ToggleSwitch } from "./SettingsFormBits";
+import { listTools, ping, type McpHealth, type McpTool } from "../lib/mcpApi";
+
+// MCP geo settings is a small leaf modal; lazy-load it like the rest so it
+// doesn't bloat the initial composer chunk.
+const McpGeoModal = lazy(() =>
+  import("./McpGeoModal").then((m) => ({ default: m.McpGeoModal })),
+);
 
 interface ChatComposerProps {
   input: string;
@@ -56,8 +67,50 @@ export function ChatComposer({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const llmCardRef = useRef<HTMLDivElement>(null);
   const imageCardRef = useRef<HTMLDivElement>(null);
-  const [openPicker, setOpenPicker] = useState<"llm" | "image" | null>(null);
+  const mcpCardRef = useRef<HTMLDivElement>(null);
+  const [openPicker, setOpenPicker] = useState<"llm" | "image" | "mcp" | null>(null);
   const [hint, setHint] = useState<string | null>(null);
+
+  // MCP runtime state. Health and tools are not persisted — they are probed
+  // from the MCP server on mount and again whenever the user opens the
+  // picker, so the indicator dot is always grounded in fresh data rather
+  // than a cached snapshot.
+  const [mcpHealth, setMcpHealth] = useState<McpHealth | null>(null);
+  const [mcpTools, setMcpTools] = useState<McpTool[]>([]);
+  const [isMcpRefreshing, setIsMcpRefreshing] = useState(false);
+  const [isGeoModalOpen, setIsGeoModalOpen] = useState(false);
+
+  const refreshMcp = useCallback(async () => {
+    setIsMcpRefreshing(true);
+    try {
+      const health = await ping();
+      setMcpHealth(health);
+      if (health.ok) {
+        try {
+          const tools = await listTools();
+          setMcpTools(tools);
+        } catch {
+          setMcpTools([]);
+        }
+      } else {
+        setMcpTools([]);
+      }
+    } finally {
+      setIsMcpRefreshing(false);
+    }
+  }, []);
+
+  // Probe once on mount so the indicator is meaningful before the user
+  // opens the picker.
+  useEffect(() => {
+    void refreshMcp();
+  }, [refreshMcp]);
+
+  // Re-probe each time the picker opens so the user sees current state on
+  // every open (covers MCP server bouncing while the page stays loaded).
+  useEffect(() => {
+    if (openPicker === "mcp") void refreshMcp();
+  }, [openPicker, refreshMcp]);
 
   // Auto-fade hint banner. Used for the placeholder web-search toast and
   // any future composer-level notifications. Single concurrent message —
@@ -75,6 +128,7 @@ export function ChatComposer({
       const target = e.target as Node;
       if (llmCardRef.current?.contains(target)) return;
       if (imageCardRef.current?.contains(target)) return;
+      if (mcpCardRef.current?.contains(target)) return;
       setOpenPicker(null);
     };
     document.addEventListener("mousedown", handle);
@@ -140,6 +194,17 @@ export function ChatComposer({
     );
   };
 
+  const handleToggleMcpTool = (toolName: string, next: boolean) => {
+    onSettingsChange({
+      ...settings,
+      mcpToolsEnabled: { ...settings.mcpToolsEnabled, [toolName]: next },
+    });
+  };
+
+  const handleSetMcpUserCity = (city: string | null) => {
+    onSettingsChange({ ...settings, mcpUserCity: city });
+  };
+
   const isWebSearchOn = !!settings.isWebSearchEnabled;
 
   return (
@@ -186,8 +251,13 @@ export function ChatComposer({
           </div>
         )}
 
-        {/* Toolbar row */}
-        <div className="flex items-center gap-2 mb-2 px-1 flex-wrap">
+        {/* Toolbar row. Made `relative` so the MCP popover (which is wider
+            than the icon button anchoring it) can position itself against
+            the full toolbar width — left-anchored to the toolbar's leading
+            edge — and use `max-w-full` to never overflow the viewport on
+            narrow screens. The model picker cards keep their own
+            self-anchored relative wrappers, so they're unaffected. */}
+        <div className="flex items-center gap-2 mb-2 px-1 flex-wrap relative">
           <ToolbarIconButton
             onClick={() => fileInputRef.current?.click()}
             title="添加附件"
@@ -203,6 +273,40 @@ export function ChatComposer({
           >
             <Globe size={16} />
           </ToolbarIconButton>
+
+          {/* MCP tools entry — pure popover anchor; per-tool toggles + the
+              health indicator + the geo settings button all live inside the
+              floating card below. The wrapper deliberately omits `relative`
+              so McpToolsCard anchors to the toolbar row, not to this 32-px
+              icon button — that's how its `left-0` lines up with the
+              toolbar's leading edge and `max-w-full` clamps it to the
+              viewport width on phones. */}
+          <div ref={mcpCardRef}>
+            <ToolbarIconButton
+              onClick={() =>
+                setOpenPicker((cur) => (cur === "mcp" ? null : "mcp"))
+              }
+              title="MCP 工具"
+              aria-label="MCP 工具"
+              active={openPicker === "mcp"}
+            >
+              <Plug size={16} />
+            </ToolbarIconButton>
+            {openPicker === "mcp" && (
+              <McpToolsCard
+                health={mcpHealth}
+                tools={mcpTools}
+                isRefreshing={isMcpRefreshing}
+                toolsEnabled={settings.mcpToolsEnabled}
+                currentCity={settings.mcpUserCity}
+                onToggleTool={handleToggleMcpTool}
+                onOpenGeoModal={() => {
+                  setIsGeoModalOpen(true);
+                  setOpenPicker(null);
+                }}
+              />
+            )}
+          </div>
 
           <span className="flex-1" />
 
@@ -322,6 +426,17 @@ export function ChatComposer({
           </p>
         </div>
       </div>
+
+      {isGeoModalOpen && (
+        <Suspense fallback={null}>
+          <McpGeoModal
+            isOpen={isGeoModalOpen}
+            onClose={() => setIsGeoModalOpen(false)}
+            currentCity={settings.mcpUserCity}
+            onChange={handleSetMcpUserCity}
+          />
+        </Suspense>
+      )}
     </footer>
   );
 }
@@ -383,7 +498,15 @@ const ModelCard = React.forwardRef<HTMLDivElement, ModelCardProps>(
     ref,
   ) {
     return (
-      <div className="relative" ref={ref}>
+      // No `relative` here on purpose — the popover below anchors to the
+      // toolbar row (which IS relative) so it spans toolbar width on
+      // narrow screens and never overflows the viewport. Anchoring to the
+      // 32-px button wrapper would force `right-0 + w-72` to extend 288px
+      // leftward, which clips off-screen the moment the wrapping toolbar
+      // pushes a card to the second row at left edge. The ref still
+      // captures the wrapper (and its descendant popover) for outside-
+      // click detection — that uses DOM containment, not layout.
+      <div ref={ref}>
         <button
           type="button"
           onClick={onClick}
@@ -401,7 +524,7 @@ const ModelCard = React.forwardRef<HTMLDivElement, ModelCardProps>(
           <span className="truncate font-mono">{label}</span>
         </button>
         {isOpen && (
-          <div className="absolute bottom-full right-0 mb-2 w-72 max-h-80 overflow-y-auto rounded-xl border border-gray-200 dark:border-white/10 bg-white dark:bg-[#1A1A1A] shadow-elevation-3 z-30">
+          <div className="absolute bottom-full right-0 mb-2 w-72 max-w-full max-h-80 overflow-y-auto rounded-xl border border-gray-200 dark:border-white/10 bg-white dark:bg-[#1A1A1A] shadow-elevation-3 z-30">
             {dropdown}
           </div>
         )}
@@ -470,6 +593,7 @@ function ProviderPicker<P extends LlmProvider | ImageProvider>({
                     }`}
                   >
                     <span className="truncate flex-1">{m.id}</span>
+                    <ReadOnlyCapabilityIcons capabilities={m.capabilities} />
                     {isActive && (
                       <span className="text-[10px] font-sans flex-shrink-0">
                         当前
@@ -482,6 +606,173 @@ function ProviderPicker<P extends LlmProvider | ImageProvider>({
           </ul>
         </div>
       ))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Read-only capability badges shown beside each model id in the picker.
+// Distinct from LlmProvidersModal's CapabilityIcons (which is interactive
+// with tap-to-show tooltips) — here we're inside a parent <button>, so we
+// MUST stay non-interactive (nested buttons are invalid HTML). Hover
+// tooltip via `title` is enough; mobile users still see the colored
+// glyph and can recognize the legend from the management modal.
+// ---------------------------------------------------------------------------
+
+function ReadOnlyCapabilityIcons({
+  capabilities,
+}: {
+  capabilities?: ModelCapability[];
+}) {
+  if (!capabilities || capabilities.length === 0) return null;
+  return (
+    <span className="inline-flex items-center gap-0.5 flex-shrink-0">
+      {capabilities.map((cap) => {
+        const meta = CAPABILITY_META[cap];
+        const Icon = meta.Icon;
+        return (
+          <span
+            key={cap}
+            className={`inline-flex items-center justify-center ${meta.color}`}
+            title={meta.label}
+            aria-label={meta.label}
+          >
+            <Icon size={11} />
+          </span>
+        );
+      })}
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// MCP tools card — popover anchored under the toolbar Wrench button. Shows
+// the upstream service health, a geo-settings shortcut, and a per-tool
+// toggle list. Per-tool flags live in `settings.mcpToolsEnabled` so the
+// user's choices survive across reloads (default-on for unknown keys).
+// ---------------------------------------------------------------------------
+
+interface McpToolsCardProps {
+  health: McpHealth | null;
+  tools: McpTool[];
+  isRefreshing: boolean;
+  toolsEnabled: Record<string, boolean>;
+  currentCity: string | null;
+  onToggleTool: (toolName: string, next: boolean) => void;
+  onOpenGeoModal: () => void;
+}
+
+function McpToolsCard({
+  health,
+  tools,
+  isRefreshing,
+  toolsEnabled,
+  currentCity,
+  onToggleTool,
+  onOpenGeoModal,
+}: McpToolsCardProps) {
+  const isHealthy = health?.ok === true;
+  // Health is "unknown" only on the very first probe in flight; once a probe
+  // resolves the status is either healthy or unhealthy.
+  const isProbing = !health && isRefreshing;
+
+  const dotColor = isProbing
+    ? "bg-gray-300 dark:bg-gray-600"
+    : isHealthy
+      ? "bg-emerald-500"
+      : "bg-red-500";
+
+  const statusTitle = isProbing
+    ? "正在探测 MCP 服务"
+    : isHealthy
+      ? `连接正常${health.latencyMs != null ? ` · ${health.latencyMs}ms` : ""}`
+      : `连接异常：${health?.error || "未知错误"}`;
+
+  return (
+    <div className="absolute bottom-full left-0 mb-2 w-80 max-w-full rounded-xl border border-gray-200 dark:border-white/10 bg-white dark:bg-[#1A1A1A] shadow-elevation-3 z-30 overflow-hidden">
+      {/* Service header */}
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-100 dark:border-white/5 bg-gray-50/70 dark:bg-black/20">
+        <span
+          className={`w-2 h-2 rounded-full flex-shrink-0 ${dotColor} ${
+            isProbing ? "animate-pulse" : ""
+          }`}
+          title={statusTitle}
+          aria-label={statusTitle}
+        />
+        <span className="text-sm font-semibold text-gray-900 dark:text-gray-100 flex-1 truncate">
+          NyaaChat-MCP
+        </span>
+        {isRefreshing && (
+          <span className="text-[10px] text-gray-500 dark:text-gray-400">
+            探测中…
+          </span>
+        )}
+      </div>
+
+      {/* Geo settings entry */}
+      <button
+        type="button"
+        onClick={onOpenGeoModal}
+        className="w-full flex items-center justify-between gap-2 px-3 py-2 border-b border-gray-100 dark:border-white/5 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors"
+      >
+        <span className="flex items-center gap-2 min-w-0">
+          <MapPin size={14} className="text-blue-600 dark:text-blue-400 flex-shrink-0" />
+          <span className="text-xs font-medium text-gray-800 dark:text-gray-200">
+            地理信息
+          </span>
+        </span>
+        <span className="text-[11px] text-gray-500 dark:text-gray-400 truncate max-w-[140px]">
+          {currentCity ?? "未设置"}
+        </span>
+      </button>
+
+      {/* Tools list. Hidden when MCP is unreachable so the user can't toggle
+          flags that won't take effect anyway. */}
+      {isHealthy ? (
+        tools.length === 0 ? (
+          <div className="px-4 py-6 text-xs text-center text-gray-500 dark:text-gray-400">
+            {isRefreshing ? "正在加载工具列表…" : "未发现可用工具"}
+          </div>
+        ) : (
+          <ul className="py-1">
+            {tools.map((tool) => {
+              const enabled = toolsEnabled[tool.name] !== false;
+              return (
+                <li
+                  key={tool.name}
+                  className="flex items-center justify-between gap-3 px-3 py-2 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors"
+                >
+                  <div className="min-w-0">
+                    <div className="text-xs font-semibold text-gray-900 dark:text-gray-100 truncate">
+                      {tool.title}
+                    </div>
+                    <div
+                      className="text-[11px] text-gray-500 dark:text-gray-400 truncate"
+                      title={tool.description}
+                    >
+                      {tool.name}
+                    </div>
+                  </div>
+                  <ToggleSwitch
+                    checked={enabled}
+                    onChange={(next) => onToggleTool(tool.name, next)}
+                    label={enabled ? "已启用" : "已禁用"}
+                  />
+                </li>
+              );
+            })}
+          </ul>
+        )
+      ) : (
+        <div className="px-4 py-6 text-[11px] text-center text-gray-500 dark:text-gray-400">
+          MCP 服务暂不可用
+          {health?.error ? (
+            <div className="mt-1 text-gray-400 dark:text-gray-500 truncate">
+              {health.error}
+            </div>
+          ) : null}
+        </div>
+      )}
     </div>
   );
 }

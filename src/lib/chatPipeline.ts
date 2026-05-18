@@ -49,6 +49,52 @@ function checkKeywords(text: string, keywordsStr?: string): boolean {
   return keywords.some((kw) => lowerText.includes(kw));
 }
 
+/**
+ * Data-usage guidelines injected as a system message when MCP tools are
+ * advertised on the turn. Two branches — role-play and informational —
+ * both decide at LLM-side based on the surrounding conversation, plus a
+ * failure-degradation block that NEVER lets the model leak `[tool_error]`
+ * or any tool/network jargon to the user.
+ *
+ * Sourced from NyaaChat-MCP README §2.1–§2.10. Kept terse on purpose —
+ * the model has limited budget to internalize this before the actual
+ * tool result arrives, so brevity beats elegance here.
+ */
+const MCP_TOOL_USAGE_RULES = `[MCP 工具数据使用准则]
+
+你可以调用 get_current_time / get_weather 工具。但工具返回的数据是给机器消费的，不能直接念给用户。请按下面的规则使用：
+
+一、判断当前对话场景
+
+- 角色扮演场景：用户与角色的日常对话、剧情互动、情感对白等。
+- 信息化场景：新闻播报、设备读数、报刊摘要、气象台预警等机械化、格式化的资讯环境。
+
+二、角色扮演场景下
+
+1. 时间数字模糊化：说"两点多"、"下午三四点"、"快六点了"。不报秒、不报毫秒、不报 ISO 时间戳。角色人设是精确控（学者/军人/AI 助理）时可保留具体数字。
+2. 天气数字感官化：湿度高→"闷"、"潮"；云量高→"云压得低"；风大→"窗户都在响"；气压低+湿度高+云厚→"估计要下"；温度对比季节→"比往常凉"。
+3. 永不出口的字段：UTC 偏移、IANA 时区名、DST 状态、ISO 时间戳、QWeather fxLink 链接、气压数值、露点温度。
+4. 每次最多用 1–3 个字段。卧室深夜→雨/云；出门前→温度/风/雨；询问"现在几点"→只回时间。
+5. Resolution trace（如"广西 → 南宁"）不进角色嘴里。卧室视角说"外面"、"窗外"；远距离对话说"广西那边"、"南宁"。
+6. 先回应情感再带信息。把数据嵌进动作和对白的缝里，不是连珠炮播报。
+7. 多用"你听 / 你看 / 你闻"把数据物化为共同感官，让用户在场景里自己感受。
+8. 角色不知道自己在用工具——它只知道自己感觉到了什么。
+
+三、信息化场景下
+
+按机械化、格式化、数据化输出，可以直接念字段。例如：
+- [时间] 2026-05-19 14:32 (UTC+08:00)
+- [气象] 北京：阴 24°C / 湿度 95% / 东风 2 级 / 气压 988 hPa
+
+四、工具调用失败时（返回内容以 [tool_error] 开头）
+
+绝不暴露"工具失败 / 网络错误 / 调用异常 / API"等内部状态。按当前场景降级：
+
+- 角色扮演：用角色直觉/情绪自然表现"不知道"或"困惑"。例："这时辰我也说不清"、"今天总觉得有点闷，要不要看看窗外"、"（皱了皱眉，又摇摇头）"。
+- 信息化：用资讯环境本身的故障语言。例："…当前数据源异常，气象站暂未回传…"、"[传感器读数:--]"、"信号不稳，请稍候"、"播报中断，恢复后再续"。
+
+绝不在角色扮演中念出 [tool_error]、"调用失败"、"工具" 等术语。`;
+
 interface BuildRequestArgs {
   /** Text the user typed (post-attachment-extraction) */
   processedInput: string;
@@ -65,6 +111,12 @@ interface BuildRequestArgs {
    *  world-info / bypass so the model sees them right next to the latest
    *  user turn. */
   extraSystemMessages?: ApiMessage[];
+  /** When true, append the MCP tool data-usage guidelines (role-play vs
+   *  informational + failure degradation) to the system segment so the
+   *  model knows how to consume tool results. Caller should set this only
+   *  when at least one MCP tool is actually being advertised on this turn
+   *  — otherwise the rules are noise. */
+  mcpToolsActive?: boolean;
 }
 
 /**
@@ -88,6 +140,7 @@ export function buildRequestMessages(args: BuildRequestArgs): ApiMessage[] {
     userName,
     charName,
     extraSystemMessages,
+    mcpToolsActive,
   } = args;
 
   // Image-generation bubbles carry the rich image prompt (or a placeholder /
@@ -138,6 +191,16 @@ export function buildRequestMessages(args: BuildRequestArgs): ApiMessage[] {
   // splices in at the head) and adjacent to the latest user turn.
   if (extraSystemMessages && extraSystemMessages.length > 0) {
     systemMessages.push(...extraSystemMessages);
+  }
+
+  // MCP tool data-usage guidelines. Sit at the very end of the system
+  // segment so they're the last thing the model reads before the live
+  // tool results — closest possible position to where the rules apply.
+  if (mcpToolsActive) {
+    systemMessages.push({
+      role: "system",
+      content: MCP_TOOL_USAGE_RULES,
+    });
   }
 
   return injectBypassPrompts(

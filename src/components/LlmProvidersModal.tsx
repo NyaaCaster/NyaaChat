@@ -22,22 +22,16 @@ import {
 } from "@dnd-kit/modifiers";
 import {
   ArrowLeft,
-  Boxes,
-  Brain,
   Check,
   Database,
-  Eye,
-  Globe,
   GripVertical,
   Heart,
   ListChecks,
-  ListOrdered,
   Loader2,
   LogOut,
   MessageSquare,
   Plus,
   Trash2,
-  Wrench,
   X,
 } from "lucide-react";
 import { ApiFormat, AppState, LlmProvider, ModelCapability, ModelEntry } from "../types";
@@ -46,6 +40,7 @@ import { ConfirmDialog } from "./ConfirmDialog";
 import { ApiKeyInput } from "./ApiKeyInput";
 import { Field, FieldHint, ToggleSwitch } from "./SettingsFormBits";
 import { LlmProviderIcon } from "./icons/providerIcons";
+import { CAPABILITY_META as SHARED_CAPABILITY_META } from "./icons/capabilityMeta";
 import { ManageModelsModal } from "./ManageModelsModal";
 import { newId } from "../lib/id";
 import { normalizeBaseUrl } from "../lib/api";
@@ -759,17 +754,7 @@ function ModelRow({ entry, isProbing }: { entry: ModelEntry; isProbing: boolean 
   );
 }
 
-const CAPABILITY_META: Record<
-  ModelCapability,
-  { Icon: typeof Eye; label: string; color: string }
-> = {
-  vision: { Icon: Eye, label: "视觉", color: "text-purple-500" },
-  web: { Icon: Globe, label: "联网", color: "text-sky-500" },
-  reasoning: { Icon: Brain, label: "推理", color: "text-violet-500" },
-  tools: { Icon: Wrench, label: "工具调用", color: "text-amber-500" },
-  rerank: { Icon: ListOrdered, label: "排序", color: "text-emerald-500" },
-  embed: { Icon: Boxes, label: "嵌入", color: "text-rose-500" },
-};
+const CAPABILITY_META = SHARED_CAPABILITY_META;
 
 function CapabilityIcons({
   capabilities,

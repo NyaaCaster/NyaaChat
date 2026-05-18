@@ -1,12 +1,13 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { Sparkles } from "lucide-react";
 import { ApiSettings, Message, AppState, LogEntry, ChatSession } from "../types";
-import { fetchChatCompletion } from "../lib/api";
+import { fetchChatCompletion, type LlmTool, type ToolExecutor } from "../lib/api";
 import { generateImage } from "../lib/imageApi";
 import { newId } from "../lib/id";
 import { saveSession } from "../lib/sessionStorage";
 import { getActiveImageProvider, getActiveLlmProvider, imageProviderToApiSettings, providerToApiSettings } from "../lib/providers";
 import { searchWeb, WebSearchError } from "../lib/searchApi";
+import { callTool, listTools, mergeUserCity } from "../lib/mcpApi";
 import {
   applyPlaceholders,
   buildImagePrompt,
@@ -245,6 +246,114 @@ export function ChatInterface({
     }
 
     try {
+      // MCP tools assembly. Done BEFORE buildRequestMessages so we can pass
+      // a `mcpToolsActive` flag through and conditionally inject the
+      // data-usage guidelines into the system prompt — those rules are
+      // pure noise when no tool is actually being advertised. Listing
+      // tools per-turn (rather than caching) lets enable/disable + service
+      // health changes take effect immediately. Failure to fetch is
+      // non-fatal and silently degrades to chat-without-tools.
+      //
+      // Capability gate: skip tools entirely when the active model has
+      // been health-checked AND its inferred capabilities don't include
+      // 'tools'. We DON'T skip when capabilities is undefined (model never
+      // probed) — assume the user knows what they're doing rather than
+      // block by default. This protects users from the "system prompt
+      // talks about tool data the model can't actually invoke" footgun.
+      let mcpToolUseOptions:
+        | { tools: LlmTool[]; executeTool: ToolExecutor; onToolEvent: (e: any) => void }
+        | undefined;
+      const anyToolEnabled =
+        settings.mcpToolsEnabled &&
+        Object.values(settings.mcpToolsEnabled).some((v) => v !== false);
+      const activeModelEntry = activeProvider?.models.find(
+        (m) => m.id === activeApi.model,
+      );
+      const modelDeclaredCapabilities = activeModelEntry?.capabilities;
+      const modelSupportsTools =
+        // Never probed → trust the user, advertise tools.
+        modelDeclaredCapabilities === undefined ||
+        modelDeclaredCapabilities.includes("tools");
+      if (settings.isMcpEnabled && anyToolEnabled && modelSupportsTools) {
+        try {
+          const allTools = await listTools(abortControllerRef.current.signal);
+          const enabledTools = allTools.filter(
+            (t) => settings.mcpToolsEnabled[t.name] !== false,
+          );
+          if (enabledTools.length > 0) {
+            const llmTools: LlmTool[] = enabledTools.map((t) => ({
+              name: t.name,
+              description: t.description,
+              inputSchema: t.inputSchema,
+            }));
+            const userCity = settings.mcpUserCity;
+            const executor: ToolExecutor = async (name, args) => {
+              const merged = mergeUserCity(name, args || {}, userCity);
+              return await callTool(
+                name,
+                merged,
+                abortControllerRef.current?.signal,
+              );
+            };
+            mcpToolUseOptions = {
+              tools: llmTools,
+              executeTool: executor,
+              onToolEvent: (e) => {
+                onAddLog({
+                  direction: e.result.ok ? "response" : "error",
+                  content: `MCP tool ${e.name} (${e.result.ok ? "ok" : "fail"})`,
+                  meta: {
+                    round: e.round,
+                    name: e.name,
+                    args: e.args,
+                    result: e.result,
+                  },
+                });
+              },
+            };
+            onAddLog({
+              direction: "info",
+              content: `MCP tools advertised: ${enabledTools.map((t) => t.name).join(", ")}`,
+            });
+          }
+        } catch (err: any) {
+          if (err?.name === "AbortError" || abortControllerRef.current?.signal.aborted) {
+            // User cancelled mid-listTools — bail out the same way the
+            // web-search abort path does.
+            setIsLoading(false);
+            abortControllerRef.current = null;
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === botMessageId
+                  ? { ...m, content: m.content + "\n\n**[已停止生成]**" }
+                  : m,
+              ),
+            );
+            return;
+          }
+          onAddLog({
+            direction: "error",
+            content: "MCP listTools failed; chat will run without tools",
+            meta: { error: err?.message || String(err) },
+          });
+        }
+      } else if (settings.isMcpEnabled && anyToolEnabled && !modelSupportsTools) {
+        // User opted into MCP but the active model was probed and lacks
+        // 'tools'. Tell them once per turn so they can either probe the
+        // model again, switch models, or close MCP — silent skipping
+        // would leave them wondering why "now in 几点" gets a hallucinated
+        // answer.
+        onAddLog({
+          direction: "info",
+          content: `MCP tools skipped: model "${activeApi.model}" 未声明 tools 能力`,
+          meta: {
+            modelId: activeApi.model,
+            capabilities: modelDeclaredCapabilities,
+            hint: "在『管理模型』里给该模型重跑健康检查，或切换到支持工具调用的模型",
+          },
+        });
+      }
+
       const messagesForApi = buildRequestMessages({
         processedInput,
         messageContent,
@@ -254,6 +363,7 @@ export function ChatInterface({
         userName,
         charName,
         extraSystemMessages: searchSystemMessage ? [searchSystemMessage] : undefined,
+        mcpToolsActive: !!mcpToolUseOptions,
       });
 
       onAddLog({
@@ -263,6 +373,7 @@ export function ChatInterface({
           url: activeApi.baseUrl,
           model: activeApi.model,
           renderedMessages: messagesForApi,
+          tools: mcpToolUseOptions?.tools.map((t) => t.name) ?? [],
         },
       });
 
@@ -280,6 +391,7 @@ export function ChatInterface({
           scrollToBottom();
         },
         abortControllerRef.current.signal,
+        mcpToolUseOptions,
       );
 
       if (usageResult) {

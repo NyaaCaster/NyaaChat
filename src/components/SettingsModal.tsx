@@ -193,7 +193,7 @@ export function SettingsModal({
             <p className="text-[11px] text-amber-600 dark:text-amber-400 leading-relaxed">
               <AlertTriangle size={11} className="inline -mt-0.5 mr-1" />
               导出文件包含 API Key
-              明文与全部供应商配置,请妥善保管;导入会覆盖当前所有设置(角色、Bypass、用户人设等)。
+              明文与全部供应商配置,请妥善保管;导入会覆盖当前所有设置(角色、Bypass、用户人设、MCP 工具配置等)。
             </p>
             {importError && (
               <p className="text-[11px] text-red-600 dark:text-red-400 break-all leading-relaxed">
@@ -215,7 +215,7 @@ export function SettingsModal({
             <span className="font-semibold text-gray-900 dark:text-gray-100 mx-1">
               替换当前所有设置
             </span>
-            ,包括对话/生图供应商配置、外观、角色卡片、Bypass、用户人设等。
+            ,包括对话/生图供应商配置、外观、角色卡片、Bypass、用户人设、MCP 工具配置等。
             该操作不可撤销 —— 建议先点 `导出设置` 备份后再继续。
           </>
         }

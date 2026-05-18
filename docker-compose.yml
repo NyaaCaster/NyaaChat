@@ -1,12 +1,22 @@
 services:
   app:
     build: .
+    # Load MCP_* secrets from .env (git-ignored). The nginx entrypoint
+    # envsubst-renders nginx.conf at container start so the API key never
+    # lands in the image layers or the frontend bundle.
+    env_file:
+      - .env
     environment:
       # Pin timezone so nginx access/error logs and any TLS expiry/X-cache
       # date headers are in Asia/Shanghai instead of the container default
       # UTC. The base nginx:1.27-alpine image already ships tzdata, so we
       # don't need to install anything extra.
       - TZ=Asia/Shanghai
+      # Restrict the official nginx envsubst filter to MCP_-prefixed vars
+      # only. Without this filter, envsubst would clobber nginx's own
+      # variables ($1, $img_scheme, $arg_url, $upstream_cache_status, ...)
+      # and break the image-proxy / SPA routing.
+      - NGINX_ENVSUBST_FILTER=^MCP_
     ports:
       - "3095:3095"
     restart: unless-stopped

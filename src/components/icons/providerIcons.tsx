@@ -4,9 +4,9 @@ import Gemini from "@lobehub/icons/es/Gemini";
 import DeepSeek from "@lobehub/icons/es/DeepSeek";
 import Ollama from "@lobehub/icons/es/Ollama";
 import ComfyUI from "@lobehub/icons/es/ComfyUI";
-import { Wrench } from "lucide-react";
 import { ImageProviderKind, LlmProviderKind } from "../../types";
 import { QinyIcon } from "./QinyIcon";
+import { CustomProviderIcon } from "./CustomProviderIcon";
 
 interface IconProps {
   size?: number;
@@ -15,7 +15,9 @@ interface IconProps {
 /**
  * Render the brand mark for any LLM provider kind. The set of @lobehub/icons
  * doesn't ship a QinyAPI logo so we substitute the in-house QinyIcon, and
- * `custom` (user-defined endpoints) gets a generic wrench icon.
+ * `custom` (user-defined endpoints) gets a chat-bubble glyph in the project
+ * blue — distinct from the toolbar's MCP plug and the model-capability
+ * wrench so they don't visually collide.
  */
 export function LlmProviderIcon({ kind, size = 18 }: IconProps & { kind: LlmProviderKind }) {
   switch (kind) {
@@ -32,7 +34,7 @@ export function LlmProviderIcon({ kind, size = 18 }: IconProps & { kind: LlmProv
     case "ollama":
       return <Ollama size={size} />;
     case "custom":
-      return <Wrench size={size} className="text-gray-500 dark:text-gray-400" />;
+      return <CustomProviderIcon size={size} />;
   }
 }
 

@@ -252,12 +252,20 @@ function ImageModelRow({
   const id = useId();
   return (
     <li className="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
-      <label htmlFor={id} className="flex-1 min-w-0 cursor-pointer">
+      <span className="flex-1 min-w-0">
         <span className="font-mono text-sm text-gray-900 dark:text-gray-100 truncate block">
           {modelId}
         </span>
-      </label>
-      <span className="relative inline-flex items-center flex-shrink-0">
+      </span>
+      {/* The toggle is wrapped in <label htmlFor> so clicking either the
+          visual track or the (sr-only) input flips the checkbox. Without
+          the label wrap the visual span has no click target and only
+          keyboard activation works. */}
+      <label
+        htmlFor={id}
+        className="relative inline-flex items-center flex-shrink-0 cursor-pointer"
+        title={isEnabled ? "已启用" : "已停用"}
+      >
         <input
           id={id}
           type="checkbox"
@@ -265,8 +273,8 @@ function ImageModelRow({
           checked={isEnabled}
           onChange={(e) => onToggle(e.target.checked)}
         />
-        <span className="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-purple-500/50 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-gray-600 peer-checked:bg-purple-500 cursor-pointer"></span>
-      </span>
+        <span className="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-purple-500/50 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-gray-600 peer-checked:bg-purple-500"></span>
+      </label>
     </li>
   );
 }

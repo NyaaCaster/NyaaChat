@@ -1,7 +1,12 @@
 import { AppState, ImageProvider, LlmProvider, ModelEntry } from "../types";
 
 const EXPORT_KIND = "nyaachat_settings_export";
-const EXPORT_VERSION = 2;
+/** Bumped to 3 when the AppState gained MCP fields (`isMcpEnabled`,
+ *  `mcpUserCity`, `mcpToolsEnabled`). v2 files are still accepted on
+ *  import — missing MCP fields are filled with defaults during the
+ *  import-side migration in {@link validateImportPayload}. */
+const EXPORT_VERSION = 3;
+const SUPPORTED_IMPORT_VERSIONS = new Set([2, 3]);
 
 interface ExportPayload {
   _kind: typeof EXPORT_KIND;
@@ -114,10 +119,10 @@ function validateImportPayload(raw: unknown): ImportResult {
   if (typeof obj._version !== "number") {
     return { kind: "error", error: "缺少 _version 字段" };
   }
-  if (obj._version !== EXPORT_VERSION) {
+  if (!SUPPORTED_IMPORT_VERSIONS.has(obj._version)) {
     return {
       kind: "error",
-      error: `不支持的导出版本 ${obj._version}(当前期望 ${EXPORT_VERSION})`,
+      error: `不支持的导出版本 ${obj._version}(支持 ${[...SUPPORTED_IMPORT_VERSIONS].join("/")})`,
     };
   }
   if (!obj.settings || typeof obj.settings !== "object") {
@@ -153,6 +158,29 @@ function validateImportPayload(raw: unknown): ImportResult {
     });
   }
 
+  // MCP fields. v2 files don't carry them; we let those slide and fill
+  // defaults below. v3+ files must have valid shapes.
+  if (obj._version >= 3) {
+    if (s.isMcpEnabled !== undefined && typeof s.isMcpEnabled !== "boolean") {
+      issues.push("isMcpEnabled 必须是布尔");
+    }
+    if (
+      s.mcpUserCity !== undefined &&
+      s.mcpUserCity !== null &&
+      typeof s.mcpUserCity !== "string"
+    ) {
+      issues.push("mcpUserCity 必须是字符串或 null");
+    }
+    if (
+      s.mcpToolsEnabled !== undefined &&
+      (typeof s.mcpToolsEnabled !== "object" ||
+        s.mcpToolsEnabled === null ||
+        Array.isArray(s.mcpToolsEnabled))
+    ) {
+      issues.push("mcpToolsEnabled 必须是对象");
+    }
+  }
+
   if (issues.length > 0) {
     const shown = issues.slice(0, 5).join("; ");
     const more = issues.length > 5 ? ` (还有 ${issues.length - 5} 项)` : "";
@@ -162,7 +190,26 @@ function validateImportPayload(raw: unknown): ImportResult {
     };
   }
 
-  return { kind: "ok", settings: s as unknown as AppState };
+  // Backfill MCP defaults so v2 imports — and v3 imports that omit fields
+  // — produce a complete AppState. Same defaults the schema migrator uses
+  // when loading from localStorage; keeping them in sync is critical or
+  // imported settings would behave differently from native ones.
+  const filled: Record<string, unknown> = { ...s };
+  if (typeof filled.isMcpEnabled !== "boolean") {
+    filled.isMcpEnabled = true;
+  }
+  if (typeof filled.mcpUserCity !== "string" || !(filled.mcpUserCity as string).trim()) {
+    filled.mcpUserCity = null;
+  }
+  if (
+    !filled.mcpToolsEnabled ||
+    typeof filled.mcpToolsEnabled !== "object" ||
+    Array.isArray(filled.mcpToolsEnabled)
+  ) {
+    filled.mcpToolsEnabled = { get_current_time: true, get_weather: true };
+  }
+
+  return { kind: "ok", settings: filled as unknown as AppState };
 }
 
 const VALID_LLM_KINDS = new Set([
