@@ -342,6 +342,14 @@ export const MessageItem = React.memo(function MessageItem({
                 components={{
                   p: ({ children }) => <p>{renderTextWithQuotes(children)}</p>,
                   li: ({ children }) => <li>{renderTextWithQuotes(children)}</li>,
+                  // Force any link inside chat content (LLM-rendered or user-
+                  // pasted) to open in a new tab. rel guards against tabnabbing
+                  // and stops the new page from leaking referrer info.
+                  a: ({ children, ...props }) => (
+                    <a {...props} target="_blank" rel="noopener noreferrer">
+                      {children}
+                    </a>
+                  ),
                   pre: ({ children }) => {
                     const code = React.Children.toArray(children).map(c =>
                       typeof c === "object" && "props" in c ? (c as any).props.children : c

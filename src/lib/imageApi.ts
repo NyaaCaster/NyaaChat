@@ -341,7 +341,28 @@ async function performImageRequest(
       `响应中未找到图片地址${snippet ? `: ${snippet}` : "（响应为空）"}`,
     );
   }
-  return url;
+  return wrapWithProxy(url);
+}
+
+/**
+ * Route the upstream image URL through our same-origin nginx cache proxy.
+ *
+ * - Browsers in regions where the upstream blob/CDN is blocked (e.g. mainland
+ *   China users hitting an OpenAI Azure blob URL) get a working URL.
+ * - Once nginx caches the bytes, the image survives the upstream signed
+ *   URL expiring — historical chats don't go blank weeks later.
+ * - data: URLs are already self-contained, leave them alone.
+ * - Non-https (e.g. local dev / Ollama) are left alone — wrapping wouldn't
+ *   help and the host whitelist would 403 anyway.
+ */
+function wrapWithProxy(rawUrl: string): string {
+  if (!rawUrl) return rawUrl;
+  if (rawUrl.startsWith("data:")) return rawUrl;
+  if (!rawUrl.startsWith("https://")) return rawUrl;
+  // Already proxied (defensive, in case a regenerate path feeds a wrapped
+  // url back through here).
+  if (rawUrl.startsWith("/api/image-proxy")) return rawUrl;
+  return `/api/image-proxy?url=${encodeURIComponent(rawUrl)}`;
 }
 
 /**

@@ -834,13 +834,40 @@ function MetricChip({
   value: string;
   title: string;
 }) {
+  // Same tap-to-reveal pattern as CapabilityIcons: PC users get the native
+  // hover tooltip via the title attribute; mobile users tap to see the
+  // label. Auto-clears after 2.5s.
+  const [showLabel, setShowLabel] = useState(false);
+
+  useEffect(() => {
+    if (!showLabel) return;
+    const t = setTimeout(() => setShowLabel(false), 2500);
+    return () => clearTimeout(t);
+  }, [showLabel]);
+
   return (
-    <span
-      className="inline-flex items-center gap-0.5 text-[11px] text-gray-500 dark:text-gray-400 flex-shrink-0 tabular-nums"
-      title={title}
-    >
-      {icon}
-      {value}
+    <span className="relative flex-shrink-0">
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          setShowLabel((v) => !v);
+        }}
+        className="inline-flex items-center gap-0.5 text-[11px] text-gray-500 dark:text-gray-400 tabular-nums hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
+        title={title}
+        aria-label={title}
+      >
+        {icon}
+        {value}
+      </button>
+      {showLabel && (
+        <span
+          className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded bg-gray-900 dark:bg-white text-white dark:text-gray-900 text-[10px] font-medium whitespace-nowrap pointer-events-none shadow-elevation-2 z-10"
+          role="tooltip"
+        >
+          {title}
+        </span>
+      )}
     </span>
   );
 }
