@@ -376,7 +376,7 @@ export const MessageItem = React.memo(function MessageItem({
               </button>
             )}
             <button
-              onClick={() => void downloadImage(message.imageUrl!, `nyaachat-${message.id}`)}
+              onClick={() => void downloadImage(message.imageUrl!, `NyaaChat-${message.id}`)}
               className="p-1 text-gray-400 hover:text-blue-500 transition-colors rounded"
               title="下载图片"
             >
@@ -443,7 +443,7 @@ export const MessageItem = React.memo(function MessageItem({
           isOpen={viewerOpen}
           onClose={() => setViewerOpen(false)}
           src={message.imageUrl}
-          filename={`nyaachat-${message.id}`}
+          filename={`NyaaChat-${message.id}`}
         />
       )}
       {onDelete && (

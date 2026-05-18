@@ -341,7 +341,7 @@ async function performImageRequest(
       `响应中未找到图片地址${snippet ? `: ${snippet}` : "（响应为空）"}`,
     );
   }
-  return wrapWithProxy(url);
+  return toProxiedImageUrl(url);
 }
 
 /**
@@ -355,30 +355,57 @@ async function performImageRequest(
  * - Non-https (e.g. local dev / Ollama) are left alone — wrapping wouldn't
  *   help and the host whitelist would 403 anyway.
  */
-function wrapWithProxy(rawUrl: string): string {
+/**
+ * Route the upstream image URL through our same-origin nginx cache proxy.
+ *
+ * Path-encoded form: /api/image-proxy/<scheme>/<host>/<path>?<query>
+ *
+ * - Browsers in regions where the upstream blob/CDN is blocked (e.g. mainland
+ *   China users hitting an OpenAI Azure blob URL) get a working URL.
+ * - Once nginx caches the bytes, the image survives the upstream signed
+ *   URL expiring — historical chats don't go blank weeks later.
+ * - Same-origin requests sidestep CORS, which means downloadImage's fetch
+ *   path always succeeds and we never fall back to opening a new tab.
+ * - data: URLs are already self-contained, leave them alone.
+ * - Non-https/http URLs (e.g. malformed) are left alone — the host whitelist
+ *   would 403 anyway.
+ *
+ * We split the upstream URL into scheme/host/path/query parts because nginx's
+ * `$arg_url` query variable is not URL-decoded automatically, which makes a
+ * single ?url=... parameter unworkable for both the regex whitelist check
+ * and the variable-driven proxy_pass. Splitting into path segments lets
+ * nginx see each component as plain (un-encoded) text.
+ */
+export function toProxiedImageUrl(rawUrl: string): string {
   if (!rawUrl) return rawUrl;
   if (rawUrl.startsWith("data:")) return rawUrl;
-  if (!rawUrl.startsWith("https://")) return rawUrl;
-  // Already proxied (defensive, in case a regenerate path feeds a wrapped
-  // url back through here).
-  if (rawUrl.startsWith("/api/image-proxy")) return rawUrl;
-  return `/api/image-proxy?url=${encodeURIComponent(rawUrl)}`;
+  if (rawUrl.startsWith("/api/image-proxy/")) return rawUrl;
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    return rawUrl;
+  }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return rawUrl;
+  const scheme = parsed.protocol.slice(0, -1);
+  return `/api/image-proxy/${scheme}/${parsed.host}${parsed.pathname}${parsed.search}`;
 }
 
 /**
- * Trigger a real "save as" download when possible, otherwise open the image
- * in a new tab so the current chat is never disrupted.
+ * Trigger a real "save as" download for an image URL.
  *
  * Strategy:
  *   1. data: URLs use `<a download>` — always works.
- *   2. http(s) URLs: try fetch + blob URL first. Browsers honor `<a download>`
- *      unconditionally for blob: URLs, so this gives a real save dialog when
- *      the supplier serves CORS headers (or the image is same-origin).
- *   3. If the CORS fetch fails (most third-party CDNs reject it), Chrome &
- *      Safari ignore the `download` attribute on cross-origin URLs without
- *      `Content-Disposition: attachment`, and an `<a>` click would navigate
- *      the current tab. Use `window.open(_blank)` instead so the chat stays
- *      put — the user can save from the new tab.
+ *   2. Any other URL is first routed through our same-origin image proxy
+ *      (`toProxiedImageUrl`). After that, fetch is same-origin so it cannot
+ *      hit CORS, and the blob+`<a download>` path produces a real "save as"
+ *      dialog with the filename WE choose. This makes downloads consistent
+ *      across providers (chatgpt-topup, qiny, codexai, OpenAI blob, …)
+ *      regardless of whether the upstream sets ACAO.
+ *   3. If even the proxy fetch fails (offline / cache miss + upstream down),
+ *      we fall back to `window.open` so the user at least has a chance to
+ *      see/save the image manually — but with the proxy in place this
+ *      branch is essentially unreachable.
  */
 export async function downloadImage(url: string, filename = "image"): Promise<void> {
   if (url.startsWith("data:")) {
@@ -389,8 +416,13 @@ export async function downloadImage(url: string, filename = "image"): Promise<vo
     return;
   }
 
+  // Force same-origin: legacy chat history may still contain raw upstream
+  // URLs from images generated before the proxy was deployed. Re-wrapping
+  // through the proxy makes fetch reliable for those too.
+  const fetchUrl = toProxiedImageUrl(url);
+
   try {
-    const res = await fetch(url, { mode: "cors", referrerPolicy: "no-referrer" });
+    const res = await fetch(fetchUrl, { referrerPolicy: "no-referrer" });
     if (res.ok) {
       const blob = await res.blob();
       if (!/\.[a-z0-9]+$/i.test(filename)) {
@@ -407,7 +439,7 @@ export async function downloadImage(url: string, filename = "image"): Promise<vo
       return;
     }
   } catch {
-    /* CORS / network rejection — fall through to new-tab fallback. */
+    /* fall through to new-tab fallback */
   }
 
   // Cross-origin without CORS: forcing a download would require a same-origin
