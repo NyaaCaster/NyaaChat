@@ -1,6 +1,12 @@
 services:
   app:
     build: .
+    environment:
+      # Pin timezone so nginx access/error logs and any TLS expiry/X-cache
+      # date headers are in Asia/Shanghai instead of the container default
+      # UTC. The base nginx:1.27-alpine image already ships tzdata, so we
+      # don't need to install anything extra.
+      - TZ=Asia/Shanghai
     ports:
       - "3095:3095"
     restart: unless-stopped
