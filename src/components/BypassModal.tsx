@@ -91,7 +91,7 @@ export function BypassModal({ isOpen, onClose, settings, onSave }: BypassModalPr
           throw new Error('Invalid format');
         }
 
-        const requiredKeys = ['identityReset', 'scenarioFramework', 'aiSelfPersuasion', 'roleplayInduction', 'safetyStatement', 'disclaimer', 'wordCountControl'];
+        const requiredKeys = ['identityReset', 'scenarioFramework', 'aiSelfPersuasion', 'roleplayInduction', 'safetyStatement', 'creativeGuidance', 'disclaimer', 'wordCountControl'];
         for (const key of requiredKeys) {
           if (typeof parsed.customTemplates[key] !== 'string') {
             throw new Error(`Missing or invalid key: ${key}`);
@@ -131,6 +131,7 @@ export function BypassModal({ isOpen, onClose, settings, onSave }: BypassModalPr
           aiSelfPersuasion: bypassTemplates.aiSelfPersuasion.content,
           roleplayInduction: bypassTemplates.roleplayInduction.content,
           safetyStatement: bypassTemplates.safetyStatement.content,
+          creativeGuidance: bypassTemplates.creativeGuidance.content,
           disclaimer: bypassTemplates.disclaimer.content,
           wordCountControl: bypassTemplates.wordCountControl.content,
         }
@@ -144,8 +145,19 @@ export function BypassModal({ isOpen, onClose, settings, onSave }: BypassModalPr
       <BaseModal
         isOpen={isOpen}
         onClose={onClose}
-        title="学术研究 (Bypass)"
+        title="绕过机制 (Bypass)"
         titleIcon={<Flame size={16} className="text-red-500" />}
+        titleAction={
+          <label className="relative inline-flex items-center cursor-pointer" aria-label="启用绕过机制">
+            <input
+              type="checkbox"
+              className="sr-only peer"
+              checked={localSettings.bypass.enabled}
+              onChange={(e) => handleBypassChange('enabled', e.target.checked)}
+            />
+            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-red-500/50 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-red-500"></div>
+          </label>
+        }
         maxWidth="max-w-2xl"
         footer={
           <div className="flex flex-col-reverse sm:flex-row justify-end sm:space-x-4">
@@ -166,21 +178,6 @@ export function BypassModal({ isOpen, onClose, settings, onSave }: BypassModalPr
       >
         <div className="p-6 sm:p-8 space-y-6">
           <section className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 flex items-center gap-2">
-                <span className="w-1.5 h-6 bg-red-500 rounded-full"></span> ClavisSalomonis 绕过机制
-              </h3>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  className="sr-only peer"
-                  checked={localSettings.bypass.enabled}
-                  onChange={(e) => handleBypassChange('enabled', e.target.checked)}
-                />
-                <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-red-500/50 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-red-500"></div>
-              </label>
-            </div>
-
             <AnimatePresence>
               {localSettings.bypass.enabled && (
                 <motion.div
@@ -248,6 +245,7 @@ export function BypassModal({ isOpen, onClose, settings, onSave }: BypassModalPr
                         { id: 'aiSelfPersuasion', label: 'AI Self-Persuasion (自我说服)' },
                         { id: 'roleplayInduction', label: 'Roleplay Induction (语境引导)' },
                         { id: 'safetyStatement', label: 'Safety Statement (安全伪装)' },
+                        { id: 'creativeGuidance', label: 'Creative Guidance (创作引导)' },
                         { id: 'disclaimer', label: 'Disclaimer (免责声明)' },
                         { id: 'wordCountControl', label: 'Word Count (字数控制)' },
                       ].map((item) => (

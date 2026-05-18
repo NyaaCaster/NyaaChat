@@ -51,6 +51,7 @@ export interface BypassSettings {
   aiSelfPersuasion: boolean;
   roleplayInduction: boolean;
   safetyStatement: boolean;
+  creativeGuidance: boolean;
   disclaimer: boolean;
   wordCountControl: boolean;
   customTemplates: {
@@ -59,6 +60,7 @@ export interface BypassSettings {
     aiSelfPersuasion: string;
     roleplayInduction: string;
     safetyStatement: string;
+    creativeGuidance: string;
     disclaimer: string;
     wordCountControl: string;
   };

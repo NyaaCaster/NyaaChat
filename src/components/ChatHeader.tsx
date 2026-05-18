@@ -101,7 +101,7 @@ export function ChatHeader({
                 ? "text-red-500 bg-red-500/10 hover:bg-red-500/20"
                 : "text-gray-400 hover:text-red-500 hover:bg-gray-100 dark:hover:bg-white/10"
             }`}
-            title="学术研究 (Bypass)"
+            title="绕过机制 (Bypass)"
           >
             <Flame
               size={18}

@@ -14,6 +14,10 @@ interface BaseModalProps {
   onClose: () => void;
   title?: React.ReactNode;
   titleIcon?: React.ReactNode;
+  /** Optional control rendered between the title and the close button — e.g.
+   *  a master enable/disable toggle that belongs at the same level as the
+   *  modal heading rather than inside the body. */
+  titleAction?: React.ReactNode;
   children: React.ReactNode;
   footer?: React.ReactNode;
   /** Tailwind max-width class fragment, e.g. "max-w-lg", "max-w-2xl". */
@@ -38,6 +42,7 @@ export function BaseModal({
   onClose,
   title,
   titleIcon,
+  titleAction,
   children,
   footer,
   maxWidth = "max-w-lg",
@@ -142,13 +147,16 @@ export function BaseModal({
                 {title}
               </h3>
             </div>
-            <button
-              onClick={onClose}
-              aria-label="关闭"
-              className="p-2 text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-white/10 rounded-xl transition-all flex-shrink-0"
-            >
-              <X size={18} />
-            </button>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              {titleAction}
+              <button
+                onClick={onClose}
+                aria-label="关闭"
+                className="p-2 text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-white/10 rounded-xl transition-all"
+              >
+                <X size={18} />
+              </button>
+            </div>
           </div>
         )}
         <div className="overflow-y-auto flex-1 min-h-0">{children}</div>
