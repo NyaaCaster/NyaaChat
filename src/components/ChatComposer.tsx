@@ -21,7 +21,7 @@ import {
 import { LlmProviderIcon, ImageProviderIcon } from "./icons/providerIcons";
 import { CAPABILITY_META } from "./icons/capabilityMeta";
 import { ToggleSwitch } from "./SettingsFormBits";
-import { listTools, ping, type McpHealth, type McpTool } from "../lib/mcpApi";
+import { listTools, ping, filterAdvertised, type McpHealth, type McpTool } from "../lib/mcpApi";
 
 // MCP geo settings is a small leaf modal; lazy-load it like the rest so it
 // doesn't bloat the initial composer chunk.
@@ -88,7 +88,7 @@ export function ChatComposer({
       if (health.ok) {
         try {
           const tools = await listTools();
-          setMcpTools(tools);
+          setMcpTools(filterAdvertised(tools));
         } catch {
           setMcpTools([]);
         }

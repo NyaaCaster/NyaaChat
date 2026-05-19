@@ -257,6 +257,37 @@ const USER_CITY_PARAM_BY_TOOL: Record<string, string> = {
 };
 
 /**
+ * Whitelist of tool names this client surfaces to the user and advertises
+ * to the LLM. The MCP server may expose more tools (the upstream README
+ * describes nine — divination, dice, coin, etc.) but we deliberately ship
+ * only the subset the product has explicit UX/prompt support for. Tools
+ * outside this list are hidden from the picker AND not advertised to the
+ * model on a turn, so the LLM can't accidentally call something we have
+ * no usage guidelines for.
+ *
+ * To add a tool: drop its name here, then make sure
+ *  1. Add a per-tool rule fragment in chatPipeline.ts and wire it into
+ *     `assembleMcpRules`. If the tool joins an existing family
+ *     (time/weather, dice), extend the group fragment instead of adding
+ *     a new top-level section.
+ *  2. AppState.mcpToolsEnabled defaults (App.tsx + settingsBackup.ts) are
+ *     updated if the tool should be on by default
+ *  3. USER_CITY_PARAM_BY_TOOL above is updated if the tool takes a
+ *     location-style argument
+ */
+export const ADVERTISED_TOOLS: readonly string[] = [
+  "get_current_time",
+  "get_weather",
+  "roll_coc",
+  "roll_dnd",
+];
+
+export function filterAdvertised(tools: McpTool[]): McpTool[] {
+  const allow = new Set(ADVERTISED_TOOLS);
+  return tools.filter((t) => allow.has(t.name));
+}
+
+/**
  * If the user has set a role-play city in settings AND the LLM didn't
  * specify the location parameter itself, fill the user's city in as the
  * default. The LLM's choice always wins — including an explicit empty

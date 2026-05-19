@@ -88,7 +88,7 @@ function migrateV2ToV3(raw: any): any {
     mcpToolsEnabled:
       raw.mcpToolsEnabled && typeof raw.mcpToolsEnabled === "object"
         ? raw.mcpToolsEnabled
-        : { get_current_time: true, get_weather: true },
+        : { get_current_time: true, get_weather: true, roll_coc: true, roll_dnd: true },
     _version: 3,
   };
 }
@@ -267,7 +267,7 @@ const DEFAULT_SETTINGS: AppState = {
   isStreaming: false,
   isMcpEnabled: true,
   mcpUserCity: null,
-  mcpToolsEnabled: { get_current_time: true, get_weather: true },
+  mcpToolsEnabled: { get_current_time: true, get_weather: true, roll_coc: true, roll_dnd: true },
 };
 
 export default function App() {

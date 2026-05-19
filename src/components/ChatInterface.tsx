@@ -7,7 +7,7 @@ import { newId } from "../lib/id";
 import { saveSession } from "../lib/sessionStorage";
 import { getActiveImageProvider, getActiveLlmProvider, imageProviderToApiSettings, providerToApiSettings } from "../lib/providers";
 import { searchWeb, WebSearchError } from "../lib/searchApi";
-import { callTool, listTools, mergeUserCity } from "../lib/mcpApi";
+import { callTool, listTools, mergeUserCity, filterAdvertised } from "../lib/mcpApi";
 import {
   applyPlaceholders,
   buildImagePrompt,
@@ -246,11 +246,12 @@ export function ChatInterface({
     }
 
     try {
-      // MCP tools assembly. Done BEFORE buildRequestMessages so we can pass
-      // a `mcpToolsActive` flag through and conditionally inject the
-      // data-usage guidelines into the system prompt — those rules are
-      // pure noise when no tool is actually being advertised. Listing
-      // tools per-turn (rather than caching) lets enable/disable + service
+      // MCP tools assembly. Done BEFORE buildRequestMessages so we can
+      // pass the advertised tool name list through and let the system
+      // prompt inject ONLY the rules for tools actually being advertised
+      // — irrelevant rules are pure noise when a tool isn't on the menu.
+      // Listing tools per-turn (rather than caching) lets enable/disable
+      // + service
       // health changes take effect immediately. Failure to fetch is
       // non-fatal and silently degrades to chat-without-tools.
       //
@@ -263,6 +264,7 @@ export function ChatInterface({
       let mcpToolUseOptions:
         | { tools: LlmTool[]; executeTool: ToolExecutor; onToolEvent: (e: any) => void }
         | undefined;
+      let advertisedToolNames: string[] = [];
       const anyToolEnabled =
         settings.mcpToolsEnabled &&
         Object.values(settings.mcpToolsEnabled).some((v) => v !== false);
@@ -276,11 +278,14 @@ export function ChatInterface({
         modelDeclaredCapabilities.includes("tools");
       if (settings.isMcpEnabled && anyToolEnabled && modelSupportsTools) {
         try {
-          const allTools = await listTools(abortControllerRef.current.signal);
+          const allTools = filterAdvertised(
+            await listTools(abortControllerRef.current.signal),
+          );
           const enabledTools = allTools.filter(
             (t) => settings.mcpToolsEnabled[t.name] !== false,
           );
           if (enabledTools.length > 0) {
+            advertisedToolNames = enabledTools.map((t) => t.name);
             const llmTools: LlmTool[] = enabledTools.map((t) => ({
               name: t.name,
               description: t.description,
@@ -363,7 +368,7 @@ export function ChatInterface({
         userName,
         charName,
         extraSystemMessages: searchSystemMessage ? [searchSystemMessage] : undefined,
-        mcpToolsActive: !!mcpToolUseOptions,
+        mcpAdvertisedToolNames: advertisedToolNames,
       });
 
       onAddLog({

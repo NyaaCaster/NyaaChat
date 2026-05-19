@@ -206,7 +206,7 @@ function validateImportPayload(raw: unknown): ImportResult {
     typeof filled.mcpToolsEnabled !== "object" ||
     Array.isArray(filled.mcpToolsEnabled)
   ) {
-    filled.mcpToolsEnabled = { get_current_time: true, get_weather: true };
+    filled.mcpToolsEnabled = { get_current_time: true, get_weather: true, roll_coc: true, roll_dnd: true };
   }
 
   return { kind: "ok", settings: filled as unknown as AppState };
