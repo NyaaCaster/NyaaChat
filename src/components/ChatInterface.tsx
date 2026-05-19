@@ -478,8 +478,8 @@ export function ChatInterface({
     const timer = setTimeout(() => {
       const session: ChatSession = {
         id: currentSession?.id ?? newId(),
-        characterId: currentCharacter?.id ?? "default",
-        characterName: charName,
+        characterId: currentSession?.characterId ?? currentCharacter?.id ?? "default",
+        characterName: currentSession?.characterName ?? charName,
         messages,
         createdAt: currentSession?.createdAt ?? Date.now(),
       };
