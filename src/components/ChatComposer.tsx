@@ -13,7 +13,7 @@ import {
   X as XIcon,
 } from "lucide-react";
 import type { Attachment } from "../lib/chatPipeline";
-import { AppState, LlmProvider, ImageProvider, ModelCapability } from "../types";
+import { AppState, LlmProvider, ImageProvider, ModelCapability, ModelHealth } from "../types";
 import {
   getActiveImageProvider,
   getActiveLlmProvider,
@@ -592,6 +592,7 @@ function ProviderPicker<P extends LlmProvider | ImageProvider>({
                         : "text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5"
                     }`}
                   >
+                    {variant === "llm" && <HealthDot health={m.health} />}
                     <span className="truncate flex-1">{m.id}</span>
                     <ReadOnlyCapabilityIcons capabilities={m.capabilities} />
                     {isActive && (
@@ -607,6 +608,36 @@ function ProviderPicker<P extends LlmProvider | ImageProvider>({
         </div>
       ))}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Health indicator dot — inherits from the provider's health-test results.
+// gray = never tested, red = last test failed, green = last test passed.
+// We don't probe here; the source of truth is whatever the user ran in the
+// 设置 → 模型供应商 → 健康测试 flow, which writes back to ModelEntry.health.
+// ---------------------------------------------------------------------------
+
+function HealthDot({ health }: { health?: ModelHealth }) {
+  let cls: string;
+  let title: string;
+  if (!health) {
+    cls = "bg-gray-300 dark:bg-gray-600";
+    title = "未进行健康测试";
+  } else if (health.ok) {
+    cls = "bg-emerald-500";
+    title =
+      health.latencyMs != null ? `连接正常 · ${health.latencyMs}ms` : "连接正常";
+  } else {
+    cls = "bg-red-500";
+    title = `连接失败${health.error ? "：" + health.error : ""}`;
+  }
+  return (
+    <span
+      className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${cls}`}
+      title={title}
+      aria-label={title}
+    />
   );
 }
 
