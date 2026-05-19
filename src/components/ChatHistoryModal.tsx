@@ -25,6 +25,7 @@ interface ChatHistoryModalProps {
   currentSessionId: string | null;
   onSelectSession: (session: ChatSession) => void;
   onSessionsChange: () => void;
+  onCurrentSessionDeleted: () => void;
 }
 
 export function ChatHistoryModal({
@@ -33,6 +34,7 @@ export function ChatHistoryModal({
   currentSessionId,
   onSelectSession,
   onSessionsChange,
+  onCurrentSessionDeleted,
 }: ChatHistoryModalProps) {
   const sessions = loadSessions();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -72,7 +74,9 @@ export function ChatHistoryModal({
 
   const handleDeleteConfirm = () => {
     if (pendingDeleteId) {
+      const wasCurrent = pendingDeleteId === currentSessionId;
       deleteSession(pendingDeleteId);
+      if (wasCurrent) onCurrentSessionDeleted();
       onSessionsChange();
     }
     setPendingDeleteId(null);
@@ -185,15 +189,13 @@ export function ChatHistoryModal({
                     >
                       <Download size={14} />
                     </button>
-                    {currentSessionId !== session.id && (
-                      <button
-                        onClick={(e) => handleDeleteRequest(e, session.id)}
-                        className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/20 rounded-md transition-colors"
-                        title="删除"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    )}
+                    <button
+                      onClick={(e) => handleDeleteRequest(e, session.id)}
+                      className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/20 rounded-md transition-colors"
+                      title={currentSessionId === session.id ? "删除当前聊天记录" : "删除"}
+                    >
+                      <Trash2 size={14} />
+                    </button>
                   </div>
                 </div>
               ))}

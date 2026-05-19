@@ -500,6 +500,7 @@ export default function App() {
             currentSessionId={currentSession?.id ?? null}
             onSelectSession={(session) => { setCurrentSession(session); }}
             onSessionsChange={() => setHistoryVersion((v) => v + 1)}
+            onCurrentSessionDeleted={() => setCurrentSession(null)}
           />
         )}
         {isLlmProvidersOpen && (
