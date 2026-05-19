@@ -259,10 +259,13 @@ export function buildRequestMessages(args: BuildRequestArgs): ApiMessage[] {
   );
 
   const systemMessages: ApiMessage[] = [];
-  if (settings.userRole?.profile) {
+  const currentUserRole = settings.userRoles?.find(
+    (u) => u.id === settings.currentUserRoleId,
+  );
+  if (currentUserRole?.profile) {
     systemMessages.push({
       role: "system",
-      content: `[User Persona: ${settings.userRole.profile.replace(/\{\{user\}\}/g, userName).replace(/\{\{char\}\}/g, charName)}]`,
+      content: `[User Persona: ${currentUserRole.profile.replace(/\{\{user\}\}/g, userName).replace(/\{\{char\}\}/g, charName)}]`,
     });
   }
   if (currentCharacter?.description) {
@@ -413,8 +416,11 @@ export function buildImagePrompt(args: BuildImagePromptArgs): string {
     sections.push(`角色 ${charName}：${truncate(desc, IMAGE_DESC_MAX_CHARS)}`);
   }
 
-  if (settings.userRole?.profile) {
-    const profile = applyPlaceholders(settings.userRole.profile, userName, charName);
+  const currentUserRoleForImage = settings.userRoles?.find(
+    (u) => u.id === settings.currentUserRoleId,
+  );
+  if (currentUserRoleForImage?.profile) {
+    const profile = applyPlaceholders(currentUserRoleForImage.profile, userName, charName);
     sections.push(`用户 ${userName}：${truncate(profile, 80)}`);
   }
 

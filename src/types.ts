@@ -67,6 +67,7 @@ export interface BypassSettings {
 }
 
 export interface UserRoleSettings {
+  id: string;
   name: string;
   profile: string;
 }
@@ -91,7 +92,8 @@ export interface CharacterSettings {
 
 export interface AppState {
   bypass: BypassSettings;
-  userRole: UserRoleSettings;
+  userRoles: UserRoleSettings[];
+  currentUserRoleId: string;
   theme: "light" | "dark" | "system";
   characters: CharacterSettings[];
   currentCharacterId: string;

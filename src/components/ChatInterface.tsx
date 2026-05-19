@@ -90,8 +90,11 @@ export function ChatInterface({
   const currentCharacter = settings.characters?.find(
     (c) => c.id === settings.currentCharacterId,
   );
+  const currentUserRole = settings.userRoles?.find(
+    (u) => u.id === settings.currentUserRoleId,
+  );
   const charName = currentCharacter?.name || "AI助手";
-  const userName = settings.userRole?.name || "user";
+  const userName = currentUserRole?.name || "user";
 
   const handleStop = () => {
     if (abortControllerRef.current) {
@@ -777,7 +780,7 @@ export function ChatInterface({
                   <MessageItem
                     key={message.id}
                     message={message}
-                    userName={settings.userRole?.name}
+                    userName={currentUserRole?.name}
                     charName={currentCharacter?.name}
                     onDelete={handleDeleteMessage}
                     onRegenerate={handleRegenerate}

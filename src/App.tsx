@@ -24,8 +24,8 @@ const BypassModal = lazy(() =>
 const ConsoleModal = lazy(() =>
   import("./components/ConsoleModal").then((m) => ({ default: m.ConsoleModal })),
 );
-const UserRoleModal = lazy(() =>
-  import("./components/UserRoleModal").then((m) => ({ default: m.UserRoleModal })),
+const UserRoleSelectionModal = lazy(() =>
+  import("./components/UserRoleSelectionModal").then((m) => ({ default: m.UserRoleSelectionModal })),
 );
 const CharacterSelectionModal = lazy(() =>
   import("./components/CharacterSelectionModal").then((m) => ({
@@ -234,10 +234,14 @@ const DEFAULT_SETTINGS: AppState = {
       wordCountControl: bypassTemplates.wordCountControl.content,
     },
   },
-  userRole: {
-    name: "user",
-    profile: "",
-  },
+  userRoles: [
+    {
+      id: "default",
+      name: "user",
+      profile: "",
+    },
+  ],
+  currentUserRoleId: "default",
   theme: "system",
   characters: [
     {
@@ -312,10 +316,37 @@ export default function App() {
               ...(parsed.bypass?.customTemplates || {}),
             },
           },
-          userRole: {
-            ...DEFAULT_SETTINGS.userRole,
-            ...(parsed.userRole || { name: parsed.bypass?.userName || "user" }),
-          },
+          userRoles: (() => {
+            // v3-: parsed.userRole was a single object → wrap into a list with
+            // a stable id so downstream selection by id keeps working.
+            // v4+: parsed.userRoles is already a list.
+            if (Array.isArray(parsed.userRoles) && parsed.userRoles.length > 0) {
+              return parsed.userRoles;
+            }
+            const legacy = parsed.userRole;
+            if (legacy && typeof legacy === "object") {
+              return [
+                {
+                  id: typeof legacy.id === "string" && legacy.id ? legacy.id : "default",
+                  name: typeof legacy.name === "string" ? legacy.name : "user",
+                  profile: typeof legacy.profile === "string" ? legacy.profile : "",
+                },
+              ];
+            }
+            return DEFAULT_SETTINGS.userRoles;
+          })(),
+          currentUserRoleId: (() => {
+            if (typeof parsed.currentUserRoleId === "string" && parsed.currentUserRoleId) {
+              return parsed.currentUserRoleId;
+            }
+            // Migrating from v3-: the single userRole becomes the active one.
+            if (parsed.userRole && typeof parsed.userRole === "object") {
+              return typeof parsed.userRole.id === "string" && parsed.userRole.id
+                ? parsed.userRole.id
+                : "default";
+            }
+            return DEFAULT_SETTINGS.currentUserRoleId;
+          })(),
           theme: parsed.theme || "system",
           characters:
             parsed.characters?.length > 0
@@ -478,7 +509,7 @@ export default function App() {
           />
         )}
         {isUserRoleOpen && (
-          <UserRoleModal
+          <UserRoleSelectionModal
             isOpen={isUserRoleOpen}
             onClose={() => setIsUserRoleOpen(false)}
             settings={settings}
