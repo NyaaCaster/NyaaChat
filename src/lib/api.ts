@@ -556,17 +556,37 @@ function contentToTextParts(content: string | any[]): any[] {
 
 /**
  * Split OpenAI-style messages into an Anthropic system string + alternating messages.
- * - system messages are concatenated and returned separately
+ * - system messages BEFORE the last user turn are concatenated and returned
+ *   in the top-level `system` field (conventional behavior).
+ * - system messages AFTER the last user turn are inlined into that user
+ *   message's content with `\n\n` separators — this preserves SillyTavern
+ *   Depth=0 placement for search / MCP / worldinfo / late-stage bypass
+ *   entries that the OpenAI path emits as standalone system messages.
+ *   See .docs/depth-zero-design.md for the matching design rationale.
  * - consecutive same-role messages are merged into a single message with combined content parts
  */
 function prepareAnthropicPayload(messages: ApiMessage[]): {
   system: string;
   messages: { role: 'user' | 'assistant'; content: any[] }[];
 } {
+  // Find the last user message; system entries after it are Depth=0
+  // injections that must stay close to the user turn rather than hoisting
+  // to the top-level system field.
+  let lastUserIdx = -1;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === 'user') {
+      lastUserIdx = i;
+      break;
+    }
+  }
+
   const systemTexts: string[] = [];
+  const tailSystemTexts: string[] = [];
   const converted: { role: 'user' | 'assistant'; content: any[] }[] = [];
 
-  for (const msg of messages) {
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
+
     if (msg.role === 'system') {
       const text = typeof msg.content === 'string'
         ? msg.content
@@ -574,7 +594,12 @@ function prepareAnthropicPayload(messages: ApiMessage[]): {
             .filter((p: any) => p?.type === 'text')
             .map((p: any) => p.text)
             .join('\n');
-      if (text) systemTexts.push(text);
+      if (!text) continue;
+      if (lastUserIdx !== -1 && i > lastUserIdx) {
+        tailSystemTexts.push(text);
+      } else {
+        systemTexts.push(text);
+      }
       continue;
     }
 
@@ -587,6 +612,37 @@ function prepareAnthropicPayload(messages: ApiMessage[]): {
       last.content.push(...partsArr);
     } else {
       converted.push({ role, content: partsArr });
+    }
+  }
+
+  // Fold the trailing system block into the last user message. The bypass
+  // assistant prefill entries that follow it in the OpenAI sequence will
+  // have already been merged into the trailing assistant message above.
+  if (tailSystemTexts.length > 0) {
+    let targetIdx = -1;
+    for (let i = converted.length - 1; i >= 0; i--) {
+      if (converted[i].role === 'user') {
+        targetIdx = i;
+        break;
+      }
+    }
+    if (targetIdx !== -1) {
+      const target = converted[targetIdx];
+      const inlined = '\n\n' + tailSystemTexts.join('\n\n');
+      const lastPartIdx = target.content.length - 1;
+      const lastPart = target.content[lastPartIdx];
+      if (lastPart && lastPart.type === 'text') {
+        target.content[lastPartIdx] = {
+          ...lastPart,
+          text: (lastPart.text || '') + inlined,
+        };
+      } else {
+        target.content.push({ type: 'text', text: inlined });
+      }
+    } else {
+      // No user message at all — fall back to hoisting so the content
+      // isn't silently dropped.
+      systemTexts.push(...tailSystemTexts);
     }
   }
 

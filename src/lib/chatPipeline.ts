@@ -217,13 +217,16 @@ interface BuildRequestArgs {
 /**
  * Compose the full request payload for one turn:
  *
- *   [system_blocks...] [history_user_turns...] [new_user_turn] -> bypass injection
+ *   [persona system_blocks] [bypass head]
+ *     [history user/assistant turns] [new user turn]
+ *     [search] [MCP] [worldinfo system] [worldinfo assistant]
+ *     [bypass tail (system creative/disclaimer + assistant prefill)]
  *
- * Order matters: persona / world-info / bypass blocks all go up front so
- * the request prefix stays byte-identical across turns and the prompt
- * cache (Anthropic ephemeral, OpenAI auto-prefix) can hit on the long
- * static portion. Volatile keyword-triggered world info goes at the
- * tail of the system segment for the same reason.
+ * Persona blocks stay up front so the byte-identical prefix can hit the
+ * prompt cache across turns. Search / MCP / worldinfo / generation-time
+ * bypass entries go to the Depth=0 tail so they sit closest to the model's
+ * generation point — see .docs/depth-zero-design.md for the full rationale
+ * and the matching Anthropic-path inlining in prepareAnthropicPayload.
  */
 export function buildRequestMessages(args: BuildRequestArgs): ApiMessage[] {
   const {
@@ -274,40 +277,50 @@ export function buildRequestMessages(args: BuildRequestArgs): ApiMessage[] {
       content: `[Assistant Persona: ${currentCharacter.description.replace(/\{\{user\}\}/g, userName).replace(/\{\{char\}\}/g, charName)}]`,
     });
   }
+
+  // Depth=0 tail injections — see .docs/depth-zero-design.md.
+  // Order is low-attention to high-attention so that the most critical
+  // entries (worldinfo, then bypass appended later by injectBypassPrompts)
+  // sit closest to the model's generation point.
+  const tailInjections: ApiMessage[] = [];
+
+  // [1] Web search context — supplemental "nice to have", lowest priority.
+  if (extraSystemMessages && extraSystemMessages.length > 0) {
+    tailInjections.push(...extraSystemMessages);
+  }
+
+  // [2] MCP tool usage rules — system-level guidance, above search.
+  if (mcpAdvertisedToolNames && mcpAdvertisedToolNames.length > 0) {
+    const rules = assembleMcpRules(mcpAdvertisedToolNames);
+    if (rules) {
+      tailInjections.push({ role: "system", content: rules });
+    }
+  }
+
+  // [3] Worldinfo — system-role rules first (tagged [World Info]),
+  //     then assistant-role rules (tagged [Assistant Note]). The split
+  //     mirrors SillyTavern's @role=system / @role=assistant Depth=0.
   for (const rule of activeRules) {
-    const tag = rule.position === "assistant" ? "Assistant Note" : "World Info";
-    systemMessages.push({
+    if (rule.position === "assistant") continue;
+    tailInjections.push({
       role: "system",
-      content: `[${tag}] ${rule.content
+      content: `[World Info] ${rule.content
+        .replace(/\{\{user\}\}/g, userName)
+        .replace(/\{\{char\}\}/g, charName)}`,
+    });
+  }
+  for (const rule of activeRules) {
+    if (rule.position !== "assistant") continue;
+    tailInjections.push({
+      role: "assistant",
+      content: `[Assistant Note] ${rule.content
         .replace(/\{\{user\}\}/g, userName)
         .replace(/\{\{char\}\}/g, charName)}`,
     });
   }
 
-  // Web-search context goes at the tail of the system block — appended
-  // here so it sits AFTER bypass injection (injectBypassPrompts only
-  // splices in at the head) and adjacent to the latest user turn.
-  if (extraSystemMessages && extraSystemMessages.length > 0) {
-    systemMessages.push(...extraSystemMessages);
-  }
-
-  // MCP tool data-usage guidelines. Sit at the very end of the system
-  // segment so they're the last thing the model reads before the live
-  // tool results — closest possible position to where the rules apply.
-  // Per-tool fragments are assembled dynamically so the prompt never
-  // mentions a tool the model can't call.
-  if (mcpAdvertisedToolNames && mcpAdvertisedToolNames.length > 0) {
-    const rules = assembleMcpRules(mcpAdvertisedToolNames);
-    if (rules) {
-      systemMessages.push({
-        role: "system",
-        content: rules,
-      });
-    }
-  }
-
   return injectBypassPrompts(
-    [...systemMessages, ...history],
+    [...systemMessages, ...history, ...tailInjections],
     settings,
     charName,
     userName,
