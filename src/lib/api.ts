@@ -298,12 +298,13 @@ async function callOpenAIOnce(
     headers['Authorization'] = `Bearer ${apiKey}`;
   }
 
-  const response = await fetchWithTimeout(url, {
+  const response = await fetch(url, {
     method: 'POST',
     headers,
     body: JSON.stringify(requestBody),
     referrerPolicy: 'no-referrer',
-  }, signal);
+    signal,
+  });
 
   if (!response.ok) {
     const errText = await response.text().catch(() => '');
@@ -784,12 +785,13 @@ async function callAnthropicOnce(
     headers['anthropic-dangerous-direct-browser-access'] = 'true';
   }
 
-  const response = await fetchWithTimeout(url, {
+  const response = await fetch(url, {
     method: 'POST',
     headers,
     body: JSON.stringify(requestBody),
     referrerPolicy: 'no-referrer',
-  }, signal);
+    signal,
+  });
 
   if (!response.ok) {
     const errText = await response.text().catch(() => '');
