@@ -27,6 +27,25 @@ description: Rebuild the NyaaChat Docker image and restart containers. Use this 
 1. 环境信息中的 `Platform`（如 `win32` → PowerShell）。
 2. 当前可用的 shell（PowerShell 工具可用 → Windows；仅 Bash → Linux/macOS）。
 
+## 缓存策略
+
+**默认使用 Docker layer cache**，不再每次都 `--no-cache`：
+
+- `package*.json` 未改动时，`RUN npm ci` 这一层会被命中并复用，不重新下载依赖。
+- 只有源码变动会触发重建 `COPY . .` 之后的层（即重跑 `npm run build`）。
+- 这是 rebuild 的常规场景，速度比无缓存快很多。
+
+**只有以下场景**才需要追加 `-NoCache` / `--no-cache` 强制无缓存重建：
+
+- 怀疑某层缓存损坏或与实际源码不一致（极少见）。
+- 升级了 base image（`node:20-alpine` / `nginx:1.27-alpine`）想强制刷新。
+- 用户明确要求"完全重建"、"clean rebuild"、"不要用缓存"。
+
+调用方式：
+
+- Windows: `powershell -ExecutionPolicy Bypass -File .\rebuild.ps1 -NoCache`
+- Linux/macOS: `bash ./rebuild.sh --no-cache`
+
 ## 关于 `-ExecutionPolicy Bypass`
 
 该参数传给 **PowerShell 进程本身**（不是 `rebuild.ps1` 脚本的参数），作用是临时绕过本机的脚本执行策略（Execution Policy）。
@@ -42,9 +61,11 @@ description: Rebuild the NyaaChat Docker image and restart containers. Use this 
 - **必须**带 `-ExecutionPolicy Bypass` 参数运行 `rebuild.ps1`，避免被本机执行策略拦截。
 - 用 `PowerShell` 工具（Windows）或 `Bash` 工具（Linux/macOS）直接执行；不要把两者混在一条命令里。
 - 完整命令示例：
-  - Windows: `powershell -ExecutionPolicy Bypass -File .\rebuild.ps1`
-  - Linux/macOS: `bash ./rebuild.sh`
-- 脚本本身已包含：停止容器 → 无缓存构建 → 清理 dangling 镜像 → 启动容器 → 列出运行中容器。不要再额外手动执行这些步骤。
+  - Windows（默认有缓存）: `powershell -ExecutionPolicy Bypass -File .\rebuild.ps1`
+  - Windows（无缓存）: `powershell -ExecutionPolicy Bypass -File .\rebuild.ps1 -NoCache`
+  - Linux/macOS（默认有缓存）: `bash ./rebuild.sh`
+  - Linux/macOS（无缓存）: `bash ./rebuild.sh --no-cache`
+- 脚本本身已包含：构建（默认带缓存）→ 清理 dangling 镜像 → `docker compose up -d` 按需重建容器 → 列出运行中容器。`up -d` 只在镜像 hash 或 service 配置变化时重建容器，volume（如 `image-cache`）自动保留。不要再额外手动执行这些步骤。
 - 执行前请确认工作目录是项目根目录（含 `docker-compose.yml`）。
 - 执行后向用户简要汇报：脚本是否成功结束、当前运行中的容器状态。
 
