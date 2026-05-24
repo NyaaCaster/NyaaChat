@@ -124,6 +124,90 @@ async function pingAnthropic(
   }
 }
 
+/**
+ * Probe whether an OpenAI-compatible endpoint accepts the `response_format:
+ * json_object` parameter for the given model. This is the cheapest portable
+ * signal for "supports structured output" since it's the de-facto JSON mode
+ * across OpenAI, DeepSeek, Together, OpenRouter, and most proxies.
+ *
+ * Notes:
+ * - The prompt MUST contain the literal word "json" — OpenAI rejects JSON
+ *   mode requests whose prompt doesn't mention json (400 with "messages
+ *   must contain the word 'json'").
+ * - We cap at 8 tokens so the model has just enough room to emit `{}`.
+ * - 4xx ⇒ unsupported (the `response_format` param is server-rejected on
+ *   models that don't implement JSON mode); 2xx ⇒ supported.
+ * - Network/abort errors propagate as `unknown` so we don't falsely brand
+ *   a model as lacking structured output when the probe never landed.
+ */
+async function probeOpenAIStructured(
+  baseUrl: string,
+  apiKey: string,
+  model: string,
+  signal: AbortSignal,
+): Promise<"supported" | "unsupported"> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
+  const res = await fetch(`${baseUrl}/chat/completions`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      model,
+      messages: [
+        {
+          role: "user",
+          content: "Reply with json: {\"ok\":true}",
+        },
+      ],
+      response_format: { type: "json_object" },
+      max_tokens: 8,
+      stream: false,
+    }),
+    signal,
+    referrerPolicy: "no-referrer",
+  });
+  return res.ok ? "supported" : "unsupported";
+}
+
+/**
+ * Run the structured-output probe against an OpenAI-compatible endpoint.
+ * Anthropic-format providers return "unknown" since the Messages API has
+ * no `response_format` field; their structured output goes through tool
+ * use, which we don't probe here (it overlaps with the existing 'tools'
+ * inference and the cost/complexity isn't worth a separate signal).
+ *
+ * Returns "unknown" on network failure / abort / missing-config so we
+ * don't falsely strip the `structured` capability from a model whose
+ * probe simply didn't land.
+ */
+export async function runStructuredCheck(
+  provider: LlmProvider,
+  modelId: string,
+  signal?: AbortSignal,
+): Promise<"supported" | "unsupported" | "unknown"> {
+  const apiSettings = providerToApiSettings(provider, modelId);
+  const baseUrl = normalizeBaseUrl(apiSettings.baseUrl);
+
+  if (!baseUrl || !modelId) return "unknown";
+  if (apiSettings.apiFormat === "anthropic") return "unknown";
+
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), 30_000);
+  const onAbort = () => ac.abort();
+  if (signal) signal.addEventListener("abort", onAbort, { once: true });
+
+  try {
+    return await probeOpenAIStructured(baseUrl, apiSettings.apiKey, modelId, ac.signal);
+  } catch {
+    return "unknown";
+  } finally {
+    clearTimeout(timer);
+    if (signal) signal.removeEventListener("abort", onAbort);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Capability inference
 // ---------------------------------------------------------------------------
@@ -256,9 +340,29 @@ export async function probeModel(
   entry: ModelEntry,
   signal?: AbortSignal,
 ): Promise<ModelEntry> {
-  const health = await runHealthCheck(provider, entry.id, signal);
-  const capabilities = inferCapabilities(entry.id);
+  // Health ping and structured-output probe run concurrently — both are
+  // bounded by their own 30s timeouts so the slowest decides total wall
+  // time rather than their sum.
+  const [health, structured] = await Promise.all([
+    runHealthCheck(provider, entry.id, signal),
+    runStructuredCheck(provider, entry.id, signal),
+  ]);
+
+  const inferred = inferCapabilities(entry.id);
   const limits = inferLimits(entry.id);
+
+  // Merge structured-output capability with the id-based heuristics:
+  //   supported   ⇒ ensure 'structured' present
+  //   unsupported ⇒ ensure 'structured' absent (probe is authoritative)
+  //   unknown     ⇒ keep whatever inferCapabilities decided
+  const baseCaps = inferred.length > 0 ? inferred : entry.capabilities ?? [];
+  let capabilities = baseCaps;
+  if (structured === "supported" && !capabilities.includes("structured")) {
+    capabilities = [...capabilities, "structured"];
+  } else if (structured === "unsupported" && capabilities.includes("structured")) {
+    capabilities = capabilities.filter((c) => c !== "structured");
+  }
+
   return {
     ...entry,
     capabilities: capabilities.length > 0 ? capabilities : entry.capabilities,

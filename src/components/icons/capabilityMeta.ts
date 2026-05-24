@@ -1,4 +1,4 @@
-import { Boxes, Brain, Eye, Globe, ListOrdered, Wrench } from "lucide-react";
+import { Boxes, Brain, Eye, FileJson, Globe, ListOrdered, Wrench } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { ModelCapability } from "../../types";
 
@@ -19,6 +19,7 @@ export const CAPABILITY_META: Record<
   web: { Icon: Globe, label: "联网", color: "text-sky-500" },
   reasoning: { Icon: Brain, label: "推理", color: "text-violet-500" },
   tools: { Icon: Wrench, label: "工具调用", color: "text-amber-500" },
+  structured: { Icon: FileJson, label: "结构化输出", color: "text-blue-500" },
   rerank: { Icon: ListOrdered, label: "排序", color: "text-emerald-500" },
   embed: { Icon: Boxes, label: "嵌入", color: "text-rose-500" },
 };

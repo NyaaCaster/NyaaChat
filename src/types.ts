@@ -122,6 +122,7 @@ export type ModelCapability =
   | "web"
   | "reasoning"
   | "tools"
+  | "structured"
   | "rerank"
   | "embed";
 

@@ -438,8 +438,12 @@ function ProviderDetail({
     current: number;
     total: number;
   } | null>(null);
+  // Set of model ids currently in flight. Drives per-row spinners
+  // independently of completion order so concurrent probes all show
+  // their loader at once instead of lighting up sequentially.
+  const [probingIds, setProbingIds] = useState<Set<string>>(new Set());
   // Stash an AbortController so unmount/select-other-provider cancels the
-  // in-flight serial probe loop instead of letting it keep mutating state.
+  // in-flight probe loop instead of letting it keep mutating state.
   const [healthAbort, setHealthAbort] = useState<AbortController | null>(null);
 
   // Mirror the latest provider into a ref so the async health-test loop can
@@ -461,11 +465,17 @@ function ProviderDetail({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Run health-test serially across all enabled models. Serial (not
-  // parallel) avoids hammering the provider with N rate-limited requests
-  // and gives clean per-model latency numbers. Each probed entry is
-  // committed to AppState as it lands so partial progress survives a
-  // mid-run cancel.
+  // Run health-test concurrently across all enabled models. Each probe
+  // commits its result to AppState as it lands, so partial progress
+  // survives a mid-run cancel.
+  //
+  // Concurrency invariant: providerRef updates only after React
+  // re-renders, so two probes finishing back-to-back would both read
+  // the same stale ref and the second commit would clobber the first.
+  // We keep a local Map of completed probe results and overlay it
+  // onto the freshest provider state on every commit — this preserves
+  // both other concurrent probes' results AND any unrelated field
+  // edits the user made mid-run.
   const handleHealthTest = async () => {
     if (isHealthTesting || provider.models.length === 0) return;
     const ac = new AbortController();
@@ -474,29 +484,46 @@ function ProviderDetail({
     setHealthProgress({ current: 0, total: provider.models.length });
 
     const queue = [...provider.models];
+    const probedResults = new Map<string, ModelEntry>();
     let done = 0;
 
-    for (const entry of queue) {
-      if (ac.signal.aborted) break;
-      const updated = await probeModel(provider, entry, ac.signal);
-      if (ac.signal.aborted) break;
-      // Read the LATEST provider state when committing — preserves any
-      // edits the user made to other fields (apiKey, name) or to the
-      // models list (e.g. added a new model via 管理模型) mid-run.
-      const latest = providerRef.current;
-      onUpdate({
-        ...latest,
-        models: latest.models.map((m) =>
-          m.id === entry.id ? updated : m,
-        ),
-      });
-      done += 1;
-      setHealthProgress({ current: done, total: queue.length });
-    }
+    // Mark every model as in-flight up front so all rows start
+    // spinning together — visually communicates "concurrent" instead
+    // of "queued".
+    setProbingIds(new Set(queue.map((m) => m.id)));
+
+    await Promise.all(
+      queue.map(async (entry) => {
+        if (ac.signal.aborted) return;
+        try {
+          const updated = await probeModel(provider, entry, ac.signal);
+          if (ac.signal.aborted) return;
+          probedResults.set(entry.id, updated);
+          const latest = providerRef.current;
+          onUpdate({
+            ...latest,
+            models: latest.models.map((m) => probedResults.get(m.id) ?? m),
+          });
+          done += 1;
+          setHealthProgress({ current: done, total: queue.length });
+        } finally {
+          // Clear this row's spinner the moment its probe lands,
+          // regardless of success/failure, so each row independently
+          // transitions from loader → result.
+          setProbingIds((prev) => {
+            if (!prev.has(entry.id)) return prev;
+            const next = new Set(prev);
+            next.delete(entry.id);
+            return next;
+          });
+        }
+      }),
+    );
 
     setIsHealthTesting(false);
     setHealthProgress(null);
     setHealthAbort(null);
+    setProbingIds(new Set());
   };
 
   const handleHealthCancel = () => {
@@ -703,11 +730,7 @@ function ProviderDetail({
                 <ModelRow
                   key={m.id}
                   entry={m}
-                  isProbing={
-                    isHealthTesting &&
-                    !!healthProgress &&
-                    provider.models[healthProgress.current]?.id === m.id
-                  }
+                  isProbing={probingIds.has(m.id)}
                 />
               ))}
             </ul>
