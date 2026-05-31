@@ -1,4 +1,4 @@
-import React, { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import React, { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   FileText,
   Globe,
@@ -65,6 +65,7 @@ export function ChatComposer({
   onSettingsChange,
 }: ChatComposerProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const llmCardRef = useRef<HTMLDivElement>(null);
   const imageCardRef = useRef<HTMLDivElement>(null);
   const mcpCardRef = useRef<HTMLDivElement>(null);
@@ -134,6 +135,42 @@ export function ChatComposer({
     document.addEventListener("mousedown", handle);
     return () => document.removeEventListener("mousedown", handle);
   }, [openPicker]);
+
+  // Auto-grow the textarea: it starts at a single line and expands one line
+  // at a time as the user types / wraps. The ceiling is computed from the
+  // viewport so the growing composer never pushes its top edge past the
+  // bottom of the top toolbar — once that ceiling is hit the textarea scrolls
+  // internally (with the project's blue scrollbar) instead of growing further.
+  const resizeTextarea = useCallback(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    // Reset to auto first so scrollHeight reflects the true content height.
+    el.style.height = "auto";
+    const header = document.querySelector<HTMLElement>("[data-app-header]");
+    const footer = el.closest("footer");
+    const headerH = header?.offsetHeight ?? 0;
+    // Everything in the composer footer that isn't the textarea itself
+    // (toolbar row, attachment chips, disclaimer, paddings).
+    const otherH = footer ? footer.offsetHeight - el.offsetHeight : 0;
+    const MARGIN = 32; // breathing room kept above the composer
+    const FLOOR = 44; // never collapse below one comfortable line
+    const maxH = window.innerHeight - headerH - otherH - MARGIN;
+    const next = Math.max(FLOOR, Math.min(el.scrollHeight, maxH));
+    el.style.height = `${next}px`;
+    el.style.overflowY = el.scrollHeight > next ? "auto" : "hidden";
+  }, []);
+
+  // Recompute on content change and whenever the attachment strip toggles
+  // (it changes the footer's non-textarea height, shifting the ceiling).
+  useLayoutEffect(() => {
+    resizeTextarea();
+  }, [input, attachments.length, resizeTextarea]);
+
+  // The ceiling depends on viewport height, so track window resizes too.
+  useEffect(() => {
+    window.addEventListener("resize", resizeTextarea);
+    return () => window.removeEventListener("resize", resizeTextarea);
+  }, [resizeTextarea]);
 
   const handlePaste = async (e: React.ClipboardEvent) => {
     const files = Array.from(e.clipboardData.files);
@@ -381,6 +418,7 @@ export function ChatComposer({
           className="relative flex items-end shadow-elevation-2 rounded-2xl border border-gray-200/50 dark:border-white/10 bg-white/90 dark:bg-[#111111]/90 backdrop-blur-xl overflow-hidden focus-within:ring-2 focus-within:ring-blue-500/50 transition-all duration-300"
         >
           <textarea
+            ref={textareaRef}
             value={input}
             onChange={(e) => onInputChange(e.target.value)}
             onPaste={handlePaste}
@@ -392,7 +430,7 @@ export function ChatComposer({
               }
             }}
             placeholder="发送消息... (Ctrl + Enter 发送)"
-            className="flex-1 max-h-60 min-h-[60px] py-4 pl-4 pr-14 bg-transparent outline-none resize-none text-sm placeholder-gray-400 dark:placeholder-gray-600 focus:placeholder-transparent transition-all"
+            className="flex-1 py-3 pl-4 pr-12 bg-transparent outline-none resize-none text-sm leading-6 placeholder-gray-400 dark:placeholder-gray-600 focus:placeholder-transparent transition-all"
             rows={1}
           />
           <button
@@ -404,19 +442,19 @@ export function ChatComposer({
             }}
             type={isLoading ? "button" : "submit"}
             disabled={!input.trim() && !isLoading}
-            className={`absolute right-2 bottom-2 p-2.5 rounded-xl text-white disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300 flex items-center justify-center overflow-hidden ${
+            className={`absolute right-2 bottom-2 p-2 rounded-lg text-white disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300 flex items-center justify-center overflow-hidden ${
               isLoading
                 ? "bg-red-500 hover:bg-red-600 shadow-glow shadow-red-500/50"
                 : "bg-blue-600 hover:bg-blue-700 hover:shadow-glow"
             }`}
           >
             {isLoading && (
-              <div className="absolute inset-0 border-2 border-t-white/80 border-white/20 rounded-xl animate-spin"></div>
+              <div className="absolute inset-0 border-2 border-t-white/80 border-white/20 rounded-lg animate-spin"></div>
             )}
             {isLoading ? (
-              <Square size={18} fill="currentColor" className="relative z-10" />
+              <Square size={16} fill="currentColor" className="relative z-10" />
             ) : (
-              <Send size={18} className="relative z-10 translate-x-[-1px] translate-y-[1px]" />
+              <Send size={16} className="relative z-10 translate-x-[-1px] translate-y-[1px]" />
             )}
           </button>
         </form>

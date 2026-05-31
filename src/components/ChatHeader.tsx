@@ -54,7 +54,7 @@ export function ChatHeader({
     characters?.find((c) => c.id === currentCharacterId)?.name || "AI助手";
 
   return (
-    <div className="flex-shrink-0 bg-white/70 dark:bg-[#0A0A0A]/70 backdrop-blur-xl border-b border-gray-200/60 dark:border-white/5 sticky top-0 z-20 flex flex-col">
+    <div data-app-header className="flex-shrink-0 bg-white/70 dark:bg-[#0A0A0A]/70 backdrop-blur-xl border-b border-gray-200/60 dark:border-white/5 sticky top-0 z-20 flex flex-col">
       <header className="px-4 sm:px-6 py-2.5 sm:py-3 flex items-center justify-between border-b border-gray-100 dark:border-white/5">
         <div className="flex items-center space-x-3">
           <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center shadow-lg shadow-blue-500/20">
