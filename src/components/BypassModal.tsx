@@ -159,6 +159,7 @@ export function BypassModal({ isOpen, onClose, settings, onSave }: BypassModalPr
           </label>
         }
         maxWidth="max-w-2xl"
+        bodyClassName="bypass-scrollbar"
         footer={
           <div className="flex flex-col-reverse sm:flex-row justify-end sm:space-x-4">
             <button

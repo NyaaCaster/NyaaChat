@@ -19,6 +19,25 @@
   .quote-highlight {
     @apply text-blue-600 dark:text-blue-400;
   }
+
+  /* Bypass modal scrollbar — dark red to match the bypass module's window
+     border / theme accent. Covers both the modal's own scroll container and
+     any nested scrollables (e.g. the template-editing textareas). Sits in the
+     components layer so it beats the global blue rule in @layer base. */
+  .bypass-scrollbar,
+  .bypass-scrollbar * {
+    scrollbar-color: rgb(185 28 28 / 0.6) transparent;  /* Firefox, red-700 */
+  }
+
+  .bypass-scrollbar::-webkit-scrollbar-thumb,
+  .bypass-scrollbar *::-webkit-scrollbar-thumb {
+    background-color: rgb(185 28 28 / 0.6);             /* red-700 */
+  }
+
+  .bypass-scrollbar::-webkit-scrollbar-thumb:hover,
+  .bypass-scrollbar *::-webkit-scrollbar-thumb:hover {
+    background-color: rgb(153 27 27 / 0.9);             /* red-800 */
+  }
 }
 
 @layer base {
@@ -35,5 +54,38 @@
 
   ::selection {
     @apply bg-blue-500/30 text-blue-900 dark:bg-blue-500/40 dark:text-blue-50;
+  }
+
+  /* Graphical scrollbar — replaces the OS default (white) control with the
+     project's signature blue. Applied globally so every scroll area (chat
+     list, modals, textareas) is consistent. The bypass modal overrides this
+     with a dark-red variant via `.bypass-scrollbar` (see @layer components). */
+  * {
+    scrollbar-width: thin;                              /* Firefox */
+    scrollbar-color: rgb(59 130 246 / 0.55) transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background-color: rgb(59 130 246 / 0.55);           /* blue-500 */
+    border-radius: 9999px;
+    border: 2px solid transparent;                      /* inset padding */
+    background-clip: padding-box;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: rgb(37 99 235 / 0.85);            /* blue-600 */
+  }
+
+  *::-webkit-scrollbar-corner {
+    background: transparent;
   }
 }

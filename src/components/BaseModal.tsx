@@ -22,6 +22,9 @@ interface BaseModalProps {
   footer?: React.ReactNode;
   /** Tailwind max-width class fragment, e.g. "max-w-lg", "max-w-2xl". */
   maxWidth?: string;
+  /** Extra classes for the scrollable body container — e.g. a scrollbar
+   *  variant the call site wants to theme (the bypass modal uses this). */
+  bodyClassName?: string;
   /** Pass when title is omitted, so screen readers still get a label. */
   ariaLabel?: string;
   closeOnBackdrop?: boolean;
@@ -46,6 +49,7 @@ export function BaseModal({
   children,
   footer,
   maxWidth = "max-w-lg",
+  bodyClassName = "",
   ariaLabel,
   closeOnBackdrop = true,
 }: BaseModalProps) {
@@ -159,7 +163,7 @@ export function BaseModal({
             </div>
           </div>
         )}
-        <div className="overflow-y-auto flex-1 min-h-0">{children}</div>
+        <div className={`overflow-y-auto flex-1 min-h-0 ${bodyClassName}`}>{children}</div>
         {footer && (
           <div className="p-4 sm:p-5 border-t border-gray-100 dark:border-white/5 bg-gray-50/50 dark:bg-black/20 flex-shrink-0">
             {footer}
