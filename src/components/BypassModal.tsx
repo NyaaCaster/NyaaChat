@@ -3,6 +3,7 @@ import { Flame, X, Edit2, Download, Upload, RotateCcw } from 'lucide-react';
 import { AppState } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { bypassTemplates } from '../lib/bypassTemplates';
+import { opusCheckTemplates, OpusCheckKey } from '../lib/OpusCheckTemplates';
 import { BaseModal } from './BaseModal';
 import { ConfirmDialog } from './ConfirmDialog';
 
@@ -11,19 +12,31 @@ interface BypassModalProps {
   onClose: () => void;
   settings: AppState;
   onSave: (settings: AppState) => void;
+  /** Send a message as the user in the active chat. Used by the RuleBreaker
+   *  OpusCheck buttons, which close the modal and inject their text. */
+  onSendMessage?: (text: string) => void;
 }
 
-export function BypassModal({ isOpen, onClose, settings, onSave }: BypassModalProps) {
+export function BypassModal({ isOpen, onClose, settings, onSave, onSendMessage }: BypassModalProps) {
   const [localSettings, setLocalSettings] = React.useState<AppState>(settings);
   const [editingTemplate, setEditingTemplate] = React.useState<string | null>(null);
   const [importMessage, setImportMessage] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
   const [pendingReset, setPendingReset] = useState(false);
+  // RuleBreaker (OpusCheck) — the editable texts live in
+  // localSettings.bypass.opusChecks so they persist on 保存配置. Only the
+  // mutually-exclusive "which editor is open" flag is transient local UI
+  // state (null = none open).
+  const [editingOpus, setEditingOpus] = useState<OpusCheckKey | null>(null);
+  const [pendingOpusReset, setPendingOpusReset] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const opusTexts = localSettings.bypass.opusChecks;
 
   React.useEffect(() => {
     setLocalSettings(settings);
     setEditingTemplate(null);
     setImportMessage(null);
+    setEditingOpus(null);
   }, [settings, isOpen]);
 
   const handleBypassChange = (field: keyof AppState['bypass'], value: string | boolean) => {
@@ -140,6 +153,40 @@ export function BypassModal({ isOpen, onClose, settings, onSave }: BypassModalPr
     setPendingReset(false);
   };
 
+  const handleOpusTextChange = (key: OpusCheckKey, value: string) => {
+    setLocalSettings(prev => ({
+      ...prev,
+      bypass: {
+        ...prev.bypass,
+        opusChecks: { ...prev.bypass.opusChecks, [key]: value },
+      },
+    }));
+  };
+
+  const handleOpusResetConfirm = () => {
+    setLocalSettings(prev => ({
+      ...prev,
+      bypass: {
+        ...prev.bypass,
+        opusChecks: {
+          opusCheck1: opusCheckTemplates.opusCheck1.content,
+          opusCheck2: opusCheckTemplates.opusCheck2.content,
+        },
+      },
+    }));
+    setPendingOpusReset(false);
+  };
+
+  // Clicking an OpusCheck button (not its edit icon) closes the modal and
+  // sends the corresponding text as the user in the active chat. No-op when
+  // the text is empty or no send handler is wired.
+  const handleOpusSend = (key: OpusCheckKey) => {
+    const text = opusTexts[key];
+    if (!text.trim() || !onSendMessage) return;
+    onClose();
+    onSendMessage(text);
+  };
+
   return (
     <>
       <BaseModal
@@ -147,17 +194,6 @@ export function BypassModal({ isOpen, onClose, settings, onSave }: BypassModalPr
         onClose={onClose}
         title="绕过机制 (Bypass)"
         titleIcon={<Flame size={16} className="text-red-500" />}
-        titleAction={
-          <label className="relative inline-flex items-center cursor-pointer" aria-label="启用绕过机制">
-            <input
-              type="checkbox"
-              className="sr-only peer"
-              checked={localSettings.bypass.enabled}
-              onChange={(e) => handleBypassChange('enabled', e.target.checked)}
-            />
-            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-red-500/50 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-red-500"></div>
-          </label>
-        }
         maxWidth="max-w-2xl"
         bodyClassName="bypass-scrollbar"
         footer={
@@ -179,15 +215,92 @@ export function BypassModal({ isOpen, onClose, settings, onSave }: BypassModalPr
       >
         <div className="p-6 sm:p-8 space-y-6">
           <section className="space-y-4">
-            <AnimatePresence>
-              {localSettings.bypass.enabled && (
-                <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: 'auto' }}
-                  exit={{ opacity: 0, height: 0 }}
-                  className="overflow-hidden"
+            {/* RuleBreaker — OpusCheck1 / OpusCheck2 文本编辑，无开关。 */}
+            <div className="space-y-6 p-5 sm:p-6 bg-red-50/50 dark:bg-red-500/5 rounded-2xl border border-red-100 dark:border-red-500/10">
+              <h4 className="text-base font-semibold tracking-tight text-red-700 dark:text-red-400" style={{ fontFamily: 'var(--font-display)' }}>
+                RuleBreaker
+              </h4>
+              <div className="space-y-3">
+                {([
+                  { key: 'opusCheck1' as OpusCheckKey, label: opusCheckTemplates.opusCheck1.label },
+                  { key: 'opusCheck2' as OpusCheckKey, label: opusCheckTemplates.opusCheck2.label },
+                ]).map((item) => (
+                  <div key={item.key} className="flex items-center justify-between p-2.5 bg-white/50 dark:bg-white/5 rounded-xl">
+                    <button
+                      onClick={() => handleOpusSend(item.key)}
+                      disabled={!opusTexts[item.key].trim()}
+                      className="flex-1 text-left text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-red-600 dark:hover:text-red-400 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-gray-700 dark:disabled:hover:text-gray-300"
+                      title="发送此文本到当前对话"
+                    >
+                      {item.label}
+                    </button>
+                    <button
+                      onClick={() => setEditingOpus(prev => (prev === item.key ? null : item.key))}
+                      className={`p-1.5 rounded-lg transition-colors ${editingOpus === item.key ? 'bg-red-100 text-red-600 dark:bg-red-500/20 dark:text-red-400' : 'text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/10'}`}
+                      title="编辑文本"
+                    >
+                      {editingOpus === item.key ? <X size={16} /> : <Edit2 size={16} />}
+                    </button>
+                  </div>
+                ))}
+                <p className="text-xs text-gray-500 dark:text-gray-400 px-1 leading-relaxed">
+                  opusCheck1 用于 o4.8，如果无效，切换到 o4.7 使用 opusCheck2
+                </p>
+                {/* 互斥编辑框：两个按钮共用此位置，editingOpus 决定显示哪一段。 */}
+                <AnimatePresence mode="wait">
+                  {editingOpus && (
+                    <motion.div
+                      key={editingOpus}
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      className="overflow-hidden"
+                    >
+                      <textarea
+                        value={opusTexts[editingOpus]}
+                        onChange={(e) => handleOpusTextChange(editingOpus, e.target.value)}
+                        className="w-full h-48 px-3 py-2 text-xs font-mono bg-white dark:bg-[#111111] border border-gray-200 dark:border-white/10 rounded-lg text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-red-500 resize-none transition-colors"
+                        placeholder="请输入文本..."
+                      />
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+              <div className="flex justify-end">
+                <button
+                  onClick={() => setPendingOpusReset(true)}
+                  className="px-3 py-2.5 text-gray-500 bg-white dark:bg-[#1A1A1A] border border-gray-200 dark:border-white/10 hover:bg-gray-50 dark:hover:bg-white/5 rounded-xl transition-colors flex items-center gap-2 text-sm font-medium"
+                  title="恢复默认"
                 >
-                  <div className="space-y-6 mt-4 p-5 sm:p-6 bg-red-50/50 dark:bg-red-500/5 rounded-2xl border border-red-100 dark:border-red-500/10">
+                  <RotateCcw size={16} />
+                  <span>重置</span>
+                </button>
+              </div>
+            </div>
+            <div className="space-y-6 p-5 sm:p-6 bg-red-50/50 dark:bg-red-500/5 rounded-2xl border border-red-100 dark:border-red-500/10">
+              <div className="flex items-center justify-between gap-4">
+                <h4 className="text-base font-semibold tracking-tight text-red-700 dark:text-red-400" style={{ fontFamily: 'var(--font-display)' }}>
+                  ClavisSalomonis
+                </h4>
+                <label className="relative inline-flex items-center cursor-pointer shrink-0" aria-label="启用绕过机制">
+                  <input
+                    type="checkbox"
+                    className="sr-only peer"
+                    checked={localSettings.bypass.enabled}
+                    onChange={(e) => handleBypassChange('enabled', e.target.checked)}
+                  />
+                  <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-red-500/50 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-red-500"></div>
+                </label>
+              </div>
+              <AnimatePresence>
+                {localSettings.bypass.enabled && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="overflow-hidden"
+                  >
+                    <div className="space-y-6">
                     <div className="flex flex-col sm:flex-row items-start sm:items-end justify-between gap-4">
                       <div className="w-full sm:flex-1">
                         <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">模板名称 (Template Name)</label>
@@ -300,10 +413,11 @@ export function BypassModal({ isOpen, onClose, settings, onSave }: BypassModalPr
                         </div>
                       ))}
                     </div>
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
           </section>
         </div>
       </BaseModal>
@@ -316,6 +430,16 @@ export function BypassModal({ isOpen, onClose, settings, onSave }: BypassModalPr
         confirmText="恢复"
         onConfirm={handleResetConfirm}
         onCancel={() => setPendingReset(false)}
+      />
+
+      <ConfirmDialog
+        isOpen={pendingOpusReset}
+        title="恢复默认文本"
+        message="确定要将 OpusCheck1 / OpusCheck2 恢复为默认文本吗？当前修改过的内容将被覆盖。"
+        destructive
+        confirmText="恢复"
+        onConfirm={handleOpusResetConfirm}
+        onCancel={() => setPendingOpusReset(false)}
       />
     </>
   );

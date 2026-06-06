@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from "react";
 import { Sparkles } from "lucide-react";
 import { ApiSettings, Message, AppState, LogEntry, ChatSession } from "../types";
 import { fetchChatCompletion, type LlmTool, type ToolExecutor } from "../lib/api";
@@ -61,7 +61,13 @@ interface ChatInterfaceProps {
   onSessionChange: (session: ChatSession | null) => void;
 }
 
-export function ChatInterface({
+/** Imperative handle exposed to App so siblings (e.g. BypassModal) can send
+ *  a message as the user without owning the chat state. */
+export interface ChatInterfaceHandle {
+  sendUserMessage: (text: string) => void;
+}
+
+export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>(function ChatInterface({
   settings,
   onOpenSettings,
   onOpenBypass,
@@ -74,7 +80,7 @@ export function ChatInterface({
   onSettingsChange,
   currentSession,
   onSessionChange,
-}: ChatInterfaceProps) {
+}: ChatInterfaceProps, ref) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -469,6 +475,17 @@ export function ChatInterface({
     await sendChat(content, atts, messages);
   };
 
+  // Allow App (and thus sibling modals like BypassModal) to inject a message
+  // as if the user had typed and sent it. Mirrors handleSubmit's guard +
+  // baseMessages handoff so the injected turn behaves identically.
+  useImperativeHandle(ref, () => ({
+    sendUserMessage: (text: string) => {
+      if (isLoading) return;
+      if (!text.trim()) return;
+      void sendChat(text, [], messages);
+    },
+  }), [isLoading, messages, settings]);
+
 
   // Auto-save current session when messages change. Debounced 800ms so the
   // stream-of-tokens path doesn't trigger a full JSON.stringify + setItem on
@@ -813,4 +830,4 @@ export function ChatInterface({
       />
     </div>
   );
-}
+});

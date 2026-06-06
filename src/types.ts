@@ -64,6 +64,12 @@ export interface BypassSettings {
     disclaimer: string;
     wordCountControl: string;
   };
+  /** RuleBreaker (OpusCheck) editable texts. Persisted so user edits survive
+   *  across sessions. Defaults live in lib/OpusCheckTemplates.ts. */
+  opusChecks: {
+    opusCheck1: string;
+    opusCheck2: string;
+  };
 }
 
 export interface UserRoleSettings {

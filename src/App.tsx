@@ -3,10 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, lazy, Suspense } from "react";
+import React, { useState, useEffect, lazy, Suspense, useRef } from "react";
 import { AppState, LogEntry } from "./types";
-import { ChatInterface } from "./components/ChatInterface";
+import { ChatInterface, type ChatInterfaceHandle } from "./components/ChatInterface";
 import { bypassTemplates } from "./lib/bypassTemplates";
+import { opusCheckTemplates } from "./lib/OpusCheckTemplates";
 import { createDefaultImageProviders, createDefaultLlmProviders, inferProvider } from "./lib/providers";
 import { newId } from "./lib/id";
 import { loadLastSessionId, loadSessions, saveLastSessionId } from "./lib/sessionStorage";
@@ -233,6 +234,10 @@ const DEFAULT_SETTINGS: AppState = {
       disclaimer: bypassTemplates.disclaimer.content,
       wordCountControl: bypassTemplates.wordCountControl.content,
     },
+    opusChecks: {
+      opusCheck1: opusCheckTemplates.opusCheck1.content,
+      opusCheck2: opusCheckTemplates.opusCheck2.content,
+    },
   },
   userRoles: [
     {
@@ -296,6 +301,7 @@ export default function App() {
   const [_historyVersion, setHistoryVersion] = useState(0);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
+  const chatRef = useRef<ChatInterfaceHandle>(null);
 
   useEffect(() => {
     // Read new key first, fall back to legacy `rikkachat_settings` for users
@@ -314,6 +320,10 @@ export default function App() {
             customTemplates: {
               ...DEFAULT_SETTINGS.bypass.customTemplates,
               ...(parsed.bypass?.customTemplates || {}),
+            },
+            opusChecks: {
+              ...DEFAULT_SETTINGS.bypass.opusChecks,
+              ...(parsed.bypass?.opusChecks || {}),
             },
           },
           userRoles: (() => {
@@ -468,6 +478,7 @@ export default function App() {
   return (
     <>
       <ChatInterface
+        ref={chatRef}
         settings={settings}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onOpenBypass={() => setIsBypassOpen(true)}
@@ -498,6 +509,7 @@ export default function App() {
             onClose={() => setIsBypassOpen(false)}
             settings={settings}
             onSave={handleSaveSettings}
+            onSendMessage={(text) => chatRef.current?.sendUserMessage(text)}
           />
         )}
         {isConsoleOpen && (
