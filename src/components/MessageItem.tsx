@@ -8,6 +8,7 @@ import { Copy, Check, Trash2, RefreshCw, Pencil, X as XIcon, ImagePlus, Download
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ImageViewerModal } from "./ImageViewerModal";
 import { downloadImage } from "../lib/imageApi";
+import { applyPlaceholders } from "../lib/chatPipeline";
 
 // rehype-sanitize schema: GitHub-flavored default + className passthrough so
 // our prose/markdown-body styles still apply. Anything not in the allowlist
@@ -143,6 +144,11 @@ export const MessageItem = React.memo(function MessageItem({
   const [viewerOpen, setViewerOpen] = useState(false);
   const editRef = useRef<HTMLTextAreaElement>(null);
 
+  // Resolve {{user}} / {{char}} for display. Fallbacks mirror the send path
+  // (ChatInterface) so a placeholder renders the same name that would be sent.
+  const resolvedUser = userName || "user";
+  const resolvedChar = charName || "AI助手";
+
   // Refresh the editing buffer when the underlying message changes from
   // outside (e.g. streaming finished after a regenerate). Only resync while
   // not actively editing — otherwise the user's in-flight changes would
@@ -160,7 +166,10 @@ export const MessageItem = React.memo(function MessageItem({
   }, [editing]);
 
   const handleCopyMsg = async () => {
-    const ok = await copyToClipboard(message.content);
+    // Copy what the user sees (placeholders resolved), not the raw source.
+    const ok = await copyToClipboard(
+      applyPlaceholders(message.content, resolvedUser, resolvedChar),
+    );
     if (!ok) return;
     setCopiedMsg(true);
     setTimeout(() => setCopiedMsg(false), 2000);
@@ -192,12 +201,16 @@ export const MessageItem = React.memo(function MessageItem({
   // Cache the normalized markdown so streaming siblings re-rendering doesn't
   // make THIS message re-parse its body. Reparsing is the dominant cost
   // during a long stream when every chunk causes a parent setMessages.
+  // Placeholders are substituted before normalize so the rendered bubble
+  // never shows a raw {{user}} / {{char}} (covers firstMes, model output,
+  // and edited content alike — the underlying message.content stays raw).
   const normalizedContent = React.useMemo(
-    () => normalizeMarkdown(message.content || "..."),
-    [message.content],
+    () => normalizeMarkdown(applyPlaceholders(message.content || "...", resolvedUser, resolvedChar)),
+    [message.content, resolvedUser, resolvedChar],
   );
 
   if (isSystem) {
+    const systemText = applyPlaceholders(message.content, resolvedUser, resolvedChar);
     return (
       <motion.div
         initial={{ opacity: 0, y: 10 }}
@@ -208,9 +221,9 @@ export const MessageItem = React.memo(function MessageItem({
           <span className="font-semibold text-gray-700 dark:text-gray-300">
             System:{" "}
           </span>
-          {message.content.length > 50
-            ? message.content.substring(0, 50) + "..."
-            : message.content}
+          {systemText.length > 50
+            ? systemText.substring(0, 50) + "..."
+            : systemText}
         </div>
       </motion.div>
     );
@@ -232,7 +245,7 @@ export const MessageItem = React.memo(function MessageItem({
       transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
       className={`flex w-full my-4 ${isUser ? "justify-end" : "justify-start"}`}
     >
-      <div className={`max-w-[85%] sm:max-w-[80%] flex flex-col gap-1 ${isUser ? "items-end" : "items-start"}`}>
+      <div className={`max-w-[85%] sm:max-w-[80%] min-w-0 flex flex-col gap-1 ${isUser ? "items-end" : "items-start"}`}>
       <div
         className={`w-full rounded-2xl px-5 py-4 bg-white dark:bg-[#111111] text-gray-900 dark:text-gray-100 shadow-elevation-1 ${
           isUser

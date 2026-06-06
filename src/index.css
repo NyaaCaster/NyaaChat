@@ -38,6 +38,23 @@
   .bypass-scrollbar *::-webkit-scrollbar-thumb:hover {
     background-color: rgb(153 27 27 / 0.9);             /* red-800 */
   }
+
+  /* Keep chat bubble content within its max-width. Long code blocks scroll
+     horizontally inside the bubble instead of stretching it across the page,
+     and long unbroken strings (URLs, tokens) wrap rather than overflow. Pairs
+     with the bubble container's `min-w-0` so the flex item can shrink below
+     its min-content width. Without these, a single long line in an injected
+     message stretches the whole layout and surfaces a page-level horizontal
+     scrollbar. */
+  .markdown-body {
+    overflow-wrap: break-word;
+    word-break: break-word;
+  }
+
+  .markdown-body pre {
+    overflow-x: auto;
+    max-width: 100%;
+  }
 }
 
 @layer base {
