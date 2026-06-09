@@ -41,6 +41,7 @@ export function injectBypassPrompts(
 ) {
   if (!settings.bypass.enabled) return messages;
 
+  const injected: { role: string; content: string }[] = [];
   const getPrompt = (key: keyof typeof bypassTemplates) => {
     const defaultTpl = bypassTemplates[key];
     const customContent =
@@ -56,56 +57,29 @@ export function injectBypassPrompts(
     };
   };
 
-  // Tag system-role bypass entries with `[System Note]` so they're
-  // distinguishable in logs and for in-conversation reference. Assistant-role
-  // entries (aiSelfPersuasion / roleplayInduction) stay raw — they're prefill
-  // content meant to read as the AI's own voice; tagging would break the act.
-  const collectTagged = (keys: (keyof typeof bypassTemplates)[]) => {
-    const out: { role: string; content: string }[] = [];
-    for (const key of keys) {
-      if (!settings.bypass[key]) continue;
-      const p = getPrompt(key);
-      out.push({
-        role: p.role,
-        content: p.role === "system" ? `[System Note] ${p.content}` : p.content,
-      });
+  const addPrompt = (key: keyof typeof bypassTemplates) => {
+    if (settings.bypass[key]) {
+      injected.push(getPrompt(key));
     }
-    return out;
   };
 
-  // Two-stage injection — see .docs/depth-zero-design.md.
-  // Head: foundational entries that need the "RESET ALL OF THE ABOVE" /
-  //   scenario / safety-bleach to land before the conversation even starts.
-  // Tail: enforcement entries (writing rules, disclaimer) and assistant
-  //   prefill (self-persuasion, roleplay induction) that need maximum
-  //   recency so the model sees them right before generating.
-  const head = collectTagged([
-    "identityReset",
-    "scenarioFramework",
-    "safetyStatement",
-  ]);
-  const tail = collectTagged([
-    "creativeGuidance",
-    "disclaimer",
-    "aiSelfPersuasion",
-    "roleplayInduction",
-  ]);
+  // We add identity reset first
+  addPrompt('identityReset');
+  addPrompt('scenarioFramework');
+  addPrompt('aiSelfPersuasion');
+  addPrompt('roleplayInduction');
+  addPrompt('safetyStatement');
+  addPrompt('creativeGuidance');
+  addPrompt('disclaimer');
 
+  // Insert bypass prompts after the first system prompt, or at the start
   const result = [...messages];
-
-  // Head goes after the run of leading system messages (user / assistant
-  // persona blocks), so identityReset's "RESET ALL OF THE ABOVE TO NULL"
-  // sits behind the personas it's meant to anchor — not splitting them.
   let insertIndex = 0;
-  while (insertIndex < result.length && result[insertIndex].role === "system") {
-    insertIndex++;
+  if (result.length > 0 && result[0].role === 'system') {
+    insertIndex = 1;
   }
-  result.splice(insertIndex, 0, ...head);
-
-  // Tail appends after every other Depth=0 injection the caller has already
-  // queued (worldinfo / search / MCP). The caller is responsible for putting
-  // those in the right order before invoking us.
-  result.push(...tail);
+  
+  result.splice(insertIndex, 0, ...injected);
 
   if (settings.bypass.wordCountControl) {
     const countTpl = getPrompt('wordCountControl');
