@@ -22,6 +22,7 @@ import { LlmProviderIcon, ImageProviderIcon } from "./icons/providerIcons";
 import { CAPABILITY_META } from "./icons/capabilityMeta";
 import { ToggleSwitch } from "./SettingsFormBits";
 import { listTools, ping, filterAdvertised, type McpHealth, type McpTool } from "../lib/mcpApi";
+import { WEB_SEARCH_FEATURE_ENABLED } from "../lib/searchApi";
 
 // MCP geo settings is a small leaf modal; lazy-load it like the rest so it
 // doesn't bloat the initial composer chunk.
@@ -302,14 +303,16 @@ export function ChatComposer({
           >
             <Paperclip size={16} />
           </ToolbarIconButton>
-          <ToolbarIconButton
-            onClick={handleToggleWebSearch}
-            title={isWebSearchOn ? "关闭联网搜索" : "开启联网搜索"}
-            aria-label={isWebSearchOn ? "关闭联网搜索" : "开启联网搜索"}
-            active={isWebSearchOn}
-          >
-            <Globe size={16} />
-          </ToolbarIconButton>
+          {WEB_SEARCH_FEATURE_ENABLED && (
+            <ToolbarIconButton
+              onClick={handleToggleWebSearch}
+              title={isWebSearchOn ? "关闭联网搜索" : "开启联网搜索"}
+              aria-label={isWebSearchOn ? "关闭联网搜索" : "开启联网搜索"}
+              active={isWebSearchOn}
+            >
+              <Globe size={16} />
+            </ToolbarIconButton>
+          )}
 
           {/* MCP tools entry — pure popover anchor; per-tool toggles + the
               health indicator + the geo settings button all live inside the

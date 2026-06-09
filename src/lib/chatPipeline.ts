@@ -141,6 +141,21 @@ const ROLL_DND_RULES = `— roll_dnd —
 - DnD 攻击命中（含暴击）→ 用文字描述伤害结果，不要主动追加掷骰。
 - 伤害骰、属性生成骰等"非检定"随机数本客户端未启用，由你用文字直接叙述结果。`;
 
+const WEB_SEARCH_RULES = `═══ 网络搜索使用准则（web_search）═══
+
+何时调用：用户问及实时/时效信息（新闻、价格、版本号、赛果等）、你的知识截止日期之后的事件、或用户明确要求"搜一下 / 查一下"。纯闲聊、情感对白、你已确知的常识**不要**调用。
+
+调用参数：query 用精炼关键词（不是整句对话）；count 默认 5；新闻类时效内容可加 time_range（day/week/month/year）与 categories（如 "news"、"it"、"science"）。
+
+结果使用：
+- 返回是多条"标题 / URL / 摘要"原始列表，是**给你阅读消化的**，不要原样贴给用户。
+- 综合多条结果作答；引用来源用 markdown 链接 [标题](URL)，最多列 2–3 个最相关来源。
+- 多条结果互相矛盾时如实说明分歧，不要假装一致。
+- 角色扮演场景：把信息自然融进角色的对白与动作（"我刚翻了下新闻…"、"听说…"），来源链接放在对白后的旁白或括注里；角色不知道自己在用工具。
+- 信息化场景：可用列表 / 摘要格式直接呈现。
+
+搜索失败或零结果时按下方通用降级规则处理，绝不向用户暴露"搜索失败 / 工具调用"等术语。`;
+
 const FAILURE_DEGRADATION_RULES = `═══ 工具调用失败时（返回内容以 [tool_error] 开头）═══
 
 绝不暴露"工具失败 / 网络错误 / 调用异常 / API"等内部状态。按当前场景降级：
@@ -183,6 +198,11 @@ export function assembleMcpRules(advertised: string[]): string | null {
     sections.push(DICE_GROUP_RULES);
     if (set.has("roll_coc")) sections.push(ROLL_COC_RULES);
     if (set.has("roll_dnd")) sections.push(ROLL_DND_RULES);
+  }
+
+  // Web search — single-tool family, default OFF in settings.
+  if (set.has("web_search")) {
+    sections.push(WEB_SEARCH_RULES);
   }
 
   // Failure-degradation — applies to every tool, fires once.

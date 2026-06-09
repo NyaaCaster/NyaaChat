@@ -7,6 +7,14 @@
  * surface independent of SearXNG's full response shape.
  */
 
+/**
+ * Feature kill-switch for the built-in web search. Superseded by the
+ * NyaaChat-MCP `web_search` tool (see ADVERTISED_TOOLS in mcpApi.ts).
+ * To bring the built-in search back: flip this to `true` AND uncomment
+ * the `/api/search` location block in nginx.conf.
+ */
+export const WEB_SEARCH_FEATURE_ENABLED = false;
+
 export interface SearchResult {
   /** Result URL — used in citations. */
   url: string;

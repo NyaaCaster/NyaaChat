@@ -53,7 +53,7 @@ export type ConnectionStatus = "disconnected" | "connecting" | "connected";
 // with per-provider apiKey/baseUrl/models. The legacy single-endpoint `api`
 // and `imageApi` blocks are retained on AppState during the transition until
 // chatPipeline is switched over (phase 3).
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 function migrate(raw: any): any {
   if (!raw || typeof raw !== "object") return raw;
@@ -65,8 +65,31 @@ function migrate(raw: any): any {
   if (v < 3) {
     raw = migrateV2ToV3(raw);
   }
+  if (v < 4) {
+    raw = migrateV3ToV4(raw);
+  }
 
   return raw;
+}
+
+/**
+ * v3 → v4: the `web_search` MCP tool joins the advertised list, but unlike
+ * the original four it must default to OFF. Missing keys in
+ * `mcpToolsEnabled` are treated as enabled (`!== false`) by the picker and
+ * the chat path, so existing users' maps — which predate the tool — need
+ * an explicit `false` written in. An existing explicit value is preserved.
+ */
+function migrateV3ToV4(raw: any): any {
+  const tools =
+    raw.mcpToolsEnabled && typeof raw.mcpToolsEnabled === "object"
+      ? raw.mcpToolsEnabled
+      : {};
+  return {
+    ...raw,
+    mcpToolsEnabled:
+      "web_search" in tools ? tools : { ...tools, web_search: false },
+    _version: 4,
+  };
 }
 
 /**
@@ -276,7 +299,7 @@ const DEFAULT_SETTINGS: AppState = {
   isStreaming: false,
   isMcpEnabled: true,
   mcpUserCity: null,
-  mcpToolsEnabled: { get_current_time: true, get_weather: true, roll_coc: true, roll_dnd: true },
+  mcpToolsEnabled: { get_current_time: true, get_weather: true, roll_coc: true, roll_dnd: true, web_search: false },
 };
 
 export default function App() {

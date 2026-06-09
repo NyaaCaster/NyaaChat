@@ -280,6 +280,7 @@ export const ADVERTISED_TOOLS: readonly string[] = [
   "get_weather",
   "roll_coc",
   "roll_dnd",
+  "web_search",
 ];
 
 export function filterAdvertised(tools: McpTool[]): McpTool[] {

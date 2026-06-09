@@ -6,7 +6,7 @@ import { generateImage } from "../lib/imageApi";
 import { newId } from "../lib/id";
 import { saveSession } from "../lib/sessionStorage";
 import { getActiveImageProvider, getActiveLlmProvider, imageProviderToApiSettings, providerToApiSettings } from "../lib/providers";
-import { searchWeb, WebSearchError } from "../lib/searchApi";
+import { searchWeb, WebSearchError, WEB_SEARCH_FEATURE_ENABLED } from "../lib/searchApi";
 import { callTool, listTools, mergeUserCity, filterAdvertised } from "../lib/mcpApi";
 import {
   applyPlaceholders,
@@ -208,7 +208,7 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
     // flight search OR in flight chat completion).
     abortControllerRef.current = new AbortController();
     let searchSystemMessage: ReturnType<typeof buildSearchSystemMessage> = null;
-    if (settings.isWebSearchEnabled) {
+    if (WEB_SEARCH_FEATURE_ENABLED && settings.isWebSearchEnabled) {
       try {
         onAddLog({
           direction: "info",
