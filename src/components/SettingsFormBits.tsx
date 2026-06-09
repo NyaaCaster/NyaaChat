@@ -1,4 +1,5 @@
-import { useId } from "react";
+import { useEffect, useId, useState } from "react";
+import { Trash2 } from "lucide-react";
 
 /**
  * Small, reusable form primitives shared by the v2 settings modals
@@ -77,5 +78,69 @@ export function ToggleSwitch({
         <span className="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-500/50 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-gray-600 peer-checked:bg-blue-500"></span>
       </span>
     </label>
+  );
+}
+
+interface DeleteModelButtonProps {
+  /** Fires on the second (confirming) click. */
+  onConfirm: () => void;
+  disabled?: boolean;
+  /** Title shown while disabled, e.g. "健康测试进行中". */
+  disabledReason?: string;
+}
+
+/**
+ * Two-step delete icon for saved-model rows. First click arms (turns red),
+ * second click within 3s confirms; the armed state auto-resets so a stray
+ * click can't linger as a landmine. No modal — deleting a still-listed
+ * model is recoverable via 管理模型, and for delisted (orphaned) models
+ * removal is the whole point.
+ */
+export function DeleteModelButton({
+  onConfirm,
+  disabled = false,
+  disabledReason,
+}: DeleteModelButtonProps) {
+  const [arming, setArming] = useState(false);
+
+  useEffect(() => {
+    if (!arming) return;
+    const t = setTimeout(() => setArming(false), 3000);
+    return () => clearTimeout(t);
+  }, [arming]);
+
+  useEffect(() => {
+    if (disabled) setArming(false);
+  }, [disabled]);
+
+  const title = disabled
+    ? disabledReason || "暂不可删除"
+    : arming
+      ? "再次点击确认删除"
+      : "从模型列表中删除";
+
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={() => {
+        if (!arming) {
+          setArming(true);
+          return;
+        }
+        setArming(false);
+        onConfirm();
+      }}
+      onBlur={() => setArming(false)}
+      className={`p-1 rounded-md flex-shrink-0 transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+        arming
+          ? "text-white bg-red-500 hover:bg-red-600"
+          : "text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10"
+      }`}
+      aria-label={title}
+      title={title}
+    >
+      <Trash2 size={13} className={arming ? "animate-pulse" : ""} />
+    </button>
   );
 }

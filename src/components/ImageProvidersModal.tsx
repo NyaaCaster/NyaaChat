@@ -3,7 +3,7 @@ import { ArrowLeft, Image as ImageIcon, ListChecks } from "lucide-react";
 import { AppState, ImageProvider, ImageSize, ModelEntry } from "../types";
 import { BaseModal } from "./BaseModal";
 import { ApiKeyInput } from "./ApiKeyInput";
-import { Field, FieldHint, ToggleSwitch } from "./SettingsFormBits";
+import { Field, FieldHint, ToggleSwitch, DeleteModelButton } from "./SettingsFormBits";
 import { ImageProviderIcon } from "./icons/providerIcons";
 import { ManageImageModelsModal } from "./ManageImageModelsModal";
 
@@ -225,6 +225,19 @@ function ImageProviderDetail({
     onUpdate({ ...provider, size: next });
   };
 
+  // Same escape hatch as the LLM side: removes a saved model even when the
+  // upstream API no longer lists it (管理模型 only shows live entries).
+  const handleDeleteModel = (modelId: string) => {
+    const next: ImageProvider = {
+      ...provider,
+      models: provider.models.filter((m) => m.id !== modelId),
+    };
+    if (next.lastUsedModel === modelId) {
+      next.lastUsedModel = undefined;
+    }
+    onUpdate(next);
+  };
+
   // ComfyUI ships as a placeholder for now per the spec. Show only the
   // header and a "尽请期待" banner; enabled toggle is rendered disabled.
   if (provider.kind === "comfyui") {
@@ -339,7 +352,11 @@ function ImageProviderDetail({
           ) : (
             <ul className="divide-y divide-gray-200 dark:divide-white/5">
               {provider.models.map((m) => (
-                <ImageModelRow key={m.id} entry={m} />
+                <ImageModelRow
+                  key={m.id}
+                  entry={m}
+                  onDelete={() => handleDeleteModel(m.id)}
+                />
               ))}
             </ul>
           )}
@@ -383,9 +400,16 @@ function DetailHeader({
   );
 }
 
-function ImageModelRow({ entry }: { entry: ModelEntry }) {
+function ImageModelRow({
+  entry,
+  onDelete,
+}: {
+  entry: ModelEntry;
+  onDelete: () => void;
+}) {
   return (
     <li className="flex items-center gap-2 px-4 py-2.5 text-sm">
+      <DeleteModelButton onConfirm={onDelete} />
       <span className="font-mono text-gray-700 dark:text-gray-300 truncate flex-1">
         {entry.id}
       </span>

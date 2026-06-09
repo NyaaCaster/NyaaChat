@@ -38,7 +38,7 @@ import { ApiFormat, AppState, LlmProvider, ModelCapability, ModelEntry } from ".
 import { BaseModal } from "./BaseModal";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ApiKeyInput } from "./ApiKeyInput";
-import { Field, FieldHint, ToggleSwitch } from "./SettingsFormBits";
+import { Field, FieldHint, ToggleSwitch, DeleteModelButton } from "./SettingsFormBits";
 import { LlmProviderIcon } from "./icons/providerIcons";
 import { CAPABILITY_META as SHARED_CAPABILITY_META } from "./icons/capabilityMeta";
 import { ManageModelsModal } from "./ManageModelsModal";
@@ -530,6 +530,20 @@ function ProviderDetail({
     healthAbort?.abort();
   };
 
+  // Removes a saved model directly from provider.models — the escape hatch
+  // for orphaned entries the upstream API no longer lists (管理模型 only
+  // shows live models, so a delisted SKU can't be toggled off there).
+  const handleDeleteModel = (modelId: string) => {
+    const next: LlmProvider = {
+      ...provider,
+      models: provider.models.filter((m) => m.id !== modelId),
+    };
+    if (next.lastUsedModel === modelId) {
+      next.lastUsedModel = undefined;
+    }
+    onUpdate(next);
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -731,6 +745,8 @@ function ProviderDetail({
                   key={m.id}
                   entry={m}
                   isProbing={probingIds.has(m.id)}
+                  onDelete={() => handleDeleteModel(m.id)}
+                  deleteDisabled={isHealthTesting}
                 />
               ))}
             </ul>
@@ -745,9 +761,24 @@ function ProviderDetail({
 // Helpers
 // ---------------------------------------------------------------------------
 
-function ModelRow({ entry, isProbing }: { entry: ModelEntry; isProbing: boolean }) {
+function ModelRow({
+  entry,
+  isProbing,
+  onDelete,
+  deleteDisabled,
+}: {
+  entry: ModelEntry;
+  isProbing: boolean;
+  onDelete: () => void;
+  deleteDisabled: boolean;
+}) {
   return (
     <li className="flex items-center gap-2 px-4 py-2.5 text-sm">
+      <DeleteModelButton
+        onConfirm={onDelete}
+        disabled={deleteDisabled}
+        disabledReason="健康测试进行中，暂不可删除"
+      />
       <span className="font-mono text-gray-700 dark:text-gray-300 truncate min-w-0 flex-shrink-[2]">
         {entry.id}
       </span>
