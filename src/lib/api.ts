@@ -72,7 +72,17 @@ function foldTailSystemIntoLatestUser(messages: ApiMessage[]): ApiMessage[] {
   if (!text) return core;
 
   const lastUserIdx = core.map((m) => m.role).lastIndexOf('user');
-  if (lastUserIdx === -1) return messages;
+  if (lastUserIdx === -1) {
+    // No user turn to fold into — not produced by buildRequestMessages today
+    // (it always ends history on the latest user turn). Guard anyway so the
+    // invariant "the returned array never ends on a system message" holds
+    // regardless of caller: emit the tail as its own trailing user turn.
+    core.push({
+      role: 'user',
+      content: [{ type: 'text', text, [VOLATILE_PART_FLAG]: true }],
+    });
+    return core;
+  }
 
   const target = core[lastUserIdx];
   const parts =
@@ -479,14 +489,16 @@ async function fetchOpenAI(
   const executeTool = toolUseOptions?.executeTool;
   const maxRounds = toolUseOptions?.maxRounds ?? 5;
 
-  // Gemini's OpenAI-compat layer merges ALL system messages into
-  // systemInstruction (start of prompt) — a trailing system message would
-  // lose recency AND bust the implicit prefix cache on every change. Fold
-  // the dynamic tail into the latest user turn instead (layout doc v3).
-  let currentMessages =
-    settings.apiProvider === 'gemini'
-      ? foldTailSystemIntoLatestUser(messages)
-      : messages;
+  // OpenAI's Chat Completions format has no reliable trailing-system slot:
+  // a conversation ending in a `system` message is out-of-spec, and gateways
+  // react unpredictably (some wrap the reply in a JSON envelope like
+  // {"response": "..."} that then renders as raw text). Gemini's compat layer
+  // additionally hoists ALL system messages into systemInstruction, losing
+  // recency. For BOTH, fold the dynamic tail (<session_rules>) into the
+  // latest user turn instead — recency preserved, authority delegated by the
+  // static session-protocol anchor (layout doc v3). The Anthropic native
+  // path keeps the mid-conversation system message on its own.
+  let currentMessages = foldTailSystemIntoLatestUser(messages);
   let usage: ApiUsage | undefined;
 
   // Hard-cap iterations at maxRounds + 1: each "round" is one LLM call that
