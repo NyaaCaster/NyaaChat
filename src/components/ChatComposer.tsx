@@ -634,13 +634,15 @@ function ProviderPicker<P extends LlmProvider | ImageProvider>({
                     }`}
                   >
                     {variant === "llm" && <HealthDot health={m.health} />}
-                    <span className="truncate flex-1">{m.id}</span>
+                    <span className="flex-1 min-w-0 flex items-center gap-1.5">
+                      <span className="truncate">{m.id}</span>
+                      {isActive && (
+                        <span className="text-[10px] font-sans flex-shrink-0">
+                          当前
+                        </span>
+                      )}
+                    </span>
                     <ReadOnlyCapabilityIcons capabilities={m.capabilities} />
-                    {isActive && (
-                      <span className="text-[10px] font-sans flex-shrink-0">
-                        当前
-                      </span>
-                    )}
                   </button>
                 </li>
               );
