@@ -21,6 +21,7 @@ export function WorldInfoRuleModal({
   const [triggerType, setTriggerType] = useState<"permanent" | "keywords">("permanent");
   const [keywords, setKeywords] = useState("");
   const [position, setPosition] = useState<"system" | "assistant">("system");
+  const [hard, setHard] = useState(false);
   const [content, setContent] = useState("");
 
   useEffect(() => {
@@ -29,12 +30,14 @@ export function WorldInfoRuleModal({
       setTriggerType(initialRule.triggerType);
       setKeywords(initialRule.keywords || "");
       setPosition(initialRule.position);
+      setHard(initialRule.hard === true);
       setContent(initialRule.content);
     } else {
       setName("");
       setTriggerType("permanent");
       setKeywords("");
       setPosition("system");
+      setHard(false);
       setContent("");
     }
   }, [initialRule, isOpen]);
@@ -48,6 +51,7 @@ export function WorldInfoRuleModal({
       triggerType,
       keywords: triggerType === "keywords" ? keywords.trim() : undefined,
       position,
+      hard,
       content: content.trim(),
       enabled: initialRule ? initialRule.enabled : true,
     });
@@ -170,6 +174,39 @@ export function WorldInfoRuleModal({
               <User size={16} /> 🤖角色
             </button>
           </div>
+        </div>
+
+        <div>
+          <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-2 px-1">
+            约束强度
+          </label>
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={() => setHard(false)}
+              className={`flex items-center justify-center gap-2 px-4 py-3 rounded-2xl border text-sm font-medium transition-all ${
+                !hard
+                  ? "border-blue-500 bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 ring-1 ring-blue-500"
+                  : "border-gray-200 dark:border-white/10 bg-white dark:bg-white/5 text-gray-600 dark:text-gray-400 hover:border-gray-300"
+              }`}
+            >
+              🌿 软设定
+            </button>
+            <button
+              type="button"
+              onClick={() => setHard(true)}
+              className={`flex items-center justify-center gap-2 px-4 py-3 rounded-2xl border text-sm font-medium transition-all ${
+                hard
+                  ? "border-red-500 bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-400 ring-1 ring-red-500"
+                  : "border-gray-200 dark:border-white/10 bg-white dark:bg-white/5 text-gray-600 dark:text-gray-400 hover:border-gray-300"
+              }`}
+            >
+              🛡️ 硬约束
+            </button>
+          </div>
+          <p className="text-[10px] text-gray-500 mt-1.5 px-1 italic">
+            软设定：与用户最新发言冲突时让位（外貌 / 背景 / 口癖等）。硬约束：冲突时优先（世界观铁律 / 安全边界）。
+          </p>
         </div>
 
         <div>

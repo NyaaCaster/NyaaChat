@@ -1,3 +1,5 @@
+import { VOLATILE_PART_FLAG } from './api';
+
 export const bypassTemplates = {
   identityReset: {
     role: "system",
@@ -87,11 +89,16 @@ export function injectBypassPrompts(
     if (lastUserIndex !== -1) {
       const existing = result[lastUserIndex];
       if (Array.isArray(existing.content)) {
-        // Append word count as an extra text part
-        result[lastUserIndex] = {
-          ...existing,
-          content: [...existing.content, { type: 'text', text: `\n\n${countTpl.content}` }]
-        };
+        // Insert BEFORE the first volatile part (search context etc.) so the
+        // word-count trailer — stable across turns — stays inside the cached
+        // prefix and Anthropic breakpoint ② can anchor on it.
+        const parts = [...existing.content];
+        const firstVolatile = parts.findIndex(
+          (p: any) => p && typeof p === 'object' && VOLATILE_PART_FLAG in p,
+        );
+        const insertAt = firstVolatile === -1 ? parts.length : firstVolatile;
+        parts.splice(insertAt, 0, { type: 'text', text: `\n\n${countTpl.content}` });
+        result[lastUserIndex] = { ...existing, content: parts };
       } else {
         result[lastUserIndex] = {
           ...existing,

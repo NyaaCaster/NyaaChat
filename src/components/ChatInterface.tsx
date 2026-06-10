@@ -13,7 +13,7 @@ import {
   buildImagePrompt,
   buildMessageContent,
   buildRequestMessages,
-  buildSearchSystemMessage,
+  buildSearchContext,
 } from "../lib/chatPipeline";
 import { MessageItem } from "./MessageItem";
 import { ChatHeader } from "./ChatHeader";
@@ -207,7 +207,7 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
     // created up-front so the user's Stop button cancels both phases (in
     // flight search OR in flight chat completion).
     abortControllerRef.current = new AbortController();
-    let searchSystemMessage: ReturnType<typeof buildSearchSystemMessage> = null;
+    let searchContext: ReturnType<typeof buildSearchContext> = null;
     if (WEB_SEARCH_FEATURE_ENABLED && settings.isWebSearchEnabled) {
       try {
         onAddLog({
@@ -219,7 +219,7 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
           processedInput,
           abortControllerRef.current.signal,
         );
-        searchSystemMessage = buildSearchSystemMessage(processedInput, results);
+        searchContext = buildSearchContext(processedInput, results);
         onAddLog({
           direction: "response",
           content: `Web search: got ${results.length} results`,
@@ -376,7 +376,7 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
         currentCharacter,
         userName,
         charName,
-        extraSystemMessages: searchSystemMessage ? [searchSystemMessage] : undefined,
+        searchContext: searchContext ?? undefined,
         mcpAdvertisedToolNames: advertisedToolNames,
       });
 

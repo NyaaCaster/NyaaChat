@@ -84,6 +84,9 @@ export interface WorldInfoRule {
   triggerType: "permanent" | "keywords";
   keywords?: string;
   position: "system" | "assistant";
+  /** Hard constraint: wins over the user's latest message when they directly
+   *  conflict. Default (false/undefined) = soft lore that yields to the user. */
+  hard?: boolean;
   content: string;
   enabled: boolean;
 }

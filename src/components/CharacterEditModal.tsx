@@ -210,6 +210,11 @@ export function CharacterEditModal({
                           <span className="text-[10px] text-gray-500 dark:text-gray-400">
                             {rule.position === "system" ? "⚙系统" : "🤖角色"}
                           </span>
+                          {rule.hard && (
+                            <span className="text-[10px] px-1 rounded bg-red-100 dark:bg-red-900/30 text-red-600">
+                              硬约束
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>

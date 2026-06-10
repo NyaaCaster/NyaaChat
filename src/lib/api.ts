@@ -25,6 +25,65 @@ export type ApiMessage = {
   tool_calls?: any[];
 };
 
+/** Marker key on content parts that change every turn (search context,
+ *  folded session rules, word-count trailer). The Anthropic path anchors
+ *  cache breakpoint ② on the last part WITHOUT this flag, so volatile parts
+ *  stay past the breakpoint; every send path strips the key before the
+ *  request goes out. Defined here (not chatPipeline) to avoid a circular
+ *  import — chatPipeline already imports from this module. */
+export const VOLATILE_PART_FLAG = '_volatile';
+
+/** Remove the internal volatile marker before a request leaves the app. */
+function stripVolatileFlags(content: string | any[]): string | any[] {
+  if (!Array.isArray(content)) return content;
+  return content.map((p) => {
+    if (p && typeof p === 'object' && VOLATILE_PART_FLAG in p) {
+      const { [VOLATILE_PART_FLAG]: _v, ...rest } = p;
+      return rest;
+    }
+    return p;
+  });
+}
+
+/**
+ * Fallback for providers without a usable trailing-system position (Gemini's
+ * OpenAI-compat layer hoists trailing system into systemInstruction; non-4.8
+ * Claude models reject mid-conversation system): detach the dynamic-tail
+ * system message and append its text to the LATEST USER turn as a volatile
+ * part. This keeps recency AND the cache (folding it into the top-level
+ * system field — the v2 fallback — re-billed the whole history every time
+ * the keyword set changed). Operator-level authority is delegated by the
+ * session-protocol anchor in the static prefix (layout doc v3, principle 4).
+ */
+function foldTailSystemIntoLatestUser(messages: ApiMessage[]): ApiMessage[] {
+  if (messages.length < 2) return messages;
+  const last = messages[messages.length - 1];
+  const prev = messages[messages.length - 2];
+  if (last.role !== 'system' || prev.role === 'system') return messages;
+
+  const text =
+    typeof last.content === 'string'
+      ? last.content
+      : last.content
+          .filter((p: any) => p?.type === 'text')
+          .map((p: any) => p.text)
+          .join('\n');
+  const core = messages.slice(0, -1);
+  if (!text) return core;
+
+  const lastUserIdx = core.map((m) => m.role).lastIndexOf('user');
+  if (lastUserIdx === -1) return messages;
+
+  const target = core[lastUserIdx];
+  const parts =
+    typeof target.content === 'string'
+      ? [{ type: 'text', text: target.content }]
+      : [...target.content];
+  parts.push({ type: 'text', text: `\n\n${text}`, [VOLATILE_PART_FLAG]: true });
+  core[lastUserIdx] = { ...target, content: parts };
+  return core;
+}
+
 /**
  * Description of a tool the LLM may choose to call. Mirrors the shape we
  * receive from MCP `tools/list` — fetchChatCompletion translates it into
@@ -281,7 +340,7 @@ async function callOpenAIOnce(
 
   const requestBody: any = {
     model,
-    messages,
+    messages: messages.map((m) => ({ ...m, content: stripVolatileFlags(m.content) })),
     stream: !!isStreaming,
   };
   if (isStreaming) {
@@ -420,7 +479,14 @@ async function fetchOpenAI(
   const executeTool = toolUseOptions?.executeTool;
   const maxRounds = toolUseOptions?.maxRounds ?? 5;
 
-  let currentMessages = messages;
+  // Gemini's OpenAI-compat layer merges ALL system messages into
+  // systemInstruction (start of prompt) — a trailing system message would
+  // lose recency AND bust the implicit prefix cache on every change. Fold
+  // the dynamic tail into the latest user turn instead (layout doc v3).
+  let currentMessages =
+    settings.apiProvider === 'gemini'
+      ? foldTailSystemIntoLatestUser(messages)
+      : messages;
   let usage: ApiUsage | undefined;
 
   // Hard-cap iterations at maxRounds + 1: each "round" is one LLM call that
@@ -526,7 +592,13 @@ function convertContentToAnthropic(content: string | any[]): string | any[] {
 
   return content.map((part) => {
     if (!part || typeof part !== 'object') return { type: 'text', text: String(part ?? '') };
-    if (part.type === 'text') return { type: 'text', text: part.text ?? '' };
+    if (part.type === 'text') {
+      const out: any = { type: 'text', text: part.text ?? '' };
+      // Preserve the volatile marker so callAnthropicOnce can anchor cache
+      // breakpoint ② before per-turn content (it strips the key on send).
+      if (VOLATILE_PART_FLAG in part) out[VOLATILE_PART_FLAG] = true;
+      return out;
+    }
     if (part.type === 'image_url') {
       const url: string = part.image_url?.url ?? '';
       const dataUrlMatch = /^data:([^;]+);base64,(.+)$/.exec(url);
@@ -556,25 +628,60 @@ function contentToTextParts(content: string | any[]): any[] {
 }
 
 /**
- * Split OpenAI-style messages into an Anthropic system string + alternating messages.
- * - system messages are concatenated and returned separately
- * - consecutive same-role messages are merged into a single message with combined content parts
+ * Split OpenAI-style messages into an Anthropic top-level `system` string +
+ * an alternating messages array.
+ *
+ * - Leading / interleaved system messages are concatenated into the top-level
+ *   `system` field (the stable cache-prefix anchor).
+ * - A SINGLE trailing system message (our dynamic tail — session rules,
+ *   placed after the latest user turn) is handled per
+ *   `supportsMidConvSystem`:
+ *     - true  (Claude Opus 4.8 on the official host): kept in the `messages`
+ *       array as a mid-conversation system message, so it sits at the
+ *       generation point without invalidating the cached prefix.
+ *     - false (other models / third-party proxies): folded into the LATEST
+ *       USER turn as a volatile part (recency + cache preserved; authority
+ *       delegated by the static session-protocol anchor). NEVER into the
+ *       top-level system field — that re-bills the whole history every time
+ *       the keyword-triggered rule set changes.
+ * - Consecutive same-role messages are merged into a single message.
  */
-function prepareAnthropicPayload(messages: ApiMessage[]): {
+function prepareAnthropicPayload(
+  messages: ApiMessage[],
+  supportsMidConvSystem: boolean,
+): {
   system: string;
-  messages: { role: 'user' | 'assistant'; content: any[] }[];
+  messages: { role: 'user' | 'assistant' | 'system'; content: any[] }[];
 } {
-  const systemTexts: string[] = [];
-  const converted: { role: 'user' | 'assistant'; content: any[] }[] = [];
+  // Identify a lone trailing system message that follows a user/assistant
+  // turn — that's the dynamic tail emitted by buildRequestMessages. When the
+  // model can't take a mid-conversation system message, fold it into the
+  // latest user turn up-front so the conversion below sees no trailing system.
+  let source = supportsMidConvSystem ? messages : foldTailSystemIntoLatestUser(messages);
+  let tailSystem: ApiMessage | null = null;
+  if (supportsMidConvSystem && source.length >= 2) {
+    const last = source[source.length - 1];
+    const prev = source[source.length - 2];
+    if (last.role === 'system' && prev.role !== 'system') {
+      tailSystem = last;
+      source = source.slice(0, -1);
+    }
+  }
 
-  for (const msg of messages) {
+  const systemTexts: string[] = [];
+  const converted: { role: 'user' | 'assistant' | 'system'; content: any[] }[] = [];
+
+  const systemMsgToText = (content: string | any[]): string =>
+    typeof content === 'string'
+      ? content
+      : contentToTextParts(content)
+          .filter((p: any) => p?.type === 'text')
+          .map((p: any) => p.text)
+          .join('\n');
+
+  for (const msg of source) {
     if (msg.role === 'system') {
-      const text = typeof msg.content === 'string'
-        ? msg.content
-        : contentToTextParts(msg.content)
-            .filter((p: any) => p?.type === 'text')
-            .map((p: any) => p.text)
-            .join('\n');
+      const text = systemMsgToText(msg.content);
       if (text) systemTexts.push(text);
       continue;
     }
@@ -588,6 +695,13 @@ function prepareAnthropicPayload(messages: ApiMessage[]): {
       last.content.push(...partsArr);
     } else {
       converted.push({ role, content: partsArr });
+    }
+  }
+
+  if (tailSystem) {
+    const text = systemMsgToText(tailSystem.content);
+    if (text) {
+      converted.push({ role: 'system', content: [{ type: 'text', text }] });
     }
   }
 
@@ -649,7 +763,7 @@ interface AnthropicTurnResult {
  * and loop, or stop.
  */
 async function callAnthropicOnce(
-  anthMessages: { role: 'user' | 'assistant'; content: any[] }[],
+  anthMessages: { role: 'user' | 'assistant' | 'system'; content: any[] }[],
   system: string,
   settings: ApiSettings,
   onChunk: (chunk: string) => void,
@@ -668,10 +782,39 @@ async function callAnthropicOnce(
   // proxies while delivering the speedup on api.anthropic.com.
   const useCacheControl = isOfficialAnthropicHost(baseUrl);
 
+  // Second cache breakpoint: the last NON-volatile content part of the
+  // latest user message — caches the stable prefix up to the user's real
+  // text, while volatile parts (search context / folded session rules) stay
+  // past the breakpoint and never pollute the cache entry (layout doc v3).
+  // Skip on the first turn (no prior history). Within tool-use loops the
+  // breakpoint shifts each round (because new tool_result messages get
+  // appended), so cache hits will be partial; we accept that since the
+  // system text + early history still hit.
+  if (useCacheControl && anthMessages.length >= 2) {
+    const lastUserIdx = anthMessages.map((m) => m.role).lastIndexOf('user');
+    if (lastUserIdx !== -1) {
+      const target = anthMessages[lastUserIdx];
+      for (let i = target.content.length - 1; i >= 0; i--) {
+        const part = target.content[i];
+        if (
+          part &&
+          typeof part === 'object' &&
+          !(VOLATILE_PART_FLAG in part)
+        ) {
+          target.content[i] = { ...part, cache_control: { type: 'ephemeral' } };
+          break;
+        }
+      }
+    }
+  }
+
   const requestBody: any = {
     model,
     max_tokens: 4096,
-    messages: anthMessages,
+    messages: anthMessages.map((m) => ({
+      ...m,
+      content: stripVolatileFlags(m.content),
+    })),
     stream: !!isStreaming,
   };
   if (system) {
@@ -689,26 +832,6 @@ async function callAnthropicOnce(
   }
   if (tools && tools.length > 0) {
     requestBody.tools = toolsToAnthropic(tools);
-  }
-
-  // Second cache breakpoint: the last content part of the second-to-last
-  // message — caches the whole history prefix so only the latest user turn
-  // is billed at full rate. Skip on the first turn (no prior history).
-  // Within tool-use loops the breakpoint shifts each round (because new
-  // tool_result messages get appended), so cache hits will be partial; we
-  // accept that since the system text + early history still hit.
-  if (useCacheControl && anthMessages.length >= 2) {
-    const target = anthMessages[anthMessages.length - 2];
-    if (target.content.length > 0) {
-      const lastIdx = target.content.length - 1;
-      const lastPart = target.content[lastIdx];
-      if (lastPart && typeof lastPart === 'object') {
-        target.content[lastIdx] = {
-          ...lastPart,
-          cache_control: { type: 'ephemeral' },
-        };
-      }
-    }
   }
 
   // Send both auth header styles so 3rd-party gateways that expect either
@@ -892,7 +1015,18 @@ async function fetchAnthropic(
   signal?: AbortSignal,
   toolUseOptions?: ToolUseOptions,
 ): Promise<ApiUsage | void> {
-  const { system, messages: initialAnth } = prepareAnthropicPayload(messages);
+  // Mid-conversation system messages are a Claude Opus 4.8 feature, and only
+  // on the official Anthropic host (third-party proxies may not honor the
+  // placement). When unsupported, prepareAnthropicPayload folds the dynamic
+  // tail back into the top-level system field.
+  const supportsMidConvSystem =
+    isOfficialAnthropicHost(normalizeBaseUrl(settings.baseUrl)) &&
+    /claude-opus-4-8/.test(settings.model || '');
+
+  const { system, messages: initialAnth } = prepareAnthropicPayload(
+    messages,
+    supportsMidConvSystem,
+  );
   let anthMessages = initialAnth;
 
   const tools = toolUseOptions?.tools;
