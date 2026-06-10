@@ -9,3 +9,5 @@ src/temp/
 !.env.example
 # Claude Code per-machine settings (permissions, env, etc.) — not for sharing
 .claude/settings.local.json
+# Playwright MCP browser artifacts
+.playwright-mcp/
