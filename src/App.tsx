@@ -237,7 +237,7 @@ function pickLlmProviderKind(api: any): LlmProviderKind {
 
 const DEFAULT_SETTINGS: AppState = {
   bypass: {
-    enabled: true,
+    enabled: false,
     identityReset: true,
     scenarioFramework: true,
     aiSelfPersuasion: true,
