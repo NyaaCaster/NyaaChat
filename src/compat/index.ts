@@ -79,12 +79,13 @@ export {
   getChat,
   getMeta,
   getMessageByMesId,
+  setMessageWriter,
   emitUserMessageRendered,
   emitCharacterMessageRendered,
   emitMessageUpdated,
   emitMessageDeleted,
 } from "./runtimeStore";
-export type { RuntimeMessage, RuntimeMeta } from "./runtimeStore";
+export type { RuntimeMessage, RuntimeMeta, MessageWriter } from "./runtimeStore";
 export { getContext, setContextProvider } from "./stContext";
 export { setToastSink } from "./globals";
 export {

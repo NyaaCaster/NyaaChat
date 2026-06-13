@@ -16,7 +16,7 @@
 //                     stays a warning no-op so a card calling it degrades.
 
 import { eventSource } from "./events";
-import { getChat, getMeta } from "./runtimeStore";
+import { getChat, getMeta, commandSetMessage, commandInsertMessage, commandDeleteMessage } from "./runtimeStore";
 import { generate, generateRaw } from "./generate";
 import {
   getVariables,
@@ -97,6 +97,64 @@ function getLastMessageId(): number {
   return getChat().length - 1;
 }
 
+// --- chat message writes ----------------------------------------------------
+//
+// ST's setChatMessage / createChatMessages / deleteChatMessages have rich
+// swipe/data semantics; NyaaChat maps the common case (content + position) onto
+// the runtimeStore write-back channel, which routes through React (the single
+// writer of chat state). Out-of-range ids are ignored.
+
+function normalizeId(mesid: number, len: number): number {
+  // ST allows negative ids counting from the end.
+  return mesid < 0 ? len + mesid : mesid;
+}
+
+/** setChatMessage(field_values, message_id) — set a floor's text. Accepts a
+ *  string or { message } for field_values (ST allows both). */
+function setChatMessage(
+  fieldValues: string | { message?: string },
+  messageId: number,
+): void {
+  const content = typeof fieldValues === "string" ? fieldValues : fieldValues?.message;
+  if (typeof content !== "string") return;
+  const len = getChat().length;
+  const id = normalizeId(messageId, len);
+  if (id < 0 || id >= len) return;
+  commandSetMessage(id, content);
+}
+
+/** createChatMessages(messages, { insert_at }) — insert one or more messages.
+ *  insert_at defaults to the end (append). */
+function createChatMessages(
+  messages: Array<{ role?: "system" | "user" | "assistant"; message?: string }>,
+  opts: { insert_at?: number | "end" } = {},
+): void {
+  if (!Array.isArray(messages)) return;
+  const len = getChat().length;
+  let at = opts.insert_at === undefined || opts.insert_at === "end" ? len : normalizeId(opts.insert_at, len);
+  at = Math.max(0, Math.min(at, len));
+  // Insert in order; each insertion shifts the next target by one.
+  for (const m of messages) {
+    if (!m || typeof m.message !== "string") continue;
+    commandInsertMessage(at, { role: m.role ?? "assistant", content: m.message });
+    at += 1;
+  }
+}
+
+/** deleteChatMessages(message_ids) — delete floors. Deleting high-to-low keeps
+ *  the remaining ids valid during the batch. */
+function deleteChatMessages(messageIds: number[]): void {
+  if (!Array.isArray(messageIds)) return;
+  const len = getChat().length;
+  const ids = messageIds
+    .map((id) => normalizeId(id, len))
+    .filter((id) => id >= 0 && id < len)
+    .sort((a, b) => b - a);
+  for (const id of ids) {
+    commandDeleteMessage(id);
+  }
+}
+
 // --- event forwarding -------------------------------------------------------
 //
 // Cards register listeners and emit events through TavernHelper; forward all of
@@ -111,6 +169,11 @@ export function createTavernHelper(): Record<string, unknown> {
     // chat reads
     getChatMessages,
     getLastMessageId,
+
+    // chat writes (routed through React via the runtimeStore write-back channel)
+    setChatMessage,
+    createChatMessages,
+    deleteChatMessages,
 
     // variables — real, persisted
     getVariables,

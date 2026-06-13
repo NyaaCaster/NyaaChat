@@ -21,7 +21,7 @@ import { ChatComposer } from "./ChatComposer";
 import { motion, AnimatePresence } from "motion/react";
 import { useFullscreen } from "../hooks/useFullscreen";
 import { useAttachments } from "../hooks/useAttachments";
-import { syncChat, syncMeta, getEffectiveRegexScripts, resetTransientVariables, setGenerateApiResolver } from "../compat";
+import { syncChat, syncMeta, getEffectiveRegexScripts, resetTransientVariables, setGenerateApiResolver, setMessageWriter } from "../compat";
 
 /**
  * Map a thrown error from the API layer to a user-friendly Chinese message.
@@ -148,6 +148,37 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
       return { ...providerToApiSettings(provider), isStreaming: false };
     });
     return () => setGenerateApiResolver(null);
+  }, []);
+
+  // Compat layer: let front-end cards mutate the chat via TavernHelper
+  // (setChatMessage / createChatMessages / deleteChatMessages). The store
+  // forwards write intent here so React stays the single writer of its own
+  // state; syncChat then flows the result back into the store mirror.
+  useEffect(() => {
+    setMessageWriter({
+      setMessage: (mesid, content) => {
+        setMessages((prev) =>
+          prev.map((m, i) => (i === mesid ? { ...m, content } : m)),
+        );
+      },
+      insertMessage: (index, msg) => {
+        setMessages((prev) => {
+          const next = [...prev];
+          const at = Math.max(0, Math.min(index, next.length));
+          next.splice(at, 0, {
+            id: newId(),
+            role: msg.role,
+            content: msg.content,
+            timestamp: Date.now(),
+          });
+          return next;
+        });
+      },
+      deleteMessage: (mesid) => {
+        setMessages((prev) => prev.filter((_, i) => i !== mesid));
+      },
+    });
+    return () => setMessageWriter(null);
   }, []);
 
   // Mirror the active character / user identity into the compat runtime.

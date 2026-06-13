@@ -136,6 +136,60 @@ export function resetRuntime(): void {
   notify();
 }
 
+// --- write-back channel (store → React) ------------------------------------
+//
+// The store mirrors React state ONE WAY (React → store via syncChat). But some
+// compat APIs (TavernHelper.setChatMessage / createChatMessages /
+// deleteChatMessages, used by front-end cards) need to MUTATE the chat. To keep
+// React the single writer of its own state, the store never edits its mirror
+// directly — instead ChatInterface registers a MessageWriter, and these command
+// functions forward intent to it. React applies the change, then syncChat flows
+// the result back into the mirror. If no writer is registered (e.g. tests), the
+// commands are no-ops that warn.
+
+export interface MessageWriter {
+  /** Replace the content of the message at floor `mesid`. */
+  setMessage: (mesid: number, content: string) => void;
+  /** Insert a message at `index` (clamped; index >= length appends). */
+  insertMessage: (index: number, msg: { role: RuntimeMessage["role"]; content: string }) => void;
+  /** Delete the message at floor `mesid`. */
+  deleteMessage: (mesid: number) => void;
+}
+
+let writer: MessageWriter | null = null;
+
+/** Register the React-side writer. Called by ChatInterface; passing null
+ *  detaches (teardown). */
+export function setMessageWriter(w: MessageWriter | null): void {
+  writer = w;
+}
+
+function requireWriter(op: string): MessageWriter | null {
+  if (!writer) {
+    console.warn(`[compat] runtimeStore.${op}: no MessageWriter registered (host not ready?)`);
+    return null;
+  }
+  return writer;
+}
+
+/** Command: set a message's content by floor number. */
+export function commandSetMessage(mesid: number, content: string): void {
+  requireWriter("setMessage")?.setMessage(mesid, content);
+}
+
+/** Command: insert a message at a position (default append). */
+export function commandInsertMessage(
+  index: number,
+  msg: { role: RuntimeMessage["role"]; content: string },
+): void {
+  requireWriter("insertMessage")?.insertMessage(index, msg);
+}
+
+/** Command: delete a message by floor number. */
+export function commandDeleteMessage(mesid: number): void {
+  requireWriter("deleteMessage")?.deleteMessage(mesid);
+}
+
 // --- convenience emit helpers ----------------------------------------------
 //
 // Thin wrappers so ChatInterface doesn't have to import event_types directly
