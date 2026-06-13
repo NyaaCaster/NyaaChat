@@ -11,10 +11,12 @@ import {
   History,
   Maximize,
   Minimize,
+  Puzzle,
 } from "lucide-react";
 import { motion } from "motion/react";
 import type { CharacterSettings } from "../types";
 import { VersionModal } from "./VersionModal";
+import { ExtensionsModal } from "./ExtensionsModal";
 
 interface ChatHeaderProps {
   characters: CharacterSettings[] | undefined;
@@ -55,6 +57,7 @@ export function ChatHeader({
   const currentName =
     characters?.find((c) => c.id === currentCharacterId)?.name || "AI助手";
   const [isVersionOpen, setIsVersionOpen] = useState(false);
+  const [isExtensionsOpen, setIsExtensionsOpen] = useState(false);
 
   return (
     <div data-app-header className="flex-shrink-0 bg-white/70 dark:bg-[#0A0A0A]/70 backdrop-blur-xl border-b border-gray-200/60 dark:border-white/5 sticky top-0 z-20 flex flex-col">
@@ -120,6 +123,13 @@ export function ChatHeader({
             />
           </button>
           <button
+            onClick={() => setIsExtensionsOpen(true)}
+            className="p-2 text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-white/10 rounded-lg transition-all duration-200"
+            title="扩展"
+          >
+            <Puzzle size={18} />
+          </button>
+          <button
             onClick={onOpenSettings}
             className="p-2 text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-white/10 rounded-lg transition-all duration-200"
             title="设置"
@@ -170,6 +180,10 @@ export function ChatHeader({
           fixed positioning and pin it inside the header instead of the viewport. */}
       {createPortal(
         <VersionModal isOpen={isVersionOpen} onClose={() => setIsVersionOpen(false)} />,
+        document.body,
+      )}
+      {createPortal(
+        <ExtensionsModal isOpen={isExtensionsOpen} onClose={() => setIsExtensionsOpen(false)} />,
         document.body,
       )}
     </div>
