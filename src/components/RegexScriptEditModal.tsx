@@ -239,34 +239,41 @@ export function RegexScriptEditModal({
           </p>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className={fieldLabel}>编辑时运行</label>
-            <button
-              type="button"
-              onClick={() => setRunOnEdit((v) => !v)}
-              className={`w-full px-4 py-3 rounded-2xl border text-sm font-medium transition-all ${
-                runOnEdit
-                  ? "border-blue-500 bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 ring-1 ring-blue-500"
-                  : "border-gray-200 dark:border-white/10 bg-white dark:bg-white/5 text-gray-600 dark:text-gray-400 hover:border-gray-300"
-              }`}
-            >
-              {runOnEdit ? "开启" : "关闭"}
-            </button>
-          </div>
-          <div>
-            <label className={fieldLabel}>宏替换查找式</label>
-            <select
-              value={substituteRegex}
-              onChange={(e) => setSubstituteRegex(Number(e.target.value) as 0 | 1 | 2)}
-              className={textInput}
-            >
-              {SUBSTITUTE_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>
+        <div>
+          <label className={fieldLabel}>编辑时运行</label>
+          <button
+            type="button"
+            onClick={() => setRunOnEdit((v) => !v)}
+            className={`w-full px-4 py-3 rounded-2xl border text-sm font-medium transition-all ${
+              runOnEdit
+                ? "border-blue-500 bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 ring-1 ring-blue-500"
+                : "border-gray-200 dark:border-white/10 bg-white dark:bg-white/5 text-gray-600 dark:text-gray-400 hover:border-gray-300"
+            }`}
+          >
+            {runOnEdit ? "开启" : "关闭"}
+          </button>
+        </div>
+
+        <div>
+          <label className={fieldLabel}>宏替换查找式</label>
+          <div className="grid grid-cols-3 gap-2">
+            {SUBSTITUTE_OPTIONS.map((o) => {
+              const on = substituteRegex === o.value;
+              return (
+                <button
+                  key={o.value}
+                  type="button"
+                  onClick={() => setSubstituteRegex(o.value)}
+                  className={`px-2 py-2 rounded-xl border text-xs font-medium transition-all ${
+                    on
+                      ? "border-blue-500 bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 ring-1 ring-blue-500"
+                      : "border-gray-200 dark:border-white/10 bg-white dark:bg-white/5 text-gray-600 dark:text-gray-400 hover:border-gray-300"
+                  }`}
+                >
                   {o.label}
-                </option>
-              ))}
-            </select>
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -274,9 +281,10 @@ export function RegexScriptEditModal({
           <div>
             <label className={fieldLabel}>最小深度</label>
             <input
-              type="number"
+              type="text"
+              inputMode="numeric"
               value={minDepth}
-              onChange={(e) => setMinDepth(e.target.value)}
+              onChange={(e) => setMinDepth(e.target.value.replace(/[^\d]/g, ""))}
               placeholder="不限"
               className={textInput}
             />
@@ -284,9 +292,10 @@ export function RegexScriptEditModal({
           <div>
             <label className={fieldLabel}>最大深度</label>
             <input
-              type="number"
+              type="text"
+              inputMode="numeric"
               value={maxDepth}
-              onChange={(e) => setMaxDepth(e.target.value)}
+              onChange={(e) => setMaxDepth(e.target.value.replace(/[^\d]/g, ""))}
               placeholder="不限"
               className={textInput}
             />
