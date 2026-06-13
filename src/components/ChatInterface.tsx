@@ -827,10 +827,11 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
           ) : (
             <div className="flex flex-col flex-1 pb-4">
               <AnimatePresence initial={false}>
-                {messages.map((message) => (
+                {messages.map((message, idx) => (
                   <MessageItem
                     key={message.id}
                     message={message}
+                    mesid={idx}
                     userName={currentUserRole?.name}
                     charName={currentCharacter?.name}
                     onDelete={handleDeleteMessage}

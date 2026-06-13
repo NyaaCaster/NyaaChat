@@ -9,7 +9,7 @@ import { ConfirmDialog } from "./ConfirmDialog";
 import { ImageViewerModal } from "./ImageViewerModal";
 import { downloadImage } from "../lib/imageApi";
 import { applyPlaceholders } from "../lib/chatPipeline";
-import { getRegexedString, regex_placement } from "../compat";
+import { getRegexedString, regex_placement, FrontendCard, extractFrontendHtml } from "../compat";
 import type { RegexScript } from "../types";
 
 // rehype-sanitize schema: GitHub-flavored default + className passthrough so
@@ -129,6 +129,11 @@ interface MessageItemProps {
    *  Applied on the DISPLAY pipeline (isMarkdown) before rendering. The parent
    *  memoizes the array so passing it doesn't break MessageItem's memo. */
   regexScripts?: RegexScript[];
+  /** Floor number = index in the rendered message list. Passed by the parent
+   *  (authoritative, always defined) rather than read from message.mesid, which
+   *  the store assigns to its own copy and isn't echoed back into React state.
+   *  Used for the data-mesid attribute and the FrontendCard iframe id. */
+  mesid?: number;
 }
 
 export const MessageItem = React.memo(function MessageItem({
@@ -143,6 +148,7 @@ export const MessageItem = React.memo(function MessageItem({
   imageGenerating,
   busy,
   regexScripts,
+  mesid,
 }: MessageItemProps) {
   const [copiedMsg, setCopiedMsg] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -205,29 +211,38 @@ export const MessageItem = React.memo(function MessageItem({
   const isUser = message.role === "user";
   const isSystem = message.role === "system";
 
-  // Cache the normalized markdown so streaming siblings re-rendering doesn't
-  // make THIS message re-parse its body. Reparsing is the dominant cost
-  // during a long stream when every chunk causes a parent setMessages.
-  //
-  // Pipeline order (matches ST): raw source -> display-regex (isMarkdown) ->
-  // {{user}}/{{char}} placeholders -> markdown normalize. Regex runs on the
-  // raw text so capture groups see the original, before names are substituted.
-  // The underlying message.content stays raw — only the rendered view changes.
-  const normalizedContent = React.useMemo(() => {
+  // Run the display-regex pass once; reuse it for both front-end-card
+  // detection and markdown rendering. Regex sees the raw source (capture groups
+  // operate on the original text, before name substitution).
+  const regexedContent = React.useMemo(() => {
     const raw = message.content || "...";
     const placement =
       message.role === "user" ? regex_placement.USER_INPUT : regex_placement.AI_OUTPUT;
-    const regexed = regexScripts && regexScripts.length
+    return regexScripts && regexScripts.length
       ? getRegexedString(raw, placement, regexScripts, { isMarkdown: true })
       : raw;
-    return normalizeMarkdown(applyPlaceholders(regexed, resolvedUser, resolvedChar));
-  }, [message.content, message.role, regexScripts, resolvedUser, resolvedChar]);
+  }, [message.content, message.role, regexScripts]);
+
+  // Front-end card: if the (regexed) content carries renderable HTML, render it
+  // in an iframe instead of as markdown. Only assistant/non-edit bubbles are
+  // candidates — user input and the edit textarea always stay plain. Image
+  // bubbles are never cards.
+  const frontendHtml = React.useMemo(() => {
+    if (message.imageUrl || message.role === "user") return null;
+    return extractFrontendHtml(regexedContent);
+  }, [regexedContent, message.imageUrl, message.role]);
+
+  // Markdown view (when not a card). Placeholders then normalize.
+  const normalizedContent = React.useMemo(
+    () => normalizeMarkdown(applyPlaceholders(regexedContent, resolvedUser, resolvedChar)),
+    [regexedContent, resolvedUser, resolvedChar],
+  );
 
   if (isSystem) {
     const systemText = applyPlaceholders(message.content, resolvedUser, resolvedChar);
     return (
       <motion.div
-        data-mesid={message.mesid}
+        data-mesid={mesid}
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         className="flex justify-center my-6"
@@ -255,7 +270,7 @@ export const MessageItem = React.memo(function MessageItem({
 
   return (
     <motion.div
-      data-mesid={message.mesid}
+      data-mesid={mesid}
       initial={{ opacity: 0, y: 15, scale: 0.98 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
@@ -365,6 +380,8 @@ export const MessageItem = React.memo(function MessageItem({
                   </button>
                 </div>
               </div>
+            ) : frontendHtml ? (
+              <FrontendCard html={frontendHtml} mesid={mesid} />
             ) : (
               <Markdown
                 rehypePlugins={[rehypeRaw, [rehypeSanitize, sanitizeSchema]]}

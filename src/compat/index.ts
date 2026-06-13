@@ -20,6 +20,7 @@ import { getContext } from "./stContext";
 import { installGlobals } from "./globals";
 import { setChatAccessor } from "./macros";
 import { getChat } from "./runtimeStore";
+import { createTavernHelperStub } from "./tavernHelper";
 
 let installed = false;
 
@@ -47,6 +48,12 @@ export function installCompatLayer(): void {
     eventSource,
     event_types,
   };
+
+  // Front-end cards reach for window.TavernHelper. Install a stub (real API in
+  // P5). Don't clobber a richer implementation if one is already present.
+  if (!w.TavernHelper) {
+    w.TavernHelper = createTavernHelperStub();
+  }
 }
 
 // Re-export the pieces app code imports directly, so callers can pull from a
@@ -80,3 +87,5 @@ export {
   saveGlobalRegexScripts,
 } from "./regex";
 export type { RegexParams } from "./regex";
+export { FrontendCard } from "./render/FrontendCard";
+export { isFrontendHtml, extractFrontendHtml } from "./render/detect";
