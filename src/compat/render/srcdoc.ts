@@ -98,7 +98,7 @@ export function buildCardSrcdoc(html: string): string {
 ${origin ? `<base href="${origin}/">` : ""}
 <style>
 *,*::before,*::after{box-sizing:border-box;}
-html,body{margin:0;padding:0;max-width:100%;}
+html,body{margin:0;padding:0;max-width:100%;background:transparent;}
 body{overflow:hidden;}
 </style>
 <script>${BRIDGE_SCRIPT}</script>

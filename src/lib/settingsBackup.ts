@@ -2,11 +2,10 @@ import { AppState, ImageProvider, LlmProvider, ModelEntry } from "../types";
 
 const EXPORT_KIND = "nyaachat_settings_export";
 /** Bumped to 3 when the AppState gained MCP fields (`isMcpEnabled`,
- *  `mcpUserCity`, `mcpToolsEnabled`). v2 files are still accepted on
- *  import — missing MCP fields are filled with defaults during the
- *  import-side migration in {@link validateImportPayload}. */
-const EXPORT_VERSION = 3;
-const SUPPORTED_IMPORT_VERSIONS = new Set([2, 3]);
+ *  `mcpUserCity`, `mcpToolsEnabled`). v4 adds the native front-end renderer
+ *  toggle/depth. Older files are still accepted and backfilled during import. */
+const EXPORT_VERSION = 4;
+const SUPPORTED_IMPORT_VERSIONS = new Set([2, 3, 4]);
 
 interface ExportPayload {
   _kind: typeof EXPORT_KIND;
@@ -158,6 +157,16 @@ function validateImportPayload(raw: unknown): ImportResult {
     });
   }
 
+  if (s.isFrontendRenderingEnabled !== undefined && typeof s.isFrontendRenderingEnabled !== "boolean") {
+    issues.push("isFrontendRenderingEnabled 必须是布尔");
+  }
+  if (s.frontendRenderingDepth !== undefined) {
+    const depth = Number(s.frontendRenderingDepth);
+    if (!Number.isFinite(depth) || depth < 0) {
+      issues.push("frontendRenderingDepth 必须是不小于 0 的数字");
+    }
+  }
+
   // MCP fields. v2 files don't carry them; we let those slide and fill
   // defaults below. v3+ files must have valid shapes.
   if (obj._version >= 3) {
@@ -195,6 +204,13 @@ function validateImportPayload(raw: unknown): ImportResult {
   // when loading from localStorage; keeping them in sync is critical or
   // imported settings would behave differently from native ones.
   const filled: Record<string, unknown> = { ...s };
+  if (typeof filled.isFrontendRenderingEnabled !== "boolean") {
+    filled.isFrontendRenderingEnabled = true;
+  }
+  {
+    const depth = Number(filled.frontendRenderingDepth);
+    filled.frontendRenderingDepth = Number.isFinite(depth) && depth >= 0 ? Math.floor(depth) : 5;
+  }
   if (typeof filled.isMcpEnabled !== "boolean") {
     filled.isMcpEnabled = true;
   }

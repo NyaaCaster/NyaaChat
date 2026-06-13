@@ -76,6 +76,25 @@
 - 暴露给前端卡的 `TavernHelper` API：chat_message / event / generate / variables(global·chat·message·script·preset) / slash / worldbook / character / preset / displayed_message / tavern_regex / inject / macro_like / script / audio / util / version 等十几个域。
 - 构建产物 `dist/index.js`（Vue3+Pinia，ESM），`@sillytavern/*` 全部 external、靠相对 URL 运行时解析。
 
+### 2.5 NyaaChat 自带前端渲染与 JSR 渲染器冲突（2026-06-14 修订）
+
+A3 混合策略曾把「JSR 风格前端卡渲染」作为 NyaaChat 原生能力实现：`MessageItem` 在 React 渲染路径内检测 HTML 前端卡，替换为同源、无 sandbox 的 `FrontendCard` iframe，并在 iframe 内注入 `window.SillyTavern` / `window.TavernHelper` bridge。这让**未导入 JS-Slash-Runner 扩展时**也能渲染前端卡，但与**真正导入 JSR 扩展后由 JSR 自己接管渲染**存在重叠冲突：
+
+- **双渲染冲突**：NyaaChat 会先把可渲染代码块替换为 iframe；JSR 后续也会扫描 `.mes` 内 `<pre>` / `.TH-render` 并尝试包装、隐藏原代码块、Teleport `Iframe.vue`。
+- **全局 API 冲突**：NyaaChat 在宿主侧预装 `window.TavernHelper` 子集；JSR 初始化时也会设置自己的完整 `TavernHelper`，覆盖顺序会决定前端卡调用到哪套语义。
+- **事件 / 变量 / slash 语义冲突**：NyaaChat 原生实现了渲染生命周期事件、message/chat/global/script 变量、`triggerSlash`、`generate/generateRaw` 等 JSR 常用子集；这些是「让内置渲染器可用」所需，但不等同于 JSR 完整实现。
+
+**当前两全机制**：把 NyaaChat 原生渲染器收敛为一个用户可控功能，而不是无条件接管消息渲染。
+
+- 设置页 `模型设置` 中新增 **「前端渲染」** 开关（`AppState.isFrontendRenderingEnabled`，默认 `true`）：
+  - 开启：NyaaChat 原生渲染器接管最近若干楼层的前端卡。
+  - 关闭：NyaaChat 不再替换 HTML 前端卡，消息按普通 Markdown / 代码块显示，留给真实 JS-Slash-Runner 扩展自行扫描和渲染。
+- 同卡片提供 **「渲染层数」**（`AppState.frontendRenderingDepth`，默认 `5`，`0` = 所有楼层），语义同 JSR 渲染器「渲染深度」：从最新楼层开始计数，只在深度范围内启用 NyaaChat 原生渲染。
+- 渲染细节修正：NyaaChat 只把可渲染的 fenced HTML 代码块替换为 iframe，保留代码块前后的普通 Markdown 文本；iframe 外框和 iframe 内 `html/body` 背景保持透明，避免出现额外白色背景框。
+- 推荐使用方式：
+  - **未安装 / 未启用 JSR**：保持「前端渲染」开启，使用 NyaaChat 自带渲染器。
+  - **安装并启用 JSR 渲染器**：关闭 NyaaChat「前端渲染」，让 JSR 成为唯一渲染器，避免双渲染和 `TavernHelper` 语义分叉。
+
 ---
 
 ## 3. 三个硬骨头
@@ -167,7 +186,7 @@
 - **A2 原生重实现「渲染器」**：NyaaChat 自建前端卡渲染器（检测 HTML → 同源 iframe → 注入兼容版 bridge），只复刻 JSR 渲染功能依赖的那部分 `TavernHelper` API，不跑 JSR 的 Vue 面板。
   - ＋ 与 React 架构契合、可控、调试简单；规避硬骨头 2。
   - － 每个扩展单独适配；不直接享受 JSR 上游迭代。
-- **A3 混合（推荐）**：先做 A2 内核把前端卡跑通（最快见效、风险可控），地基（兼容层 / 正则 / 扩展系统）按 ST 契约搭建，为后续逐步逼近 A1、纳入更多扩展留接口。
+- **A3 混合（已落地，2026-06-14 修订）**：先做 A2 内核把前端卡跑通（最快见效、风险可控），地基（兼容层 / 正则 / 扩展系统）按 ST 契约搭建，为后续逐步逼近 A1、纳入更多扩展留接口。因 A2 内核会与真实 JSR 渲染器重叠，现已补用户开关：`isFrontendRenderingEnabled` 控制是否启用 NyaaChat 原生渲染器，`frontendRenderingDepth` 控制从最新楼层计数的渲染层数（0=全部），详见 §2.5。
 
 ### 决策 B：扩展分发与权限模型 ✅ 方向已定 = 双层权限
 

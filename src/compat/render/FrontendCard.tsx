@@ -82,10 +82,10 @@ export const FrontendCard = React.memo(function FrontendCard({
           title={frameId}
           srcDoc={srcdoc}
           loading="lazy"
-          className="w-full block rounded-lg border border-gray-200 dark:border-white/10 bg-white"
+          className="w-full block border-0 bg-transparent"
           // Same-origin, NOT sandboxed — required for the bridge / height sync.
           // See srcdoc.ts security note.
-          style={{ height: 60, minHeight: 60 }}
+          style={{ height: 60, minHeight: 60, background: "transparent" }}
           onLoad={handleLoad}
         />
       )}

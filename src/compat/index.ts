@@ -147,7 +147,8 @@ export {
 } from "./regex";
 export type { RegexParams } from "./regex";
 export { FrontendCard } from "./render/FrontendCard";
-export { isFrontendHtml, extractFrontendHtml } from "./render/detect";
+export { isFrontendHtml, extractFrontendHtml, splitFrontendContent } from "./render/detect";
+export type { FrontendContentPart } from "./render/detect";
 export {
   getVariables,
   replaceVariables,

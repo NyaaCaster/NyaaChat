@@ -12,6 +12,10 @@
 
 const FRONTEND_TAGS = ["html>", "<head>", "<body"];
 
+export type FrontendContentPart =
+  | { type: "markdown"; content: string }
+  | { type: "card"; html: string; index: number };
+
 /** Loose substring test matching ST's isFrontend. */
 export function isFrontendHtml(content: string): boolean {
   if (!content) return false;
@@ -24,23 +28,53 @@ export function isFrontendHtml(content: string): boolean {
  * when nothing in the message looks like a front-end card.
  */
 export function extractFrontendHtml(content: string): string | null {
+  const parts = splitFrontendContent(content);
+  const firstCard = parts?.find((part) => part.type === "card");
+  return firstCard?.type === "card" ? firstCard.html : null;
+}
+
+/**
+ * Split a message into normal Markdown runs and renderable front-end-card runs.
+ * This mirrors JSR's behavior more closely than replacing the whole bubble: the
+ * code block becomes the iframe, while explanatory prose before/after it stays
+ * visible in the chat bubble.
+ */
+export function splitFrontendContent(content: string): FrontendContentPart[] | null {
   if (!content) return null;
 
-  // Find fenced code blocks. Prefer an html-tagged block, else any block whose
-  // body passes the frontend test.
+  const parts: FrontendContentPart[] = [];
   const fenceRe = /```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g;
   let match: RegExpExecArray | null;
-  let firstRenderable: string | null = null;
+  let lastIndex = 0;
+  let cardIndex = 0;
+
   while ((match = fenceRe.exec(content)) !== null) {
     const lang = (match[1] || "").toLowerCase();
     const body = match[2] ?? "";
     if (!isFrontendHtml(body)) continue;
-    if (lang === "html" || lang === "htm") return body;
-    if (firstRenderable === null) firstRenderable = body;
-  }
-  if (firstRenderable !== null) return firstRenderable;
 
-  // No fenced card; test the raw text (some cards come unfenced).
-  if (isFrontendHtml(content)) return content;
+    if (match.index > lastIndex) {
+      parts.push({ type: "markdown", content: content.slice(lastIndex, match.index) });
+    }
+    // JSR renders any <pre> whose text passes isFrontend; NyaaChat gives
+    // html/htm fences priority but also accepts generic renderable fences.
+    if (lang === "html" || lang === "htm" || lang === "") {
+      parts.push({ type: "card", html: body, index: cardIndex++ });
+    } else {
+      parts.push({ type: "card", html: body, index: cardIndex++ });
+    }
+    lastIndex = fenceRe.lastIndex;
+  }
+
+  if (cardIndex > 0) {
+    if (lastIndex < content.length) {
+      parts.push({ type: "markdown", content: content.slice(lastIndex) });
+    }
+    return parts;
+  }
+
+  // No fenced card; test the raw text (some cards come unfenced). In that case
+  // the whole message is the card, so there is no non-rendered prose to preserve.
+  if (isFrontendHtml(content)) return [{ type: "card", html: content, index: 0 }];
   return null;
 }

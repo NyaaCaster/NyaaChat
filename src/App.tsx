@@ -53,7 +53,7 @@ export type ConnectionStatus = "disconnected" | "connecting" | "connected";
 // with per-provider apiKey/baseUrl/models. The legacy single-endpoint `api`
 // and `imageApi` blocks are retained on AppState during the transition until
 // chatPipeline is switched over (phase 3).
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 6;
 
 function migrate(raw: any): any {
   if (!raw || typeof raw !== "object") return raw;
@@ -68,8 +68,44 @@ function migrate(raw: any): any {
   if (v < 4) {
     raw = migrateV3ToV4(raw);
   }
+  if (v < 5) {
+    raw = migrateV4ToV5(raw);
+  }
+  if (v < 6) {
+    raw = migrateV5ToV6(raw);
+  }
 
   return raw;
+}
+
+/**
+ * v5 → v6: add the JSR-style render depth limit. 0 means all floors; the
+ * default mirrors JS-Slash-Runner's common safer setting of only latest floors.
+ */
+function migrateV5ToV6(raw: any): any {
+  return {
+    ...raw,
+    frontendRenderingDepth:
+      Number.isFinite(raw.frontendRenderingDepth) && raw.frontendRenderingDepth >= 0
+        ? Math.floor(raw.frontendRenderingDepth)
+        : 5,
+    _version: 6,
+  };
+}
+
+/**
+ * v4 → v5: enable the native front-end card renderer by default for existing
+ * users, while allowing it to be disabled when JS-Slash-Runner will own render.
+ */
+function migrateV4ToV5(raw: any): any {
+  return {
+    ...raw,
+    isFrontendRenderingEnabled:
+      typeof raw.isFrontendRenderingEnabled === "boolean"
+        ? raw.isFrontendRenderingEnabled
+        : true,
+    _version: 5,
+  };
 }
 
 /**
@@ -209,6 +245,8 @@ function migrateV1ToV2(raw: any): any {
     // isStreaming is now a global setting (was per-provider in v1's api block).
     // Promote the legacy api.isStreaming to the top level if present.
     isStreaming: !!api.isStreaming,
+    isFrontendRenderingEnabled: true,
+    frontendRenderingDepth: 5,
     _version: 2,
   };
 }
@@ -297,6 +335,8 @@ const DEFAULT_SETTINGS: AppState = {
   currentImageProviderId: "qiny",
   isWebSearchEnabled: false,
   isStreaming: false,
+  isFrontendRenderingEnabled: true,
+  frontendRenderingDepth: 5,
   isMcpEnabled: true,
   mcpUserCity: null,
   mcpToolsEnabled: { get_current_time: true, get_weather: true, roll_coc: true, roll_dnd: true, web_search: false },
@@ -414,6 +454,14 @@ export default function App() {
                     (p: any) => typeof p?.isStreaming === "boolean",
                   )?.isStreaming
                 : !!parsed.api?.isStreaming,
+          isFrontendRenderingEnabled:
+            typeof parsed.isFrontendRenderingEnabled === "boolean"
+              ? parsed.isFrontendRenderingEnabled
+              : DEFAULT_SETTINGS.isFrontendRenderingEnabled,
+          frontendRenderingDepth:
+            Number.isFinite(parsed.frontendRenderingDepth) && parsed.frontendRenderingDepth >= 0
+              ? Math.floor(parsed.frontendRenderingDepth)
+              : DEFAULT_SETTINGS.frontendRenderingDepth,
           isMcpEnabled:
             typeof parsed.isMcpEnabled === "boolean"
               ? parsed.isMcpEnabled

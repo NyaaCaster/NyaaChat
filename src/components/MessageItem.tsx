@@ -9,7 +9,7 @@ import { ConfirmDialog } from "./ConfirmDialog";
 import { ImageViewerModal } from "./ImageViewerModal";
 import { downloadImage } from "../lib/imageApi";
 import { applyPlaceholders } from "../lib/chatPipeline";
-import { getRegexedString, regex_placement, FrontendCard, extractFrontendHtml } from "../compat";
+import { getRegexedString, regex_placement, FrontendCard, splitFrontendContent } from "../compat";
 import type { RegexScript } from "../types";
 
 // rehype-sanitize schema: GitHub-flavored default + className passthrough so
@@ -134,6 +134,8 @@ interface MessageItemProps {
    *  the store assigns to its own copy and isn't echoed back into React state.
    *  Used for the data-mesid attribute and the FrontendCard iframe id. */
   mesid?: number;
+  /** Controls NyaaChat's native JS-Slash-Runner-style iframe renderer. */
+  frontendRenderingEnabled?: boolean;
 }
 
 export const MessageItem = React.memo(function MessageItem({
@@ -149,6 +151,7 @@ export const MessageItem = React.memo(function MessageItem({
   busy,
   regexScripts,
   mesid,
+  frontendRenderingEnabled = true,
 }: MessageItemProps) {
   const [copiedMsg, setCopiedMsg] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -223,14 +226,14 @@ export const MessageItem = React.memo(function MessageItem({
       : raw;
   }, [message.content, message.role, regexScripts]);
 
-  // Front-end card: if the (regexed) content carries renderable HTML, render it
-  // in an iframe instead of as markdown. Only assistant/non-edit bubbles are
+  // Front-end card: render fenced HTML card blocks in iframes, while preserving
+  // surrounding prose as normal Markdown. Only assistant/non-edit bubbles are
   // candidates — user input and the edit textarea always stay plain. Image
   // bubbles are never cards.
-  const frontendHtml = React.useMemo(() => {
-    if (message.imageUrl || message.role === "user") return null;
-    return extractFrontendHtml(regexedContent);
-  }, [regexedContent, message.imageUrl, message.role]);
+  const frontendParts = React.useMemo(() => {
+    if (!frontendRenderingEnabled || message.imageUrl || message.role === "user") return null;
+    return splitFrontendContent(regexedContent);
+  }, [frontendRenderingEnabled, regexedContent, message.imageUrl, message.role]);
 
   // Markdown view (when not a card). Placeholders then normalize.
   const normalizedContent = React.useMemo(
@@ -380,8 +383,39 @@ export const MessageItem = React.memo(function MessageItem({
                   </button>
                 </div>
               </div>
-            ) : frontendHtml ? (
-              <FrontendCard html={frontendHtml} mesid={mesid} />
+            ) : frontendParts ? (
+              <>
+                {frontendParts.map((part, partIndex) =>
+                  part.type === "card" ? (
+                    <FrontendCard
+                      key={`card-${part.index}`}
+                      html={part.html}
+                      mesid={mesid}
+                      index={part.index}
+                    />
+                  ) : part.content.trim() ? (
+                    <Markdown
+                      key={`md-${partIndex}`}
+                      rehypePlugins={[rehypeRaw, [rehypeSanitize, sanitizeSchema]]}
+                      components={{
+                        p: ({ children }) => <p>{renderTextWithQuotes(children)}</p>,
+                        li: ({ children }) => <li>{renderTextWithQuotes(children)}</li>,
+                        a: ({ children, ...props }) => (
+                          <a {...props} target="_blank" rel="noopener noreferrer">
+                            {children}
+                          </a>
+                        ),
+                        pre: ({ children }) => {
+                          const code = React.Children.toArray(children).map(c =>
+                            typeof c === "object" && "props" in c ? (c as any).props.children : c
+                          ).join("");
+                          return <CodeBlock>{code}</CodeBlock>;
+                        },
+                      }}
+                    >{normalizeMarkdown(applyPlaceholders(part.content, resolvedUser, resolvedChar))}</Markdown>
+                  ) : null,
+                )}
+              </>
             ) : (
               <Markdown
                 rehypePlugins={[rehypeRaw, [rehypeSanitize, sanitizeSchema]]}

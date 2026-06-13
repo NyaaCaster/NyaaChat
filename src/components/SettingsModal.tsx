@@ -11,7 +11,6 @@ import {
   Download,
   Upload,
   AlertTriangle,
-  Zap,
 } from "lucide-react";
 import { AppState } from "../types";
 import { BaseModal } from "./BaseModal";
@@ -60,6 +59,14 @@ export function SettingsModal({
 
   const handleStreamingToggle = (next: boolean) => {
     onSave({ ...settings, isStreaming: next });
+  };
+
+  const handleFrontendRenderingToggle = (next: boolean) => {
+    onSave({ ...settings, isFrontendRenderingEnabled: next });
+  };
+
+  const handleFrontendRenderingDepthChange = (next: number) => {
+    onSave({ ...settings, frontendRenderingDepth: next });
   };
 
   const handleExport = () => {
@@ -111,10 +118,21 @@ export function SettingsModal({
         <div className="p-4 sm:p-6 space-y-8">
           <SectionHeading>模型设置</SectionHeading>
           <div className="space-y-3 -mt-4">
-            <StreamingRow
-              checked={settings.isStreaming}
-              onChange={handleStreamingToggle}
-            />
+            <div className="grid grid-cols-2 gap-3">
+              <FeatureToggleCard
+                checked={settings.isStreaming}
+                onChange={handleStreamingToggle}
+                label="流式输出"
+                description="流式输出开启后敏感内容容易被截断"
+              />
+              <FeatureToggleCard
+                checked={settings.isFrontendRenderingEnabled}
+                onChange={handleFrontendRenderingToggle}
+                label="前端渲染"
+                depth={settings.frontendRenderingDepth}
+                onDepthChange={handleFrontendRenderingDepthChange}
+              />
+            </div>
             <RowButton
               onClick={onOpenLlmProviders}
               icon={<MessageSquare size={20} className="text-blue-500" />}
@@ -260,30 +278,61 @@ function RowButton({ onClick, icon, label }: RowButtonProps) {
   );
 }
 
-interface StreamingRowProps {
+interface FeatureToggleCardProps {
   checked: boolean;
   onChange: (next: boolean) => void;
+  label: string;
+  description?: string;
+  depth?: number;
+  onDepthChange?: (next: number) => void;
 }
 
-function StreamingRow({ checked, onChange }: StreamingRowProps) {
+function FeatureToggleCard({
+  checked,
+  onChange,
+  label,
+  description,
+  depth,
+  onDepthChange,
+}: FeatureToggleCardProps) {
+  const hasDepth = typeof depth === "number" && !!onDepthChange;
+
   return (
-    <div className="w-full flex items-center gap-3 p-4 rounded-xl border border-gray-200 dark:border-white/10 bg-white dark:bg-white/5">
-      <div className="w-10 h-10 rounded-xl bg-gray-100 dark:bg-white/5 flex items-center justify-center flex-shrink-0">
-        <Zap size={20} className="text-amber-500" />
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="text-base font-medium text-gray-900 dark:text-gray-100">
-          流式输出
+    <div className="flex flex-col gap-3 p-4 rounded-xl border border-gray-200 dark:border-white/10 bg-white dark:bg-white/5 min-w-0">
+      <div className="flex items-start justify-between gap-2 min-w-0">
+        <div className="flex-1 min-w-0">
+          <div className="text-base font-medium text-gray-900 dark:text-gray-100 whitespace-nowrap">
+            {label}
+          </div>
+          {description && (
+            <div className="mt-1 text-[11px] leading-snug text-gray-500 dark:text-gray-400">
+              {description}
+            </div>
+          )}
         </div>
-        <div className="text-xs text-gray-500 dark:text-gray-400">
-          以 stream:true 模式调用聊天 API,实时接收文本片段
-        </div>
+        <ToggleSwitch
+          checked={checked}
+          onChange={onChange}
+          label={checked ? "已开启" : "已关闭"}
+        />
       </div>
-      <ToggleSwitch
-        checked={checked}
-        onChange={onChange}
-        label={checked ? "已开启" : "已关闭"}
-      />
+      {hasDepth && (
+        <label className="flex items-center justify-between gap-2 min-w-0 text-xs text-gray-500 dark:text-gray-400">
+          <span className="shrink-0 whitespace-nowrap">渲染层数</span>
+          <input
+            type="number"
+            min={0}
+            step={1}
+            value={depth}
+            onChange={(e) => {
+              const next = Number(e.target.value);
+              onDepthChange?.(Number.isFinite(next) && next >= 0 ? Math.floor(next) : 0);
+            }}
+            className="w-16 min-w-0 rounded-md border border-gray-200 dark:border-white/10 bg-white dark:bg-black/20 px-2 py-1 text-right text-xs text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+            aria-label="前端渲染层数，0 为全部"
+          />
+        </label>
+      )}
     </div>
   );
 }

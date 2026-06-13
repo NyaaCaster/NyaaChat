@@ -913,6 +913,11 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
                     imageGenerating={imageGeneratingId === message.id}
                     busy={isLoading}
                     regexScripts={regexScripts}
+                    frontendRenderingEnabled={
+                      settings.isFrontendRenderingEnabled &&
+                      (settings.frontendRenderingDepth === 0 ||
+                        messages.length - idx <= settings.frontendRenderingDepth)
+                    }
                   />
                 ))}
               </AnimatePresence>

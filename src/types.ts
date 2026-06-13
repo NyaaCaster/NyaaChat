@@ -161,6 +161,10 @@ export interface AppState {
   currentImageProviderId: string;
   isWebSearchEnabled: boolean;
   isStreaming: boolean;
+  /** Enable NyaaChat native JS-Slash-Runner-style front-end card rendering. */
+  isFrontendRenderingEnabled: boolean;
+  /** Number of latest message floors to render as front-end cards. 0 = all. */
+  frontendRenderingDepth: number;
   /** Whether the MCP toolbar entry is "armed" — this only governs whether
    *  enabled MCP tools get advertised to the LLM on the next request.
    *  Per-tool toggles in `mcpToolsEnabled` apply on top of this. */
