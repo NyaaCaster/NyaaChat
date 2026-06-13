@@ -130,7 +130,19 @@ export {
   emitMessageDeleted,
 } from "./runtimeStore";
 export type { RuntimeMessage, RuntimeMeta, MessageWriter } from "./runtimeStore";
-export { getContext, setContextProvider } from "./stContext";
+export {
+  getContext,
+  setContextProvider,
+  setSettingsPersister,
+  saveSettingsDebounced,
+} from "./stContext";
+export {
+  extension_settings,
+  loadExtensionSettingsFromStorage,
+  saveExtensionSettingsNow,
+  loadExtensionSettingsFromIndexedDb,
+  saveExtensionSettingsToIndexedDb,
+} from "./extensionSettings";
 export { setToastSink } from "./globals";
 export {
   getRegexedString,

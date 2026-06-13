@@ -4,7 +4,7 @@
 > 目标是在**不支持运行时安装 / 更新 / 删除扩展**的前提下，让通过 git + rebuild 内置进项目的 SillyTavern 扩展获得足够的前端宿主与轻量后端能力。
 >
 > 创建：2026-06-14
-> 状态：P0 完成；下一阶段 P1（extension_settings 本地持久化）
+> 状态：P1 完成；下一阶段 P2（类 ST 扩展设置 UI 宿主）
 
 ---
 
@@ -275,12 +275,19 @@ location /api/ext-host/ {
 
 ### P1：extension_settings 本地持久化
 
-- [ ] `extension_settings` 从内存对象改为 localStorage/IndexedDB backed store。
-- [ ] `saveSettingsDebounced()` 真正持久化。
-- [ ] 页面刷新后扩展设置不丢。
-- [ ] 预留大对象迁移到 IndexedDB 的接口。
+- [x] `extension_settings` 从内存对象改为 localStorage/IndexedDB backed store。
+- [x] `saveSettingsDebounced()` 真正持久化。
+- [x] 页面刷新后扩展设置不丢。
+- [x] 预留大对象迁移到 IndexedDB 的接口。
 
 验收：JSR 写入的基础设置、st-Quote-TTS 写入的 `extension_settings.quote_tts` 音色映射可刷新保留。
+
+#### P1 实施记录（2026-06-14）
+
+- 新增 `src/compat/extensionSettings.ts`，以 `nyaachat_extension_settings` localStorage key 作为同步主存储，并在模块初始化时原地恢复稳定的 `extension_settings` 对象。
+- `src/compat/stContext.ts` 的 `saveSettingsDebounced()` 默认接入本地持久化；扩展脚本持有的对象引用不变，嵌套写入后调用保存即可落盘。
+- 预留 `loadExtensionSettingsFromIndexedDb()` / `saveExtensionSettingsToIndexedDb()`，后续可把大型脚本库迁移到 IndexedDB，而不改变 ST 兼容 API 面。
+- 构建验证：`npm run build` 通过；Vite 仍提示主 chunk 超过 500 kB（既有体积告警，不影响本阶段）。
 
 ### P2：类 ST 扩展设置 UI 宿主
 

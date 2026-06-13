@@ -19,6 +19,7 @@ import { substituteParams, substituteParamsExtended } from "./macros";
 import { getChat, getMeta, getMessageByMesId } from "./runtimeStore";
 import type { RuntimeMessage } from "./runtimeStore";
 import { executeSlashCommands, registerSlashCommand, addCommandObject } from "./slash";
+import { extension_settings, saveExtensionSettingsNow } from "./extensionSettings";
 
 /** A character entry as getContext().characters exposes it. Minimal subset. */
 export interface STCharacter {
@@ -78,23 +79,21 @@ export function getExtensionPrompts(): Record<string, ExtensionPromptEntry> {
 // --- extension settings store ----------------------------------------------
 //
 // extension_settings is a plain object ST extensions read/write freely, then
-// call saveSettingsDebounced(). Persistence (localStorage / server) is a P3
-// concern; for now it's an in-memory object with a debounced save hook that
-// extensions can call harmlessly. The object identity is stable so extensions
-// that capture a reference keep working.
-
-export const extension_settings: Record<string, unknown> = {};
+// call saveSettingsDebounced(). The object identity is stable so extensions that
+// capture a reference keep working; it is hydrated in-place from browser-local
+// storage before extension scripts load. P1 uses localStorage as the synchronous
+// source of truth and leaves an IndexedDB migration seam for large script data.
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
-let persistFn: (() => void) | null = null;
+let persistFn: (() => void) | null = saveExtensionSettingsNow;
 
-/** Register where extension_settings should be persisted. P3 wires this to
- *  localStorage / the manage backend. Until then saves are no-ops. */
+/** Register where extension_settings should be persisted. Passing null restores
+ *  the default browser-local persister. */
 export function setSettingsPersister(fn: (() => void) | null): void {
-  persistFn = fn;
+  persistFn = fn ?? saveExtensionSettingsNow;
 }
 
-function saveSettingsDebounced(): void {
+export function saveSettingsDebounced(): void {
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
     saveTimer = null;
