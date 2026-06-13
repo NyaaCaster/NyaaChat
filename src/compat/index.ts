@@ -140,6 +140,7 @@ export {
   getEffectiveRegexScripts,
   loadGlobalRegexScripts,
   saveGlobalRegexScripts,
+  subscribeRegexScripts,
 } from "./regex";
 export type { RegexParams } from "./regex";
 export { FrontendCard } from "./render/FrontendCard";

@@ -20,6 +20,28 @@ const STORAGE_KEY = "nyaachat_regex_global";
 // per render. Invalidated on save and lazily repopulated on next read.
 let globalCache: RegexScript[] | null = null;
 
+// Subscribers notified whenever the global scripts change (the management UI
+// saving). Lets the display pipeline (ChatInterface) re-derive its effective
+// script chain and re-run regex on the visible chat immediately, instead of
+// only on the next character switch / reload.
+const subscribers = new Set<() => void>();
+
+/** Subscribe to global regex script changes. Returns an unsubscribe fn. */
+export function subscribeRegexScripts(cb: () => void): () => void {
+  subscribers.add(cb);
+  return () => subscribers.delete(cb);
+}
+
+function notifyRegexChange(): void {
+  for (const cb of [...subscribers]) {
+    try {
+      cb();
+    } catch (err) {
+      console.error("[compat] regex subscriber threw", err);
+    }
+  }
+}
+
 /** Load the user's global regex scripts. Returns [] on missing/corrupt data so
  *  a bad localStorage entry never breaks message rendering. Cached in memory. */
 export function loadGlobalRegexScripts(): RegexScript[] {
@@ -35,7 +57,8 @@ export function loadGlobalRegexScripts(): RegexScript[] {
 }
 
 /** Persist the user's global regex scripts. Quota errors are swallowed with a
- *  console warning — losing a save is recoverable, crashing the UI is not. */
+ *  console warning — losing a save is recoverable, crashing the UI is not.
+ *  Notifies subscribers so the display pipeline refreshes live. */
 export function saveGlobalRegexScripts(scripts: RegexScript[]): void {
   globalCache = scripts;
   try {
@@ -43,6 +66,7 @@ export function saveGlobalRegexScripts(scripts: RegexScript[]): void {
   } catch (err) {
     console.error("[compat] failed to persist global regex scripts", err);
   }
+  notifyRegexChange();
 }
 
 /**

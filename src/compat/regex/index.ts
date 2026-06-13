@@ -10,4 +10,5 @@ export {
   loadGlobalRegexScripts,
   saveGlobalRegexScripts,
   getEffectiveRegexScripts,
+  subscribeRegexScripts,
 } from "./store";

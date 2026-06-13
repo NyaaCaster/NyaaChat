@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback, useMemo, forwardRef, useImperativeHandle } from "react";
+import React, { useState, useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from "react";
 import { Sparkles } from "lucide-react";
 import { ApiSettings, Message, AppState, LogEntry, ChatSession } from "../types";
 import { fetchChatCompletion, type LlmTool, type ToolExecutor } from "../lib/api";
@@ -21,7 +21,7 @@ import { ChatComposer } from "./ChatComposer";
 import { motion, AnimatePresence } from "motion/react";
 import { useFullscreen } from "../hooks/useFullscreen";
 import { useAttachments } from "../hooks/useAttachments";
-import { syncChat, syncMeta, getEffectiveRegexScripts, resetTransientVariables, setGenerateApiResolver, setMessageWriter, setActiveChatScope } from "../compat";
+import { syncChat, syncMeta, getEffectiveRegexScripts, subscribeRegexScripts, resetTransientVariables, setGenerateApiResolver, setMessageWriter, setActiveChatScope } from "../compat";
 
 /**
  * Map a thrown error from the API layer to a user-friendly Chinese message.
@@ -103,14 +103,20 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
   const charName = currentCharacter?.name || "AI助手";
   const userName = currentUserRole?.name || "user";
 
-  // Effective regex chain (global + this character), enabled-only. Memoized so
-  // MessageItem's memo isn't busted every render by a fresh array identity.
-  // Recomputed on character switch; global scripts are cached in the store, so
-  // edits there take effect on the next character change or reload.
-  const regexScripts = useMemo(
-    () => getEffectiveRegexScripts(currentCharacter),
-    [currentCharacter],
+  // Effective regex chain (global + this character), enabled-only. Held in state
+  // so MessageItem's memo isn't busted by a fresh array identity every render:
+  // the reference only changes when we recompute — on character switch, and
+  // whenever the global scripts change (the 正则 manager saving) via the
+  // subscription. The latter makes edits reflect on the visible chat immediately
+  // instead of only on the next character switch / reload.
+  const [regexScripts, setRegexScripts] = useState(() =>
+    getEffectiveRegexScripts(currentCharacter),
   );
+  useEffect(() => {
+    const recompute = () => setRegexScripts(getEffectiveRegexScripts(currentCharacter));
+    recompute();
+    return subscribeRegexScripts(recompute);
+  }, [currentCharacter]);
 
   const handleStop = () => {
     if (abortControllerRef.current) {
