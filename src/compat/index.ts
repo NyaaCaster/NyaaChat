@@ -108,6 +108,7 @@ export {
   deleteVariable,
   updateVariablesWith,
   resetTransientVariables,
+  setActiveChatScope,
 } from "./variables";
 export type { VariableScope, VariableOption } from "./variables";
 export { setGenerateApiResolver } from "./generate";

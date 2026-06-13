@@ -21,7 +21,7 @@ import { ChatComposer } from "./ChatComposer";
 import { motion, AnimatePresence } from "motion/react";
 import { useFullscreen } from "../hooks/useFullscreen";
 import { useAttachments } from "../hooks/useAttachments";
-import { syncChat, syncMeta, getEffectiveRegexScripts, resetTransientVariables, setGenerateApiResolver, setMessageWriter } from "../compat";
+import { syncChat, syncMeta, getEffectiveRegexScripts, resetTransientVariables, setGenerateApiResolver, setMessageWriter, setActiveChatScope } from "../compat";
 
 /**
  * Map a thrown error from the API layer to a user-friendly Chinese message.
@@ -815,6 +815,9 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
     if (currentSession) {
       setMessages(currentSession.messages);
     }
+    // Point the compat chat-variable scope at this session so front-end-card
+    // chat variables are partitioned per conversation (null = draft scratch).
+    setActiveChatScope(currentSession?.id ?? null);
     // Depending on the id alone is intentional: when the same session object
     // is passed back (e.g. after rename) we don't want to re-import messages.
     // eslint-disable-next-line react-hooks/exhaustive-deps

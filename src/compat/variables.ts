@@ -29,7 +29,17 @@ export interface VariableOption {
 }
 
 const GLOBAL_KEY = "nyaachat_vars_global";
-const CHAT_KEY = "nyaachat_vars_chat";
+// Chat variables are partitioned per session (ST: variables follow the chat
+// file). The active scope id is the current session id, or "__draft__" for the
+// unsaved scratch chat. Keys look like `nyaachat_vars_chat::<sessionId>`.
+const CHAT_KEY_PREFIX = "nyaachat_vars_chat";
+const DRAFT_SCOPE = "__draft__";
+
+let activeChatScope = DRAFT_SCOPE;
+
+function chatKey(scope: string): string {
+  return `${CHAT_KEY_PREFIX}::${scope}`;
+}
 
 // In-memory scopes.
 const scriptVars = new Map<string, Record<string, unknown>>();
@@ -74,8 +84,22 @@ function getGlobalStore(): Record<string, unknown> {
   return globalCache;
 }
 function getChatStore(): Record<string, unknown> {
-  if (!chatCache) chatCache = loadPersisted(CHAT_KEY);
+  if (!chatCache) chatCache = loadPersisted(chatKey(activeChatScope));
   return chatCache;
+}
+
+/** Switch the active chat-variable scope (called on session change). Persists
+ *  the current scope first, then loads the new one. Passing null = draft scope.
+ *  Message-scoped vars are transient and cleared on scope change. */
+export function setActiveChatScope(sessionId: string | null): void {
+  const next = sessionId || DRAFT_SCOPE;
+  if (next === activeChatScope) return;
+  // Flush current scope before switching.
+  if (chatCache) savePersisted(chatKey(activeChatScope), chatCache);
+  activeChatScope = next;
+  chatCache = loadPersisted(chatKey(activeChatScope));
+  // Message vars are per-conversation transient state; don't bleed across.
+  messageVars.clear();
 }
 
 /** Resolve the live backing object for a scope (NOT cloned — internal use). */
@@ -114,7 +138,7 @@ function resolveStore(option: VariableOption): Record<string, unknown> {
 
 function persistIfNeeded(option: VariableOption): void {
   if (option.type === "global") savePersisted(GLOBAL_KEY, getGlobalStore());
-  else if (option.type === "chat") savePersisted(CHAT_KEY, getChatStore());
+  else if (option.type === "chat") savePersisted(chatKey(activeChatScope), getChatStore());
 }
 
 /** Read a scope's variables (deep clone). */
@@ -204,12 +228,29 @@ export function updateVariablesWith(
   return next;
 }
 
-/** Clear in-memory message/script scopes. Called on chat switch so a new
- *  conversation doesn't inherit the previous one's transient state. Persisted
- *  global stays; chat is reset too (it's conceptually per-conversation). */
+/** Clear in-memory script/message scopes. Called on character switch for truly
+ *  transient state. Chat variables are NOT cleared here — they're partitioned
+ *  per session and managed by setActiveChatScope, so they persist with their
+ *  conversation. Persisted global stays. */
 export function resetTransientVariables(): void {
   scriptVars.clear();
   messageVars.clear();
-  chatCache = {};
-  savePersisted(CHAT_KEY, {});
 }
+
+// One-time migration: P5a stored chat variables under a single un-partitioned
+// key `nyaachat_vars_chat`. Now that chat vars are per-session, fold any legacy
+// data into the draft scope and remove the stale key so it doesn't linger.
+(function migrateLegacyChatVars() {
+  try {
+    if (typeof localStorage === "undefined") return;
+    const legacy = localStorage.getItem(CHAT_KEY_PREFIX);
+    if (legacy === null) return;
+    const draftKey = chatKey(DRAFT_SCOPE);
+    if (localStorage.getItem(draftKey) === null) {
+      localStorage.setItem(draftKey, legacy);
+    }
+    localStorage.removeItem(CHAT_KEY_PREFIX);
+  } catch {
+    // Migration is best-effort; a failure just leaves the legacy key in place.
+  }
+})();
