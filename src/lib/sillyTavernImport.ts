@@ -128,6 +128,38 @@ function convertRegexScripts(data: any): RegexScript[] {
     .filter((s) => s.findRegex.trim() !== "");
 }
 
+// SillyTavern world_info_position enum (authoritative value lives in
+// `entry.extensions.position`; the V3-spec top-level `entry.position` string is
+// a lossy fallback — ST writes "after_char" even for at-depth entries).
+const ST_POS_AT_DEPTH = 4;
+// extensions.role on an at-depth entry: 0=system, 1=user, 2=assistant.
+const ST_ROLE_ASSISTANT = 2;
+
+// Project a SillyTavern world-info entry's insertion position onto NyaaChat's
+// two injection roles. Per .docs/llm-chat-prompt-architecture-standard.md we do
+// NOT reproduce ST's depth/before-after physical placement (mid-history
+// insertion breaks the prefix cache and is the doc's worst anti-pattern). The
+// `position` field here is an injection ROLE, not a location: where the entry
+// actually lands (static prefix vs. trailing <session_rules>) is decided by
+// triggerType, not by this.
+//
+//   @D 🤖 AI (atDepth, role=assistant) → assistant  (the only AI-voice case)
+//   @D ⚙ system / @D 👤 user           → system
+//   before_char / after_char           → system
+//   AN前后 / EM前后 (no NyaaChat slot)  → system (keep content, drop fine position)
+//
+// User-role depth injection is intentionally folded to system: NyaaChat has no
+// user injection slot and the standard forbids recreating one. Reading from
+// extensions (not the top-level string) is what lets us tell @D ⚙ system rules
+// apart from @D 🤖 assistant notes — the V3 string would mislabel both.
+function mapEntryPosition(entry: any): "system" | "assistant" {
+  const ext = entry.extensions ?? {};
+  if (ext.position === ST_POS_AT_DEPTH && ext.role === ST_ROLE_ASSISTANT) {
+    return "assistant";
+  }
+  return "system";
+}
+
 export function convertSillyTavernCharacter(parsed: any): CharacterSettings {
   const data = parsed.data ?? parsed;
 
@@ -142,7 +174,12 @@ export function convertSillyTavernCharacter(parsed: any): CharacterSettings {
       name: e.comment || `Rule ${e.id}`,
       triggerType: e.constant ? "permanent" : "keywords",
       keywords: e.constant ? undefined : (e.keys ?? []).join(","),
-      position: e.position === "after_char" ? "assistant" : "system",
+      position: mapEntryPosition(e),
+      // ST has no hard/soft authority concept; nothing in the card justifies
+      // auto-promoting an entry to a hard constraint. Per the prompt-architecture
+      // standard (§6.1 / §7.8) imported lore defaults to soft — the user
+      // manually promotes the few true rules (e.g. TRPG check mechanics) after.
+      hard: false,
       content: e.content ?? "",
       enabled: e.enabled ?? true,
     }));
