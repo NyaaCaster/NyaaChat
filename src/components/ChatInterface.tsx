@@ -858,6 +858,14 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
         onOpenUserRole={onOpenUserRole}
         onOpenChatHistory={onOpenChatHistory}
         onClearChat={clearChat}
+        onUpdateCharacterRegex={(characterId, scripts) =>
+          onSettingsChange({
+            ...settings,
+            characters: settings.characters.map((c) =>
+              c.id === characterId ? { ...c, regexScripts: scripts } : c,
+            ),
+          })
+        }
       />
 
       {/* Main Chat Area */}

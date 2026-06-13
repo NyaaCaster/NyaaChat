@@ -1,4 +1,4 @@
-import { CharacterSettings, WorldInfoRule } from "../types";
+import { CharacterSettings, RegexScript, WorldInfoRule } from "../types";
 import { newId } from "./id";
 
 // Hard cap on imported card size. SillyTavern PNG cards in the wild rarely
@@ -101,6 +101,33 @@ function getScriptReferencedComments(data: any): Set<string> {
   return referenced;
 }
 
+// Map a SillyTavern character card's `data.extensions.regex_scripts` into our
+// RegexScript model (the scoped/local regex that travels with the card and
+// applies only while this character is active). ST uses the same field names,
+// so this is mostly a defensive copy with sane fallbacks. Entries with no find
+// pattern are dropped.
+function convertRegexScripts(data: any): RegexScript[] {
+  const raw: any[] = data.extensions?.regex_scripts ?? data.regex_scripts ?? [];
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((r: any): RegexScript => ({
+      id: r.id != null ? String(r.id) : newId(),
+      scriptName: typeof r.scriptName === "string" ? r.scriptName : "导入的正则",
+      findRegex: typeof r.findRegex === "string" ? r.findRegex : "",
+      replaceString: typeof r.replaceString === "string" ? r.replaceString : "",
+      trimStrings: Array.isArray(r.trimStrings) ? r.trimStrings.filter((s: any) => typeof s === "string") : [],
+      placement: Array.isArray(r.placement) && r.placement.length ? r.placement : [2],
+      disabled: r.disabled === true,
+      markdownOnly: r.markdownOnly === true,
+      promptOnly: r.promptOnly === true,
+      runOnEdit: r.runOnEdit === true,
+      substituteRegex: r.substituteRegex === 1 || r.substituteRegex === 2 ? r.substituteRegex : 0,
+      minDepth: typeof r.minDepth === "number" ? r.minDepth : null,
+      maxDepth: typeof r.maxDepth === "number" ? r.maxDepth : null,
+    }))
+    .filter((s) => s.findRegex.trim() !== "");
+}
+
 export function convertSillyTavernCharacter(parsed: any): CharacterSettings {
   const data = parsed.data ?? parsed;
 
@@ -120,12 +147,15 @@ export function convertSillyTavernCharacter(parsed: any): CharacterSettings {
       enabled: e.enabled ?? true,
     }));
 
+  const regexScripts = convertRegexScripts(data);
+
   return {
     id: newId(),
     name: data.name,
     description: data.description,
     firstMes: data.first_mes || undefined,
     worldInfo,
+    ...(regexScripts.length ? { regexScripts } : {}),
   };
 }
 

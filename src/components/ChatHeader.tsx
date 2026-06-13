@@ -15,7 +15,7 @@ import {
   Regex,
 } from "lucide-react";
 import { motion } from "motion/react";
-import type { CharacterSettings } from "../types";
+import type { CharacterSettings, RegexScript } from "../types";
 import { VersionModal } from "./VersionModal";
 import { ExtensionsModal } from "./ExtensionsModal";
 import { RegexModal } from "./RegexModal";
@@ -34,6 +34,7 @@ interface ChatHeaderProps {
   onOpenUserRole: () => void;
   onOpenChatHistory: () => void;
   onClearChat: () => void;
+  onUpdateCharacterRegex: (characterId: string, scripts: RegexScript[]) => void;
 }
 
 /**
@@ -55,9 +56,10 @@ export function ChatHeader({
   onOpenUserRole,
   onOpenChatHistory,
   onClearChat,
+  onUpdateCharacterRegex,
 }: ChatHeaderProps) {
-  const currentName =
-    characters?.find((c) => c.id === currentCharacterId)?.name || "AI助手";
+  const currentCharacter = characters?.find((c) => c.id === currentCharacterId);
+  const currentName = currentCharacter?.name || "AI助手";
   const [isVersionOpen, setIsVersionOpen] = useState(false);
   const [isExtensionsOpen, setIsExtensionsOpen] = useState(false);
   const [isRegexOpen, setIsRegexOpen] = useState(false);
@@ -197,7 +199,12 @@ export function ChatHeader({
         document.body,
       )}
       {createPortal(
-        <RegexModal isOpen={isRegexOpen} onClose={() => setIsRegexOpen(false)} />,
+        <RegexModal
+          isOpen={isRegexOpen}
+          onClose={() => setIsRegexOpen(false)}
+          character={currentCharacter}
+          onUpdateCharacterRegex={onUpdateCharacterRegex}
+        />,
         document.body,
       )}
     </div>

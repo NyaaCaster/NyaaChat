@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Regex, Plus, Pencil, Trash2, ArrowUp, ArrowDown } from "lucide-react";
-import type { RegexScript } from "../types";
+import type { CharacterSettings, RegexScript } from "../types";
 import { BaseModal } from "./BaseModal";
 import { loadGlobalRegexScripts, saveGlobalRegexScripts } from "../compat";
 import { RegexScriptEditModal } from "./RegexScriptEditModal";
@@ -9,7 +9,13 @@ import { RegexScriptEditModal } from "./RegexScriptEditModal";
 interface RegexModalProps {
   isOpen: boolean;
   onClose: () => void;
+  /** The active character, whose scoped (local) regex the "角色" tab manages. */
+  character?: CharacterSettings | null;
+  /** Persist a change to the active character's scoped regex scripts. */
+  onUpdateCharacterRegex?: (characterId: string, scripts: RegexScript[]) => void;
 }
+
+type Scope = "global" | "scoped";
 
 const PLACEMENT_LABELS: Record<number, string> = {
   1: "用户输入",
@@ -27,30 +33,48 @@ function pipelineLabel(s: RegexScript): string {
 }
 
 /**
- * Global regex script manager. Mirrors SillyTavern's Global regex tab: a list of
- * scripts the user can create / edit / delete / enable-disable / reorder; the
- * order is the chain order (each script runs on the previous one's output).
- * Scripts persist to localStorage and the display pipeline refreshes live via
- * saveGlobalRegexScripts' subscriber notification (see ChatInterface).
- *
- * Character-card scoped scripts are NOT managed here — those live with the
- * character. This panel is the user-level, cross-chat global scope.
+ * Regex script manager. Mirrors SillyTavern's regex extension, which has two
+ * scopes (NyaaChat has no presets, so the third — preset regex — is omitted):
+ *   - 全局 (Global): user-managed, cross-chat, stored in localStorage.
+ *   - 角色 (Scoped/local): travels with the character card, applies only while
+ *     that character is active, and shows/hides on character switch.
+ * Both scopes share the list + editor UI; only the data source and persistence
+ * differ. The display pipeline refreshes live: global via saveGlobalRegexScripts'
+ * subscriber notification, scoped via the character reference changing (see
+ * ChatInterface).
  */
-export function RegexModal({ isOpen, onClose }: RegexModalProps) {
+export function RegexModal({ isOpen, onClose, character, onUpdateCharacterRegex }: RegexModalProps) {
+  const [scope, setScope] = useState<Scope>("global");
   const [scripts, setScripts] = useState<RegexScript[]>([]);
   const [editing, setEditing] = useState<RegexScript | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
 
+  const scopedAvailable = !!character && !!onUpdateCharacterRegex;
+
+  // (Re)load the active scope's scripts whenever the panel opens, the scope tab
+  // changes, or the active character changes. Clone so in-place edits don't
+  // mutate the source before save.
   useEffect(() => {
-    if (isOpen) {
-      // Clone so in-place edits don't mutate the store cache before save.
+    if (!isOpen) return;
+    if (scope === "global") {
       setScripts(loadGlobalRegexScripts().map((s) => ({ ...s })));
+    } else {
+      setScripts((character?.regexScripts ?? []).map((s) => ({ ...s })));
     }
-  }, [isOpen]);
+  }, [isOpen, scope, character]);
+
+  // If the panel opens with no usable character, force the global tab.
+  useEffect(() => {
+    if (isOpen && scope === "scoped" && !scopedAvailable) setScope("global");
+  }, [isOpen, scope, scopedAvailable]);
 
   const persist = (next: RegexScript[]) => {
     setScripts(next);
-    saveGlobalRegexScripts(next);
+    if (scope === "global") {
+      saveGlobalRegexScripts(next);
+    } else if (character && onUpdateCharacterRegex) {
+      onUpdateCharacterRegex(character.id, next);
+    }
   };
 
   const handleSaveScript = (script: RegexScript) => {
@@ -79,6 +103,15 @@ export function RegexModal({ isOpen, onClose }: RegexModalProps) {
     setEditorOpen(true);
   };
 
+  const tabClass = (active: boolean) =>
+    `px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
+      active
+        ? "bg-blue-600 text-white"
+        : "text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-white/10"
+    }`;
+
+  const showScopedHint = scope === "scoped" && !scopedAvailable;
+
   return (
     <>
       <BaseModal
@@ -88,20 +121,42 @@ export function RegexModal({ isOpen, onClose }: RegexModalProps) {
         titleIcon={<Regex size={16} className="text-blue-500" />}
         maxWidth="max-w-xl"
         titleAction={
-          <button
-            onClick={() => openEditor(null)}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
-            title="新建正则脚本"
-          >
-            <Plus size={15} />
-            新建
-          </button>
+          !showScopedHint ? (
+            <button
+              onClick={() => openEditor(null)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
+              title="新建正则脚本"
+            >
+              <Plus size={15} />
+              新建
+            </button>
+          ) : undefined
         }
       >
         <div className="p-4 sm:p-5">
-          {scripts.length === 0 ? (
+          {/* Scope tabs: 全局 / 角色 (presets are N/A in NyaaChat). */}
+          <div className="flex items-center gap-1 mb-4 p-1 rounded-xl bg-gray-100/70 dark:bg-white/5 w-fit">
+            <button className={tabClass(scope === "global")} onClick={() => setScope("global")}>
+              全局
+            </button>
+            <button
+              className={tabClass(scope === "scoped")}
+              onClick={() => setScope("scoped")}
+              title={scopedAvailable ? undefined : "需先选择一个角色"}
+            >
+              角色{character?.name ? `（${character.name}）` : ""}
+            </button>
+          </div>
+
+          {showScopedHint ? (
             <div className="py-10 text-center text-sm text-gray-400 dark:text-gray-500">
-              还没有全局正则脚本。
+              没有活动角色。
+              <br />
+              角色正则跟随角色卡，随角色切换而生效/隐藏。
+            </div>
+          ) : scripts.length === 0 ? (
+            <div className="py-10 text-center text-sm text-gray-400 dark:text-gray-500">
+              {scope === "global" ? "还没有全局正则脚本。" : "该角色还没有局部正则脚本。"}
               <br />
               点击右上角「新建」添加，规则按列表顺序链式作用。
             </div>
