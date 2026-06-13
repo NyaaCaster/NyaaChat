@@ -1,5 +1,5 @@
 ## 当前版本：v1.1.0
-Github Commit: [39154a8](https://github.com/NyaaCaster/NyaaChat/commit/39154a8c375fbfeb4e159ae4cca1f5bea42ad1de)
+Github Commit: [45920c1](https://github.com/NyaaCaster/NyaaChat/commit/45920c169d94d4c856fbf378f520b0a56fd09d49)
 
 发布日期：2026-06-13
 
@@ -7,6 +7,7 @@ Github Commit: [39154a8](https://github.com/NyaaCaster/NyaaChat/commit/39154a8c3
 
 - **世界书「约束强度」分档**：每条世界书规则现在可标记为 🌿 软设定或 🛡️ 硬约束。软设定在与用户最新发言冲突时主动让位（适合外貌、背景、口癖等），硬约束在冲突时优先生效（适合世界观铁律与安全边界）；角色编辑界面的规则列表会为硬约束规则显示红色「硬约束」标签。
 - **删除已保存的模型**：供应商详情页的已保存模型列表新增逐行删除按钮（两步确认，3 秒内再次点击生效），用于清理上游 API 已下架、「管理模型」里不再列出的“孤儿”模型；LLM 与生图两类供应商均支持。
+- **版本号标识**：主界面标题旁新增小字号版本号徽标，点击即可弹出本版本的更新说明；版本号与更新内容均以 VERSION.md 为唯一来源，避免双重维护。
 
 ### 🔧 优化
 
