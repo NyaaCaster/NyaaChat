@@ -1,0 +1,11 @@
+{
+  "display_name": "示例扩展 (Example)",
+  "loading_order": 10,
+  "requires": [],
+  "optional": [],
+  "js": "index.js",
+  "css": "style.css",
+  "author": "NyaaChat",
+  "version": "1.0.0",
+  "homePage": "https://github.com/NyaaCaster/NyaaChat"
+}

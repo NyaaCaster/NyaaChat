@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "extensions": [
+    {
+      "id": "example-ext",
+      "rootEnabled": true,
+      "defaultUserEnabled": true
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+/* NyaaChat 示例扩展样式 (Example Extension styles)
+ *
+ * Demonstrates that an extension's CSS is injected into the host <head>.
+ * Scope your selectors carefully — extension CSS shares the host document.
+ * This file ships a single namespaced class as a harmless proof of injection. */
+
+.nyaa-example-ext-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  font-size: 11px;
+  background: rgba(99, 102, 241, 0.15);
+  color: #6366f1;
+}

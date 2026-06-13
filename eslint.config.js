@@ -10,7 +10,7 @@ import globals from "globals";
 // elsewhere, not as a per-PR blocker.
 export default tseslint.config(
   {
-    ignores: ["dist/**", "node_modules/**", "src/temp/**", ".claude/**", ".ref/**"],
+    ignores: ["dist/**", "node_modules/**", "src/temp/**", ".claude/**", ".ref/**", "public/**"],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,

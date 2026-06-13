@@ -21,6 +21,7 @@ import { installGlobals } from "./globals";
 import { setChatAccessor } from "./macros";
 import { getChat } from "./runtimeStore";
 import { createTavernHelper } from "./tavernHelper";
+import { loadEnabledExtensions } from "./extensions";
 
 let installed = false;
 
@@ -54,6 +55,15 @@ export function installCompatLayer(): void {
   if (!w.TavernHelper) {
     w.TavernHelper = createTavernHelper();
   }
+
+  // Load build-time bundled extensions (decision B-revised). Fire-and-forget:
+  // extension loading is async (fetch registry + manifests + inject scripts)
+  // and must not block compat-layer install. The globals above are already in
+  // place, so an extension's entry script can use window.SillyTavern /
+  // TavernHelper as soon as it runs.
+  void loadEnabledExtensions().catch((err) =>
+    console.error("[compat] extension loading failed", err),
+  );
 }
 
 // Re-export the pieces app code imports directly, so callers can pull from a
@@ -100,3 +110,15 @@ export {
 } from "./variables";
 export type { VariableScope, VariableOption } from "./variables";
 export { setGenerateApiResolver } from "./generate";
+export {
+  loadEnabledExtensions,
+  isExtensionLoaded,
+  resolveExtensions,
+  loadUserPrefs,
+  saveUserPref,
+} from "./extensions";
+export type {
+  ExtensionManifest,
+  RegistryEntry,
+  ResolvedExtension,
+} from "./extensions";
