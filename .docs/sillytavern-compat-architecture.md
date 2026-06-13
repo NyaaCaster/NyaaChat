@@ -222,6 +222,29 @@
 
 ---
 
+### 决策 D：ESM-import 扩展 shim ✅ 已定 = ST 目录深度 serving + 规范路径 shim 模块 + importmap（硬骨头 #2 收口）
+
+> 状态：**已实施**（2026-06-14）。这是「让用户导入现成酒馆扩展」的最后一块拼图，闭合硬骨头 #2。
+
+**问题回顾**：真实 ST 扩展几乎都用 ESM `import`，两种形态最终都归结到「ST 根深度的模块路径」：
+- 相对路径型（`st-extension-example`）：`import ... from "../../../extensions.js"` / `"../../../../script.js"`，`..` 数写死 ST 目录深度（扩展装在 `/scripts/extensions/third-party/<id>/`，上溯 3~4 级到 `/scripts/extensions.js`、`/script.js`）。
+- 裸说明符型（JSR 源码 `@sillytavern/*`）：JSR 构建时（`vite-plugin-external`）就把 `@sillytavern/X` 改写为相对路径 `<depth>/X.js` —— **构建产物同样是相对路径**。
+
+**核心结论**：相对说明符按「引用它的脚本自身 URL」解析，与 import map 无关。因此唯一健壮解 = **把扩展按 ST 的目录深度 serving**，让作者写死的 `..` 数正好落到规范 ST 模块路径，再在那些路径放 shim 模块。**裸说明符 `@sillytavern/*` 无需单独处理**：它只存在于「带构建步骤的源码仓库」里，任何可直接 drop-in 的分发形态（ST 源码扩展用相对路径、JSR `dist` 已被构建改写成相对路径）最终都是相对路径 —— 覆盖相对路径即覆盖真实生态。（曾试外部 importmap `<script type=importmap src>`，但 Chrome 138 仅支持内联 importmap，外部形式静默忽略；内联又需 CSP hash 脆弱耦合，而收益仅及几乎不出现的「未构建裸说明符」情形，故弃用。）
+
+**实施两件套**：
+1. **ST 深度 serving**：loader 注入扩展入口脚本的 `src` 改为 `/scripts/extensions/third-party/<id>/<js>`（nginx `alias` 回映射到真实文件 `/extensions/<id>/`）。CSS 保持扁平路径（样式表无模块解析问题）。「全局 API 型」扩展无 import，深度对其无影响，照常工作。
+2. **规范路径 shim 模块**（`public/` 下原始静态 ESM，**不在 Vite bundle 内**）：`/script.js`、`/scripts/extensions.js`、`/scripts/utils.js`、`/scripts/popup.js`、`/scripts/slash-commands.js`、`/scripts/slash-commands/{SlashCommandParser,SlashCommand}.js`，共享 `/scripts/_compat-host.js`。它们经私有桥 `window.__NYAA_COMPAT__`（installCompatLayer 安装：getContext/eventSource/event_types/subscribe）reach compat 符号。
+
+**关键技术点**：
+- **ESM 实时绑定**：ST 的 `chat`/`name1`/`name2`/`characters`/`this_chid` 是 `export let`，ST 重赋值、导入方跟随。NyaaChat 的 runtimeStore 每次 sync **替换** chat 数组引用，快照会失效 → shim 订阅 `__NYAA_COMPAT__.subscribe` 在每次变更时重赋值自己的模块级 `let`，ESM 实时绑定把新值传播给所有导入方。
+- **命名导入是静态的**：shim 必须导出扩展所导入符号的**超集**，缺一个名 → 整个扩展模块实例化失败。故 shim 覆盖高频面（settings/context/events/macros/utils/popup/slash），`utils` 纯函数忠实复刻（`getStringHash` 逐字节同 ST），未接通能力用 warn-once 桩使导入可解析（扩展能加载，调用时告警）。
+- **诚实边界**：覆盖的是高频符号面，非 ST 全量导出（数百个）。导入了未 shim 模块/符号的扩展仍会加载失败 —— 这是「高成本、尽力而为」的固有边界。JSR `dist/index.js`（整套 Vue 运行时 + 数十模块）仍超出本次可达范围；本次目标 = 让**相对路径型单文件扩展**（真实生态主流）开箱即用。
+
+**验证锚点**：内置 `public/extensions/esm-example/`（真 ESM-import 型，import 自 `../../../extensions.js` 等），与 `example-ext`（全局 API 型）并存于 registry，证明两型在同一 loader 下都跑通。
+
+---
+
 ## 6. 数据模型草案
 
 ```ts

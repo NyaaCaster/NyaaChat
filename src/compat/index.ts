@@ -19,12 +19,19 @@ import { eventSource, event_types } from "./events";
 import { getContext } from "./stContext";
 import { installGlobals } from "./globals";
 import { setChatAccessor, setDefaultEnvProvider } from "./macros";
-import { getChat, getMeta } from "./runtimeStore";
+import { getChat, getMeta, subscribe as subscribeRuntime } from "./runtimeStore";
 import { createTavernHelper } from "./tavernHelper";
 import { installSlashCommands } from "./slash";
 import { loadEnabledExtensions } from "./extensions";
 
 let installed = false;
+
+// Handshake realm the shim host (public/scripts/_compat-host.js) checks before
+// trusting window.__NYAA_COMPAT__. Both sides hold the same literal; swapping it
+// for any other unique string on both sides leaves behaviour unchanged — it only
+// has to agree. Guards a shim against binding to a foreign object that happens to
+// squat the same global key.
+const BRIDGE_REALM = "Nyaa be with you.";
 
 /**
  * Install the compatibility layer. Safe to call multiple times — only the
@@ -70,6 +77,28 @@ export function installCompatLayer(): void {
   if (!w.TavernHelper) {
     w.TavernHelper = createTavernHelper();
   }
+
+  // Private bridge for the ESM-import shim modules (public/script.js,
+  // public/scripts/*.js). Those files are RAW static JS served same-origin and
+  // loaded by an extension's `import` graph — they live OUTSIDE the Vite bundle
+  // and so cannot import from src/compat directly. They reach the compat layer
+  // through this single global instead. Kept on a private key (not on the ST
+  // surface) so it never collides with anything an extension probes.
+  //
+  // `subscribe` lets a shim re-export ST's *live bindings* faithfully: ST's
+  // `chat` / `name1` / `characters` are `export let` that ST reassigns, and an
+  // importer's binding tracks the new value. Our runtimeStore replaces its chat
+  // array on each sync, so a captured snapshot would go stale. The shim instead
+  // reassigns its own module-scope `let` on every notify; ESM live bindings then
+  // propagate the fresh value to every importer. The callback is fired with no
+  // args — the shim re-reads getContext() for a consistent view.
+  w.__NYAA_COMPAT__ = {
+    realm: BRIDGE_REALM,
+    getContext,
+    eventSource,
+    event_types,
+    subscribe: (cb: () => void) => subscribeRuntime(() => cb()),
+  };
 
   // Load build-time bundled extensions (decision B-revised). Fire-and-forget:
   // extension loading is async (fetch registry + manifests + inject scripts)

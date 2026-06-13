@@ -5,6 +5,11 @@
       "id": "example-ext",
       "rootEnabled": true,
       "defaultUserEnabled": true
+    },
+    {
+      "id": "esm-example",
+      "rootEnabled": true,
+      "defaultUserEnabled": true
     }
   ]
 }

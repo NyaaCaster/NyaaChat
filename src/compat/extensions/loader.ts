@@ -8,14 +8,25 @@
 // "Effective" = rootEnabled && (userPref ?? defaultUserEnabled), computed by the
 // registry resolver. The loader itself only loads; it does not decide policy.
 //
-// NOTE (hard bone #2): this loads the extension's entry script as-is. Extensions
-// that import ST internal ESM modules ("../../../script.js") will fail to
-// resolve those URLs — only "global API" extensions (those that read
-// window.SillyTavern / window.TavernHelper, installed by the compat layer) work
-// today. A shim layer for ESM-import extensions is future work.
+// NOTE (hard bone #2, now addressed): an extension's entry script is injected
+// from the ST-canonical depth path (ST_EXT_BASE below), not the flat
+// /extensions/<id>/ path. That makes an extension's relative ESM imports
+// ("../../../../script.js", "../../../extensions.js") resolve to the compat shim
+// modules at the web root (public/script.js, public/scripts/*.js) — see
+// nginx.conf's matching alias and src/compat/shims. "Global API" extensions
+// (window.SillyTavern/TavernHelper) keep working too: they have no imports, so
+// the serve depth is irrelevant to them.
 
 import { EXTENSIONS_BASE, resolveExtensions } from "./registry";
 import type { ResolvedExtension } from "./types";
+
+// ST-canonical serve depth for extension entry scripts. Relative ESM imports
+// inside an extension resolve against the script's own URL, so this MUST mirror
+// ST's /scripts/extensions/third-party/<id>/ layout for an author's hardcoded
+// "../../.." paths to land on the compat shim modules. nginx aliases this back
+// to the real files under /extensions/<id>/ (see nginx.conf). In `vite dev`
+// (no nginx) this path 404s — extension loading is validated in the container.
+const ST_EXT_BASE = "/scripts/extensions/third-party";
 
 const loadedScripts = new Set<string>();
 const loadedStyles = new Set<string>();
@@ -53,14 +64,16 @@ function injectScript(id: string, src: string): Promise<void> {
   });
 }
 
-/** Load one resolved extension's assets (css then js). */
+/** Load one resolved extension's assets (css then js). The CSS keeps the flat
+ *  /extensions/<id>/ path (stylesheets have no module-resolution concern); the
+ *  JS entry is injected from the ST-depth path so its relative imports resolve
+ *  to the compat shim modules. */
 async function loadExtension(ext: ResolvedExtension): Promise<void> {
-  const dir = `${EXTENSIONS_BASE}/${ext.id}`;
   if (ext.manifest.css) {
-    injectCss(ext.id, `${dir}/${ext.manifest.css}`);
+    injectCss(ext.id, `${EXTENSIONS_BASE}/${ext.id}/${ext.manifest.css}`);
   }
   if (ext.manifest.js) {
-    await injectScript(ext.id, `${dir}/${ext.manifest.js}`);
+    await injectScript(ext.id, `${ST_EXT_BASE}/${ext.id}/${ext.manifest.js}`);
   }
 }
 
