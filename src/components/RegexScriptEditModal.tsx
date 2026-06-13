@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from "react";
-import { Regex } from "lucide-react";
+import { Regex, Download, Save } from "lucide-react";
 import type { RegexScript } from "../types";
 import { BaseModal } from "./BaseModal";
+import { regexExportFileName, serializeRegexScript } from "../compat";
 
 interface RegexScriptEditModalProps {
   isOpen: boolean;
@@ -100,27 +101,48 @@ export function RegexScriptEditModal({
 
   const canSave = scriptName.trim() !== "" && findRegex.trim() !== "";
 
+  // Assemble a RegexScript from the current form state. Shared by save and
+  // export so an exported file always reflects exactly what's on screen.
+  const buildScript = (): RegexScript => ({
+    id: initialScript?.id || `regex-${Date.now()}-${Math.floor(Math.random() * 1e6)}`,
+    scriptName: scriptName.trim(),
+    findRegex: findRegex.trim(),
+    replaceString,
+    trimStrings: trimText
+      .split("\n")
+      .map((s) => s.trim())
+      .filter((s) => s !== ""),
+    placement: placement.length ? placement : [2],
+    disabled: initialScript?.disabled ?? false,
+    markdownOnly,
+    promptOnly,
+    runOnEdit,
+    substituteRegex,
+    minDepth: parseDepth(minDepth),
+    maxDepth: parseDepth(maxDepth),
+  });
+
   const handleSave = () => {
     if (!canSave) return;
-    onSave({
-      id: initialScript?.id || `regex-${Date.now()}-${Math.floor(Math.random() * 1e6)}`,
-      scriptName: scriptName.trim(),
-      findRegex: findRegex.trim(),
-      replaceString,
-      trimStrings: trimText
-        .split("\n")
-        .map((s) => s.trim())
-        .filter((s) => s !== ""),
-      placement: placement.length ? placement : [2],
-      disabled: initialScript?.disabled ?? false,
-      markdownOnly,
-      promptOnly,
-      runOnEdit,
-      substituteRegex,
-      minDepth: parseDepth(minDepth),
-      maxDepth: parseDepth(maxDepth),
-    });
+    onSave(buildScript());
     onClose();
+  };
+
+  // Export the current script as a SillyTavern-compatible .nyaa file (same JSON
+  // structure as ST; only the extension differs). Needs at least a name for the
+  // filename, so it's gated on scriptName like ST's export.
+  const handleExport = () => {
+    if (scriptName.trim() === "") return;
+    const json = serializeRegexScript(buildScript());
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = regexExportFileName(scriptName.trim());
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -133,17 +155,18 @@ export function RegexScriptEditModal({
       footer={
         <div className="flex gap-3">
           <button
-            onClick={onClose}
-            className="flex-1 px-4 py-2 bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 text-gray-700 dark:text-white rounded-xl text-sm font-medium hover:bg-gray-50 dark:hover:bg-white/10 transition-all"
+            onClick={handleExport}
+            disabled={scriptName.trim() === ""}
+            className="flex-shrink-0 px-4 py-2 bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 hover:bg-gray-50 dark:hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed text-gray-700 dark:text-gray-300 text-sm font-medium rounded-xl transition-all flex items-center justify-center gap-2"
           >
-            取消
+            <Download size={16} /> 导出脚本
           </button>
           <button
             onClick={handleSave}
             disabled={!canSave}
-            className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl text-sm font-medium transition-all shadow-lg shadow-blue-500/20"
+            className="flex-1 px-4 py-2 bg-blue-600 border border-transparent hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl text-sm font-medium transition-all flex items-center justify-center gap-2 hover:shadow-glow"
           >
-            确认保存
+            <Save size={16} /> 确认保存
           </button>
         </div>
       }

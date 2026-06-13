@@ -1,9 +1,9 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Regex, Plus, Pencil, Trash2, ArrowUp, ArrowDown } from "lucide-react";
+import { Regex, Plus, Pencil, Trash2, ArrowUp, ArrowDown, Upload } from "lucide-react";
 import type { CharacterSettings, RegexScript } from "../types";
 import { BaseModal } from "./BaseModal";
-import { loadGlobalRegexScripts, saveGlobalRegexScripts } from "../compat";
+import { loadGlobalRegexScripts, saveGlobalRegexScripts, parseImportedRegexScripts } from "../compat";
 import { RegexScriptEditModal } from "./RegexScriptEditModal";
 
 interface RegexModalProps {
@@ -48,6 +48,8 @@ export function RegexModal({ isOpen, onClose, character, onUpdateCharacterRegex 
   const [scripts, setScripts] = useState<RegexScript[]>([]);
   const [editing, setEditing] = useState<RegexScript | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const scopedAvailable = !!character && !!onUpdateCharacterRegex;
 
@@ -56,6 +58,7 @@ export function RegexModal({ isOpen, onClose, character, onUpdateCharacterRegex 
   // mutate the source before save.
   useEffect(() => {
     if (!isOpen) return;
+    setImportError(null);
     if (scope === "global") {
       setScripts(loadGlobalRegexScripts().map((s) => ({ ...s })));
     } else {
@@ -103,6 +106,28 @@ export function RegexModal({ isOpen, onClose, character, onUpdateCharacterRegex 
     setEditorOpen(true);
   };
 
+  // Import .nyaa / .json regex scripts into the CURRENT scope (global or the
+  // active character). Accepts a single object or an array; invalid content is
+  // rejected with a message (compliance check in parseImportedRegexScripts).
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const MAX_IMPORT_BYTES = 5 * 1024 * 1024;
+    if (file.size > MAX_IMPORT_BYTES) {
+      setImportError(`文件过大（${(file.size / 1024 / 1024).toFixed(2)} MB），上限 5 MB`);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+    try {
+      const imported = parseImportedRegexScripts(await file.text());
+      persist([...scripts, ...imported]);
+      setImportError(null);
+    } catch (err: unknown) {
+      setImportError("正则脚本导入失败：" + (err instanceof Error ? err.message : String(err)));
+    }
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
   const tabClass = (active: boolean) =>
     `px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
       active
@@ -120,16 +145,34 @@ export function RegexModal({ isOpen, onClose, character, onUpdateCharacterRegex 
         title="正则"
         titleIcon={<Regex size={16} className="text-blue-500" />}
         maxWidth="max-w-xl"
-        titleAction={
+        footer={
           !showScopedHint ? (
-            <button
-              onClick={() => openEditor(null)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
-              title="新建正则脚本"
-            >
-              <Plus size={15} />
-              新建
-            </button>
+            <>
+              <input
+                type="file"
+                accept=".nyaa,.json"
+                className="hidden"
+                ref={fileInputRef}
+                onChange={handleImport}
+              />
+              {importError && (
+                <p className="text-xs text-red-500 dark:text-red-400 mb-2 break-all">{importError}</p>
+              )}
+              <div className="flex gap-3">
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="flex-1 px-4 py-2 bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 hover:bg-gray-50 dark:hover:bg-white/10 text-gray-700 dark:text-gray-300 text-sm font-medium rounded-xl transition-all flex items-center justify-center gap-2"
+                >
+                  <Upload size={16} /> 导入脚本
+                </button>
+                <button
+                  onClick={() => openEditor(null)}
+                  className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-xl transition-all flex items-center justify-center gap-2 hover:shadow-glow"
+                >
+                  <Plus size={16} /> 创建脚本
+                </button>
+              </div>
+            </>
           ) : undefined
         }
       >
@@ -158,7 +201,7 @@ export function RegexModal({ isOpen, onClose, character, onUpdateCharacterRegex 
             <div className="py-10 text-center text-sm text-gray-400 dark:text-gray-500">
               {scope === "global" ? "还没有全局正则脚本。" : "该角色还没有局部正则脚本。"}
               <br />
-              点击右上角「新建」添加，规则按列表顺序链式作用。
+              点击下方「创建脚本」或「导入脚本」添加，规则按列表顺序链式作用。
             </div>
           ) : (
             <ul className="flex flex-col gap-2">

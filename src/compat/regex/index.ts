@@ -12,3 +12,8 @@ export {
   getEffectiveRegexScripts,
   subscribeRegexScripts,
 } from "./store";
+export {
+  regexExportFileName,
+  serializeRegexScript,
+  parseImportedRegexScripts,
+} from "./io";

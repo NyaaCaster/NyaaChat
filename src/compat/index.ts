@@ -141,6 +141,9 @@ export {
   loadGlobalRegexScripts,
   saveGlobalRegexScripts,
   subscribeRegexScripts,
+  regexExportFileName,
+  serializeRegexScript,
+  parseImportedRegexScripts,
 } from "./regex";
 export type { RegexParams } from "./regex";
 export { FrontendCard } from "./render/FrontendCard";
