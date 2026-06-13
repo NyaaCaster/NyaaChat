@@ -5,6 +5,14 @@ export interface Message {
   timestamp?: number;
   tokenCount?: number;
   model?: string;
+  /** Floor number = index in the live chat array. Assigned by the compat
+   *  runtime mirror (src/compat/runtimeStore) for SillyTavern extensions and
+   *  the front-end-card render pipeline, which reference messages by position
+   *  rather than `id`. Not persisted; derived on sync. */
+  mesid?: number;
+  /** ST-style flag for non-dialogue system messages. Mirrors ST's `is_system`;
+   *  consumed by macros ({{lastUserMessage}} skips these) and the renderer. */
+  isSystem?: boolean;
   /** When set, the message represents a generated image. `content` is reused
    *  to carry the prompt that produced it (used by 重新生成). */
   imageUrl?: string;

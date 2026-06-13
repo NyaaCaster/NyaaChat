@@ -213,6 +213,7 @@ export const MessageItem = React.memo(function MessageItem({
     const systemText = applyPlaceholders(message.content, resolvedUser, resolvedChar);
     return (
       <motion.div
+        data-mesid={message.mesid}
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         className="flex justify-center my-6"
@@ -240,6 +241,7 @@ export const MessageItem = React.memo(function MessageItem({
 
   return (
     <motion.div
+      data-mesid={message.mesid}
       initial={{ opacity: 0, y: 15, scale: 0.98 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}

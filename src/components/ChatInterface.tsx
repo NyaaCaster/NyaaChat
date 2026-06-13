@@ -21,6 +21,7 @@ import { ChatComposer } from "./ChatComposer";
 import { motion, AnimatePresence } from "motion/react";
 import { useFullscreen } from "../hooks/useFullscreen";
 import { useAttachments } from "../hooks/useAttachments";
+import { syncChat, syncMeta } from "../compat";
 
 /**
  * Map a thrown error from the API layer to a user-friendly Chinese message.
@@ -116,6 +117,30 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  // Compat layer: mirror the live chat into the module-level runtimeStore so
+  // SillyTavern-compatible extensions and the front-end-card render pipeline
+  // can read it synchronously. One-way only (React → store); the store never
+  // writes back into React state. See src/compat/runtimeStore.ts.
+  useEffect(() => {
+    syncChat(messages);
+  }, [messages]);
+
+  // Mirror the active character / user identity into the compat runtime.
+  // Keyed on the resolved ids/names so a character or role switch propagates
+  // without re-running on every message change.
+  useEffect(() => {
+    const chid = currentCharacter
+      ? (settings.characters?.findIndex((c) => c.id === currentCharacter.id) ?? null)
+      : null;
+    syncMeta({
+      characterId: currentCharacter?.id ?? null,
+      characterName: currentCharacter?.name ?? null,
+      userName: currentUserRole?.name ?? null,
+      chid: chid === -1 ? null : chid,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentCharacter?.id, currentCharacter?.name, currentUserRole?.name]);
 
   const buildFirstMes = (character: typeof currentCharacter): Message[] => {
     if (!character?.firstMes?.trim()) return [];
