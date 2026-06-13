@@ -105,6 +105,41 @@ export interface CharacterSettings {
   description: string;
   firstMes?: string;
   worldInfo?: WorldInfoRule[];
+  /** Character-scoped regex scripts (ST: `data.extensions.regex_scripts`).
+   *  Run after global scripts in the combined chain. */
+  regexScripts?: RegexScript[];
+}
+
+/**
+ * A regex script, compatible with SillyTavern's regex extension. Same dual-
+ * pipeline semantics: one pass for display (`markdownOnly`) and one for the
+ * prompt sent to the LLM (`promptOnly`); neither flag = rewrite the stored
+ * source. See src/compat/regex/engine.ts and SSOT §2.3.
+ */
+export interface RegexScript {
+  id: string;
+  scriptName: string;
+  /** Find pattern. Accepts a bare pattern or `/pattern/flags` form. */
+  findRegex: string;
+  /** Replacement. Supports {{match}}, $1, $<name>, and {{macro}}. */
+  replaceString: string;
+  /** Substrings stripped from each captured match before substitution. */
+  trimStrings: string[];
+  /** Where the script applies: 1=USER_INPUT 2=AI_OUTPUT 3=SLASH_COMMAND
+   *  5=WORLD_INFO 6=REASONING. */
+  placement: number[];
+  disabled: boolean;
+  /** Apply only on the display pipeline (rendered bubble). */
+  markdownOnly: boolean;
+  /** Apply only on the prompt pipeline (text sent to the model). */
+  promptOnly: boolean;
+  /** Whether the script runs when a message is edited. */
+  runOnEdit: boolean;
+  /** Macro substitution of the find pattern: 0=NONE 1=RAW 2=ESCAPED. */
+  substituteRegex: 0 | 1 | 2;
+  /** Depth-range gating (0 = last message, counting backwards). null = open. */
+  minDepth: number | null;
+  maxDepth: number | null;
 }
 
 export interface AppState {

@@ -9,6 +9,8 @@ import { ConfirmDialog } from "./ConfirmDialog";
 import { ImageViewerModal } from "./ImageViewerModal";
 import { downloadImage } from "../lib/imageApi";
 import { applyPlaceholders } from "../lib/chatPipeline";
+import { getRegexedString, regex_placement } from "../compat";
+import type { RegexScript } from "../types";
 
 // rehype-sanitize schema: GitHub-flavored default + className passthrough so
 // our prose/markdown-body styles still apply. Anything not in the allowlist
@@ -123,6 +125,10 @@ interface MessageItemProps {
    *  regenerate buttons across all bubbles so clicks don't get silently
    *  dropped by the parent's loading guard. */
   busy?: boolean;
+  /** Effective regex scripts (global + character), pre-filtered to enabled.
+   *  Applied on the DISPLAY pipeline (isMarkdown) before rendering. The parent
+   *  memoizes the array so passing it doesn't break MessageItem's memo. */
+  regexScripts?: RegexScript[];
 }
 
 export const MessageItem = React.memo(function MessageItem({
@@ -136,6 +142,7 @@ export const MessageItem = React.memo(function MessageItem({
   onRegenerateImage,
   imageGenerating,
   busy,
+  regexScripts,
 }: MessageItemProps) {
   const [copiedMsg, setCopiedMsg] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -201,13 +208,20 @@ export const MessageItem = React.memo(function MessageItem({
   // Cache the normalized markdown so streaming siblings re-rendering doesn't
   // make THIS message re-parse its body. Reparsing is the dominant cost
   // during a long stream when every chunk causes a parent setMessages.
-  // Placeholders are substituted before normalize so the rendered bubble
-  // never shows a raw {{user}} / {{char}} (covers firstMes, model output,
-  // and edited content alike — the underlying message.content stays raw).
-  const normalizedContent = React.useMemo(
-    () => normalizeMarkdown(applyPlaceholders(message.content || "...", resolvedUser, resolvedChar)),
-    [message.content, resolvedUser, resolvedChar],
-  );
+  //
+  // Pipeline order (matches ST): raw source -> display-regex (isMarkdown) ->
+  // {{user}}/{{char}} placeholders -> markdown normalize. Regex runs on the
+  // raw text so capture groups see the original, before names are substituted.
+  // The underlying message.content stays raw — only the rendered view changes.
+  const normalizedContent = React.useMemo(() => {
+    const raw = message.content || "...";
+    const placement =
+      message.role === "user" ? regex_placement.USER_INPUT : regex_placement.AI_OUTPUT;
+    const regexed = regexScripts && regexScripts.length
+      ? getRegexedString(raw, placement, regexScripts, { isMarkdown: true })
+      : raw;
+    return normalizeMarkdown(applyPlaceholders(regexed, resolvedUser, resolvedChar));
+  }, [message.content, message.role, regexScripts, resolvedUser, resolvedChar]);
 
   if (isSystem) {
     const systemText = applyPlaceholders(message.content, resolvedUser, resolvedChar);

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from "react";
+import React, { useState, useRef, useEffect, useCallback, useMemo, forwardRef, useImperativeHandle } from "react";
 import { Sparkles } from "lucide-react";
 import { ApiSettings, Message, AppState, LogEntry, ChatSession } from "../types";
 import { fetchChatCompletion, type LlmTool, type ToolExecutor } from "../lib/api";
@@ -21,7 +21,7 @@ import { ChatComposer } from "./ChatComposer";
 import { motion, AnimatePresence } from "motion/react";
 import { useFullscreen } from "../hooks/useFullscreen";
 import { useAttachments } from "../hooks/useAttachments";
-import { syncChat, syncMeta } from "../compat";
+import { syncChat, syncMeta, getEffectiveRegexScripts } from "../compat";
 
 /**
  * Map a thrown error from the API layer to a user-friendly Chinese message.
@@ -102,6 +102,15 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
   );
   const charName = currentCharacter?.name || "AI助手";
   const userName = currentUserRole?.name || "user";
+
+  // Effective regex chain (global + this character), enabled-only. Memoized so
+  // MessageItem's memo isn't busted every render by a fresh array identity.
+  // Recomputed on character switch; global scripts are cached in the store, so
+  // edits there take effect on the next character change or reload.
+  const regexScripts = useMemo(
+    () => getEffectiveRegexScripts(currentCharacter),
+    [currentCharacter],
+  );
 
   const handleStop = () => {
     if (abortControllerRef.current) {
@@ -831,6 +840,7 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
                     onRegenerateImage={isImageApiReady ? handleRegenerateImage : undefined}
                     imageGenerating={imageGeneratingId === message.id}
                     busy={isLoading}
+                    regexScripts={regexScripts}
                   />
                 ))}
               </AnimatePresence>

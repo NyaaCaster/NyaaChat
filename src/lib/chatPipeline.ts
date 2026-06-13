@@ -2,6 +2,7 @@ import { ApiMessage, VOLATILE_PART_FLAG } from "./api";
 import { injectBypassPrompts } from "./bypassTemplates";
 import { AppState, CharacterSettings, Message } from "../types";
 import { SearchResult } from "./searchApi";
+import { getEffectiveRegexScripts, getRegexedString, regex_placement } from "../compat";
 
 export type Attachment = {
   name: string;
@@ -288,23 +289,53 @@ export function buildRequestMessages(args: BuildRequestArgs): ApiMessage[] {
     mcpAdvertisedToolNames,
   } = args;
 
+  // Regex prompt pipeline (ST: getRegexedString with isPrompt). Scripts are
+  // applied to the text the model receives — independent of the display pass
+  // in MessageItem. depth counts backwards from the latest turn (0 = the new
+  // user message), so history entries get depth = distance from the end.
+  const promptRegex = getEffectiveRegexScripts(currentCharacter);
+  const applyPromptRegex = (text: string, placement: number, depth: number): string =>
+    promptRegex.length
+      ? getRegexedString(text, placement, promptRegex, { isPrompt: true, depth })
+      : text;
+
   // Image-generation bubbles carry the rich image prompt (or a placeholder /
   // error string) in their `content`. Including them in chat history would
   // make the model see ~2K-character image directives as its own past speech
   // and pollute every subsequent turn. Filter them out.
-  const history: ApiMessage[] = baseMessages
-    .filter((m) => m.role !== "system" && !m.imageUrl && !m.imagePrompt)
-    .map((m) => ({ role: m.role, content: m.content }));
+  const filteredHistory = baseMessages.filter(
+    (m) => m.role !== "system" && !m.imageUrl && !m.imagePrompt,
+  );
+  // depth: the new user turn (pushed below) is depth 0; the last history entry
+  // is depth 1, and so on backwards.
+  const history: ApiMessage[] = filteredHistory.map((m, i) => {
+    const depth = filteredHistory.length - i;
+    const placement =
+      m.role === "user" ? regex_placement.USER_INPUT : regex_placement.AI_OUTPUT;
+    return { role: m.role, content: applyPromptRegex(m.content, placement, depth) };
+  });
 
   // Latest user turn. Search context is appended AFTER the user's real
   // content as a volatile text part so cache breakpoint ② can anchor on the
   // stable text while the search block stays past the breakpoint.
-  let latestUserContent: string | any[] = messageContent;
+  //
+  // The user's own text gets the prompt-regex pass at depth 0 (the latest
+  // message). The volatile search part is external data and is NOT regexed.
+  const regexedMessageContent: string | any[] =
+    typeof messageContent === "string"
+      ? applyPromptRegex(messageContent, regex_placement.USER_INPUT, 0)
+      : messageContent.map((part) =>
+          part && typeof part === "object" && part.type === "text" && typeof part.text === "string"
+            ? { ...part, text: applyPromptRegex(part.text, regex_placement.USER_INPUT, 0) }
+            : part,
+        );
+
+  let latestUserContent: string | any[] = regexedMessageContent;
   if (searchContext) {
     const baseParts =
-      typeof messageContent === "string"
-        ? [{ type: "text", text: messageContent }]
-        : [...messageContent];
+      typeof regexedMessageContent === "string"
+        ? [{ type: "text", text: regexedMessageContent }]
+        : [...regexedMessageContent];
     baseParts.push({
       type: "text",
       text: `\n\n${searchContext}`,
@@ -320,8 +351,14 @@ export function buildRequestMessages(args: BuildRequestArgs): ApiMessage[] {
     return checkKeywords(processedInput, rule.keywords);
   });
 
-  const renderRule = (text: string) =>
-    text.replace(/\{\{user\}\}/g, userName).replace(/\{\{char\}\}/g, charName);
+  // World info text: apply {{user}}/{{char}} plus the WORLD_INFO regex pass
+  // (placement 5). No depth gating applies to world info.
+  const renderRule = (text: string) => {
+    const named = text.replace(/\{\{user\}\}/g, userName).replace(/\{\{char\}\}/g, charName);
+    return promptRegex.length
+      ? getRegexedString(named, regex_placement.WORLD_INFO, promptRegex, { isPrompt: true })
+      : named;
+  };
 
   // Static prefix: session-protocol anchor + persona + PERMANENT world info.
   // These stay byte-identical across turns so the cached prefix keeps

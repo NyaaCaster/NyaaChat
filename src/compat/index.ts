@@ -70,3 +70,13 @@ export {
 export type { RuntimeMessage, RuntimeMeta } from "./runtimeStore";
 export { getContext, setContextProvider } from "./stContext";
 export { setToastSink } from "./globals";
+export {
+  getRegexedString,
+  runRegexScript,
+  regex_placement,
+  substitute_find_regex,
+  getEffectiveRegexScripts,
+  loadGlobalRegexScripts,
+  saveGlobalRegexScripts,
+} from "./regex";
+export type { RegexParams } from "./regex";
