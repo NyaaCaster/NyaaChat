@@ -20,7 +20,7 @@ import { getContext } from "./stContext";
 import { installGlobals } from "./globals";
 import { setChatAccessor } from "./macros";
 import { getChat } from "./runtimeStore";
-import { createTavernHelperStub } from "./tavernHelper";
+import { createTavernHelper } from "./tavernHelper";
 
 let installed = false;
 
@@ -49,10 +49,10 @@ export function installCompatLayer(): void {
     event_types,
   };
 
-  // Front-end cards reach for window.TavernHelper. Install a stub (real API in
-  // P5). Don't clobber a richer implementation if one is already present.
+  // Front-end cards reach for window.TavernHelper. Install the real
+  // implementation (P5). Don't clobber a richer one if already present.
   if (!w.TavernHelper) {
-    w.TavernHelper = createTavernHelperStub();
+    w.TavernHelper = createTavernHelper();
   }
 }
 
@@ -89,3 +89,13 @@ export {
 export type { RegexParams } from "./regex";
 export { FrontendCard } from "./render/FrontendCard";
 export { isFrontendHtml, extractFrontendHtml } from "./render/detect";
+export {
+  getVariables,
+  replaceVariables,
+  insertOrAssignVariables,
+  insertVariables,
+  deleteVariable,
+  updateVariablesWith,
+  resetTransientVariables,
+} from "./variables";
+export type { VariableScope, VariableOption } from "./variables";

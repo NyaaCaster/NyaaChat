@@ -21,7 +21,7 @@ import { ChatComposer } from "./ChatComposer";
 import { motion, AnimatePresence } from "motion/react";
 import { useFullscreen } from "../hooks/useFullscreen";
 import { useAttachments } from "../hooks/useAttachments";
-import { syncChat, syncMeta, getEffectiveRegexScripts } from "../compat";
+import { syncChat, syncMeta, getEffectiveRegexScripts, resetTransientVariables } from "../compat";
 
 /**
  * Map a thrown error from the API layer to a user-friendly Chinese message.
@@ -165,6 +165,9 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
 
   useEffect(() => {
     setMessages(buildFirstMes(currentCharacter));
+    // A new conversation must not inherit the previous one's transient
+    // (chat/script/message) card variables. Global vars persist by design.
+    resetTransientVariables();
     // Intentionally only depends on the character ID, not the whole character
     // object — editing a character's content shouldn't reset the live chat.
     // eslint-disable-next-line react-hooks/exhaustive-deps
