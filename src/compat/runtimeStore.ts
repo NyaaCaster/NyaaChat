@@ -34,6 +34,11 @@ export interface RuntimeMessage extends MacroChatMessage {
   isSystem?: boolean;
   /** True for the character's name side, mirrors ST's `is_user` inverse. */
   name?: string;
+  /** Message-scoped front-end-card variables (ST: `message.variables`). Mirror
+   *  of Message.variables; the durable source is React state. The variable
+   *  compat layer reads from here and writes back via commandSetMessageVariables
+   *  so the data persists with the session. */
+  variables?: Record<string, unknown>;
 }
 
 /** Active-context metadata, the slice of getContext() that is not the chat
@@ -111,13 +116,21 @@ export function subscribe(fn: Subscriber): () => void {
  * caller emits those explicitly at the right moments. This function only keeps
  * the mirror current and fires subscribers.
  */
-export function syncChat(messages: Array<{ id: string; role: RuntimeMessage["role"]; content: string }>): void {
+export function syncChat(
+  messages: Array<{
+    id: string;
+    role: RuntimeMessage["role"];
+    content: string;
+    variables?: Record<string, unknown>;
+  }>,
+): void {
   state.chat = messages.map((m, i) => ({
     id: m.id,
     mesid: i,
     role: m.role,
     content: m.content,
     isSystem: m.role === "system",
+    variables: m.variables,
   }));
   notify();
 }
@@ -154,6 +167,10 @@ export interface MessageWriter {
   insertMessage: (index: number, msg: { role: RuntimeMessage["role"]; content: string }) => void;
   /** Delete the message at floor `mesid`. */
   deleteMessage: (mesid: number) => void;
+  /** Replace the message-scoped variables of the message at floor `mesid`.
+   *  Keeps React the single writer of Message.variables so the change persists
+   *  with the session. */
+  setMessageVariables: (mesid: number, variables: Record<string, unknown>) => void;
 }
 
 let writer: MessageWriter | null = null;
@@ -188,6 +205,13 @@ export function commandInsertMessage(
 /** Command: delete a message by floor number. */
 export function commandDeleteMessage(mesid: number): void {
   requireWriter("deleteMessage")?.deleteMessage(mesid);
+}
+
+/** Command: replace a message's message-scoped variables by floor number. Used
+ *  by the variable compat layer so per-floor card variables flow into React
+ *  state and persist with the session. */
+export function commandSetMessageVariables(mesid: number, variables: Record<string, unknown>): void {
+  requireWriter("setMessageVariables")?.setMessageVariables(mesid, variables);
 }
 
 // --- convenience emit helpers ----------------------------------------------

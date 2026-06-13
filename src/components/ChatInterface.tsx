@@ -177,6 +177,11 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
       deleteMessage: (mesid) => {
         setMessages((prev) => prev.filter((_, i) => i !== mesid));
       },
+      setMessageVariables: (mesid, variables) => {
+        setMessages((prev) =>
+          prev.map((m, i) => (i === mesid ? { ...m, variables } : m)),
+        );
+      },
     });
     return () => setMessageWriter(null);
   }, []);

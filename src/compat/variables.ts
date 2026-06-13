@@ -10,13 +10,21 @@
 //   - chat:    persisted to localStorage (single key for now — NOT yet
 //              partitioned per session; see TODO). Survives reload.
 //   - script:  in-memory, keyed by script id. Lives for the page session.
-//   - message: in-memory, keyed by message floor (mesid). Lives for the page
-//              session. (ST stores these on the message object; persisting them
-//              into the saved chat is a later refinement.)
+//   - message: stored ON the message object (Message.variables) in React state,
+//              so it serializes with the session and follows the message under
+//              insert/delete — per-floor card state survives reloads and chat
+//              switches. The variable layer here reads it through the runtime
+//              store and writes it back via commandSetMessageVariables (React is
+//              the single writer). A small write-through overlay keyed by stable
+//              message id gives synchronous read-after-write coherence before
+//              React round-trips the change. Matches ST, which keeps these on
+//              `chat[id].variables`.
 //
 // All scopes return deep clones on read so a card mutating the returned object
 // can't corrupt our store — writes must go through the setters. Matches ST's
 // klona-on-read contract.
+
+import { getChat, getMessageByMesId, commandSetMessageVariables } from "./runtimeStore";
 
 export type VariableScope = "global" | "chat" | "script" | "message" | "character" | "preset";
 
@@ -43,7 +51,14 @@ function chatKey(scope: string): string {
 
 // In-memory scopes.
 const scriptVars = new Map<string, Record<string, unknown>>();
-const messageVars = new Map<number, Record<string, unknown>>();
+// Optimistic write-through overlay for message-scoped variables, keyed by the
+// STABLE message id (not the floor index). The durable source of truth is
+// Message.variables in React state (persisted with the session); this overlay
+// only ensures synchronous read-after-write coherence within a tick before
+// React re-renders and syncChat refreshes the mirror. Keying by message id (not
+// mesid) keeps entries attached to the right message under insert/delete index
+// shifts. Seeded lazily from the runtime store; cleared on session change.
+const messageVarOverlay = new Map<string, Record<string, unknown>>();
 // character / preset have no NyaaChat home yet — kept in memory so reads/writes
 // are coherent within a session without throwing.
 const characterVars: Record<string, unknown> = {};
@@ -90,7 +105,8 @@ function getChatStore(): Record<string, unknown> {
 
 /** Switch the active chat-variable scope (called on session change). Persists
  *  the current scope first, then loads the new one. Passing null = draft scope.
- *  Message-scoped vars are transient and cleared on scope change. */
+ *  Message-scoped vars persist on their messages; only the optimistic overlay
+ *  cache is dropped here so stale message ids don't leak across conversations. */
 export function setActiveChatScope(sessionId: string | null): void {
   const next = sessionId || DRAFT_SCOPE;
   if (next === activeChatScope) return;
@@ -98,8 +114,38 @@ export function setActiveChatScope(sessionId: string | null): void {
   if (chatCache) savePersisted(chatKey(activeChatScope), chatCache);
   activeChatScope = next;
   chatCache = loadPersisted(chatKey(activeChatScope));
-  // Message vars are per-conversation transient state; don't bleed across.
-  messageVars.clear();
+  // Message vars live on the new session's messages (rehydrated when React
+  // loads them); drop the previous conversation's overlay so stale ids don't
+  // bleed across.
+  messageVarOverlay.clear();
+}
+
+/** Resolve a message floor index from a VariableOption. 'latest'/undefined =>
+ *  last floor; negative => counted from the end (ST semantics). Returns -1 when
+ *  there is no such floor. */
+function resolveMessageId(option: VariableOption): number {
+  const len = getChat().length;
+  const raw = option.message_id;
+  const idx = raw === undefined || raw === "latest" ? len - 1 : raw < 0 ? len + raw : raw;
+  return idx >= 0 && idx < len ? idx : -1;
+}
+
+/** Live (mutable) overlay object for a message's variables, seeded from the
+ *  runtime store on first touch. Returns null when the floor doesn't exist. */
+function liveMessageVars(mesid: number): { id: string; store: Record<string, unknown> } | null {
+  const m = getMessageByMesId(mesid);
+  if (!m) return null;
+  let store = messageVarOverlay.get(m.id);
+  if (!store) {
+    store = m.variables && typeof m.variables === "object" ? deepClone(m.variables) : {};
+    messageVarOverlay.set(m.id, store);
+  }
+  return { id: m.id, store };
+}
+
+/** Commit a message's variables to React state (persists with the session). */
+function commitMessageVars(mesid: number, store: Record<string, unknown>): void {
+  commandSetMessageVariables(mesid, deepClone(store));
 }
 
 /** Resolve the live backing object for a scope (NOT cloned — internal use). */
@@ -122,15 +168,6 @@ function resolveStore(option: VariableOption): Record<string, unknown> {
       }
       return s;
     }
-    case "message": {
-      const id = option.message_id === undefined || option.message_id === "latest" ? -1 : option.message_id;
-      let m = messageVars.get(id);
-      if (!m) {
-        m = {};
-        messageVars.set(id, m);
-      }
-      return m;
-    }
     default:
       return {};
   }
@@ -143,6 +180,10 @@ function persistIfNeeded(option: VariableOption): void {
 
 /** Read a scope's variables (deep clone). */
 export function getVariables(option: VariableOption = { type: "chat" }): Record<string, unknown> {
+  if (option.type === "message") {
+    const live = liveMessageVars(resolveMessageId(option));
+    return live ? deepClone(live.store) : {};
+  }
   return deepClone(resolveStore(option));
 }
 
@@ -152,6 +193,14 @@ export function replaceVariables(
   option: VariableOption = { type: "chat" },
 ): void {
   const next = deepClone(variables) ?? {};
+  if (option.type === "message") {
+    const mesid = resolveMessageId(option);
+    const m = mesid >= 0 ? getMessageByMesId(mesid) : null;
+    if (!m) return;
+    messageVarOverlay.set(m.id, next);
+    commitMessageVars(mesid, next);
+    return;
+  }
   switch (option.type) {
     case "global":
       globalCache = next;
@@ -162,11 +211,6 @@ export function replaceVariables(
     case "script":
       scriptVars.set(option.script_id ?? "__default__", next);
       break;
-    case "message": {
-      const id = option.message_id === undefined || option.message_id === "latest" ? -1 : option.message_id;
-      messageVars.set(id, next);
-      break;
-    }
     case "character":
       Object.keys(characterVars).forEach((k) => delete characterVars[k]);
       Object.assign(characterVars, next);
@@ -184,6 +228,14 @@ export function insertOrAssignVariables(
   variables: Record<string, unknown>,
   option: VariableOption = { type: "chat" },
 ): void {
+  if (option.type === "message") {
+    const mesid = resolveMessageId(option);
+    const live = liveMessageVars(mesid);
+    if (!live) return;
+    Object.assign(live.store, deepClone(variables));
+    commitMessageVars(mesid, live.store);
+    return;
+  }
   const store = resolveStore(option);
   Object.assign(store, deepClone(variables));
   persistIfNeeded(option);
@@ -194,6 +246,19 @@ export function insertVariables(
   variables: Record<string, unknown>,
   option: VariableOption = { type: "chat" },
 ): void {
+  if (option.type === "message") {
+    const mesid = resolveMessageId(option);
+    const live = liveMessageVars(mesid);
+    if (!live) return;
+    const incoming = deepClone(variables);
+    for (const k in incoming) {
+      if (Object.hasOwn(incoming, k) && !Object.hasOwn(live.store, k)) {
+        live.store[k] = incoming[k];
+      }
+    }
+    commitMessageVars(mesid, live.store);
+    return;
+  }
   const store = resolveStore(option);
   const incoming = deepClone(variables);
   for (const k in incoming) {
@@ -207,6 +272,14 @@ export function insertVariables(
 /** Delete a single key (dot-paths not supported yet). Returns whether it
  *  existed. */
 export function deleteVariable(key: string, option: VariableOption = { type: "chat" }): boolean {
+  if (option.type === "message") {
+    const mesid = resolveMessageId(option);
+    const live = liveMessageVars(mesid);
+    if (!live || !Object.hasOwn(live.store, key)) return false;
+    delete live.store[key];
+    commitMessageVars(mesid, live.store);
+    return true;
+  }
   const store = resolveStore(option);
   if (Object.hasOwn(store, key)) {
     delete store[key];
@@ -228,13 +301,17 @@ export function updateVariablesWith(
   return next;
 }
 
-/** Clear in-memory script/message scopes. Called on character switch for truly
- *  transient state. Chat variables are NOT cleared here — they're partitioned
- *  per session and managed by setActiveChatScope, so they persist with their
- *  conversation. Persisted global stays. */
+/** Clear in-memory script scope, and the message-variable overlay. Called on
+ *  character switch for truly transient state. Chat variables are NOT cleared
+ *  here — they're partitioned per session and managed by setActiveChatScope, so
+ *  they persist with their conversation. Message variables live on the messages
+ *  themselves (the overlay is just an optimistic cache), so clearing the overlay
+ *  here only drops the cache — the durable per-floor state goes away naturally
+ *  when buildFirstMes replaces the chat with fresh message objects. Persisted
+ *  global stays. */
 export function resetTransientVariables(): void {
   scriptVars.clear();
-  messageVars.clear();
+  messageVarOverlay.clear();
 }
 
 // One-time migration: P5a stored chat variables under a single un-partitioned

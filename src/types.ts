@@ -19,6 +19,12 @@ export interface Message {
   /** Snapshot of the prompt at generation time so 重新生成 stays stable even
    *  if the source bubble was edited or deleted afterwards. */
   imagePrompt?: string;
+  /** Message-scoped front-end-card variables (ST: `message.variables`). Mutated
+   *  only through the compat variable API (src/compat/variables.ts). Lives on
+   *  the message object so it serializes with the session and follows the
+   *  message under insert/delete — per-floor card state (HP bars, counters,
+   *  quest flags) survives reloads and conversation switches. */
+  variables?: Record<string, unknown>;
 }
 
 export type ApiFormat = "openai" | "anthropic";
