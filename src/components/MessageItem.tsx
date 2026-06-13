@@ -274,12 +274,14 @@ export const MessageItem = React.memo(function MessageItem({
   return (
     <motion.div
       data-mesid={mesid}
+      mesid={mesid}
+      is_user={isUser ? "true" : undefined}
       initial={{ opacity: 0, y: 15, scale: 0.98 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-      className={`flex w-full my-4 ${isUser ? "justify-end" : "justify-start"}`}
+      className={`mes flex w-full my-4 ${isUser ? "justify-end" : "justify-start"}`}
     >
-      <div className={`max-w-[92%] sm:max-w-[80%] min-w-0 flex flex-col gap-1 ${isUser ? "items-end" : "items-start"}`}>
+      <div className={`max-w-[92%] sm:max-w-[80%] min-w-0 flex flex-col gap-1 mes_block ${isUser ? "items-end" : "items-start"}`}>
       <div
         className={`w-full rounded-2xl px-5 py-4 bg-white dark:bg-[#111111] text-gray-900 dark:text-gray-100 shadow-elevation-1 ${
           isUser
@@ -292,7 +294,7 @@ export const MessageItem = React.memo(function MessageItem({
         >
           {isUser ? (
             <div className="flex flex-col items-start gap-1">
-              <div className="text-[11px] font-semibold uppercase tracking-wider">
+              <div className="text-[11px] font-semibold uppercase tracking-wider name_text">
                 {userName || "You"}
               </div>
               {(timeStr || message.tokenCount !== undefined) && (
@@ -310,7 +312,7 @@ export const MessageItem = React.memo(function MessageItem({
             </div>
           ) : (
             <div className="flex flex-col items-start gap-1">
-              <div className="text-[11px] font-semibold uppercase tracking-wider flex items-center gap-1.5">
+              <div className="text-[11px] font-semibold uppercase tracking-wider flex items-center gap-1.5 name_text">
                 <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
                 <span style={{ fontFamily: "var(--font-display)" }}>
                   {charName || "Assistant"}
@@ -337,7 +339,7 @@ export const MessageItem = React.memo(function MessageItem({
           )}
         </div>
         <div
-          className={`prose prose-sm md:prose-base max-w-none prose-p:leading-relaxed prose-pre:bg-gray-900 prose-pre:text-gray-100 dark:prose-invert ${isUser ? "prose-a:text-blue-600 dark:prose-a:text-blue-400" : ""}`}
+          className={`prose prose-sm md:prose-base max-w-none prose-p:leading-relaxed prose-pre:bg-gray-900 prose-pre:text-gray-100 dark:prose-invert mes_text ${isUser ? "prose-a:text-blue-600 dark:prose-a:text-blue-400" : ""}`}
         >
           <div
             className="markdown-body"

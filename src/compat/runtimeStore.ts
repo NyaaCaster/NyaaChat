@@ -224,8 +224,24 @@ export function emitUserMessageRendered(mesid: number): void {
   eventSource.emit(event_types.USER_MESSAGE_RENDERED, mesid);
 }
 
-export function emitCharacterMessageRendered(mesid: number): void {
-  eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, mesid);
+export function emitCharacterMessageRendered(mesid: number, type = "normal"): void {
+  eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, mesid, type);
+}
+
+export function emitMessageSent(mesid: number, type = "normal"): void {
+  eventSource.emit(event_types.MESSAGE_SENT, mesid, type);
+}
+
+export function emitMessageReceived(mesid: number, type = "normal"): void {
+  eventSource.emit(event_types.MESSAGE_RECEIVED, mesid, type);
+}
+
+export function emitChatChanged(chatId = ""): void {
+  eventSource.emit(event_types.CHAT_CHANGED, chatId);
+}
+
+export function emitChatLoaded(): void {
+  eventSource.emit(event_types.CHAT_LOADED);
 }
 
 export function emitMessageUpdated(mesid: number): void {

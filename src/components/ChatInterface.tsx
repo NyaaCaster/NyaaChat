@@ -21,7 +21,7 @@ import { ChatComposer } from "./ChatComposer";
 import { motion, AnimatePresence } from "motion/react";
 import { useFullscreen } from "../hooks/useFullscreen";
 import { useAttachments } from "../hooks/useAttachments";
-import { syncChat, syncMeta, getEffectiveRegexScripts, subscribeRegexScripts, resetTransientVariables, setGenerateApiResolver, setMessageWriter, setActiveChatScope } from "../compat";
+import { syncChat, syncMeta, getEffectiveRegexScripts, subscribeRegexScripts, resetTransientVariables, setGenerateApiResolver, setMessageWriter, setActiveChatScope, emitChatChanged, emitChatLoaded, emitMessageDeleted, emitMessageReceived, emitMessageSent, emitMessageUpdated, emitUserMessageRendered, emitCharacterMessageRendered } from "../compat";
 
 /**
  * Map a thrown error from the API layer to a user-friendly Chinese message.
@@ -88,6 +88,7 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
   const [imageGeneratingId, setImageGeneratingId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const previousMessageIdsRef = useRef<string[]>([]);
 
   const { isSupported: isFullscreenSupported, isFullscreen, toggleFullscreen } =
     useFullscreen();
@@ -140,6 +141,36 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
   useEffect(() => {
     syncChat(messages);
   }, [messages]);
+
+  // ST DOM/event bridge: after React commits message DOM, emit the render events
+  // extensions use to scan `#chat > .mes` and decorate `.mes_text` safely.
+  useEffect(() => {
+    const previousIds = previousMessageIdsRef.current;
+    const previousSet = new Set(previousIds);
+    previousMessageIdsRef.current = messages.map((m) => m.id);
+
+    messages.forEach((message, mesid) => {
+      const wasPresent = previousSet.has(message.id);
+      if (message.role === "user") {
+        if (!wasPresent) emitMessageSent(mesid, "normal");
+        emitUserMessageRendered(mesid);
+        return;
+      }
+      if (message.role === "assistant") {
+        if (!wasPresent) emitMessageReceived(mesid, "normal");
+        emitCharacterMessageRendered(mesid, "normal");
+        return;
+      }
+      if (wasPresent) emitMessageUpdated(mesid);
+    });
+  }, [messages]);
+
+  // Fire ST chat lifecycle events when a conversation/character scope changes.
+  useEffect(() => {
+    const chatId = currentSession?.id ?? currentCharacter?.id ?? "";
+    emitChatChanged(chatId);
+    emitChatLoaded();
+  }, [currentSession?.id, currentCharacter?.id]);
 
   // Compat layer: let front-end cards' TavernHelper.generate reach the active
   // LLM provider. A ref keeps the resolver reading the latest settings without
@@ -619,13 +650,19 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
   };
 
   const handleDeleteMessage = useCallback((id: string) => {
-    setMessages((prev) => prev.filter((m) => m.id !== id));
+    setMessages((prev) => {
+      const deletedIndex = prev.findIndex((m) => m.id === id);
+      if (deletedIndex >= 0) emitMessageDeleted(deletedIndex);
+      return prev.filter((m) => m.id !== id);
+    });
   }, []);
 
   const handleEditMessage = useCallback((id: string, newContent: string) => {
-    setMessages((prev) =>
-      prev.map((m) => (m.id === id ? { ...m, content: newContent } : m)),
-    );
+    setMessages((prev) => {
+      const editedIndex = prev.findIndex((m) => m.id === id);
+      if (editedIndex >= 0) emitMessageUpdated(editedIndex);
+      return prev.map((m) => (m.id === id ? { ...m, content: newContent } : m));
+    });
   }, []);
 
   const handleRegenerate = (id: string) => {
@@ -869,7 +906,7 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
       />
 
       {/* Main Chat Area */}
-      <main className="flex-1 overflow-y-auto p-4 sm:p-6 scroll-smooth z-10 relative">
+      <main id="chat" className="flex-1 overflow-y-auto p-4 sm:p-6 scroll-smooth z-10 relative">
         <div className="max-w-3xl mx-auto flex flex-col h-full">
           {messages.length === 0 ? (
             <motion.div

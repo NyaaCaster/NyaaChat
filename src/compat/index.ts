@@ -131,6 +131,10 @@ export {
   setMessageWriter,
   emitUserMessageRendered,
   emitCharacterMessageRendered,
+  emitMessageSent,
+  emitMessageReceived,
+  emitChatChanged,
+  emitChatLoaded,
   emitMessageUpdated,
   emitMessageDeleted,
 } from "./runtimeStore";

@@ -4,7 +4,7 @@
 > 目标是在**不支持运行时安装 / 更新 / 删除扩展**的前提下，让通过 git + rebuild 内置进项目的 SillyTavern 扩展获得足够的前端宿主与轻量后端能力。
 >
 > 创建：2026-06-14
-> 状态：P2 完成；下一阶段 P3（ST DOM / 事件兼容补强）
+> 状态：P3 完成；下一阶段 P4（新增 `nyaachat-ext-host`）
 
 ---
 
@@ -307,13 +307,22 @@ location /api/ext-host/ {
 
 ### P3：ST DOM / 事件兼容补强
 
-- [ ] 补 `#chat` / `.mes` / `.mes_text` / `.name_text` / `mesid` 结构或等价逃逸区。
-- [ ] 保证 JSR 渲染器能扫描前端卡代码块。
-- [ ] 保证 st-Quote-TTS 能扫描消息文本、角色名与当前聊天 DOM，并能在目标文本旁注入按钮。
-- [ ] 对 React 受控 DOM 与扩展 jQuery 操作划边界。
-- [ ] 补齐 JSR / st-Quote-TTS 依赖的消息渲染事件与 payload（如 `MESSAGE_RECEIVED` / `CHARACTER_MESSAGE_RENDERED` / `CHAT_CHANGED` 的等价触发）。
+- [x] 补 `#chat` / `.mes` / `.mes_text` / `.name_text` / `mesid` 结构或等价逃逸区。
+- [x] 保证 JSR 渲染器能扫描前端卡代码块。
+- [x] 保证 st-Quote-TTS 能扫描消息文本、角色名与当前聊天 DOM，并能在目标文本旁注入按钮。
+- [x] 对 React 受控 DOM 与扩展 jQuery 操作划边界。
+- [x] 补齐 JSR / st-Quote-TTS 依赖的消息渲染事件与 payload（如 `MESSAGE_RECEIVED` / `CHARACTER_MESSAGE_RENDERED` / `CHAT_CHANGED` 的等价触发）。
 
 验收：关闭 NyaaChat 自带前端渲染后，JSR 渲染器能接管至少一个前端卡样例；st-Quote-TTS 能在带引号消息中注入播放按钮。
+
+#### P3 实施记录（2026-06-14）
+
+- 在聊天滚动主区域补稳定 `#chat`，每条消息补 ST 风格 `.mes`、`mesid`、`data-mesid`、用户消息 `is_user`、消息块 `.mes_block`、消息正文 `.mes_text` 与角色名 `.name_text`，让扩展可按 ST 选择器扫描当前聊天。
+- 将 `.mes_text` 限定为扩展可装饰的逃逸区；React 仍是消息状态的单一写入者，扩展按钮/HTML 注入只作用于渲染后的正文 DOM，不回写消息源文本。
+- 聊天消息提交、接收、编辑、删除、会话/角色切换后补发 ST 等价事件：`MESSAGE_SENT`、`MESSAGE_RECEIVED`、`USER_MESSAGE_RENDERED`、`CHARACTER_MESSAGE_RENDERED`、`MESSAGE_UPDATED`、`MESSAGE_DELETED`、`CHAT_CHANGED` 与 `chatLoaded`。
+- `CHARACTER_MESSAGE_RENDERED` 与 `MESSAGE_RECEIVED` payload 按 ST 常用形态补齐 `(mesid, "normal")`，满足 JSR 渲染监听与 st-Quote-TTS 消息扫描触发。
+- 扩展父窗口 jQuery-lite 增加 context selector、`filter()`、`first()`、`last()`、`toArray()`，覆盖 JSR `$('#chat > .mes')` / `$(selector, window.parent.document)` 与 Quote-TTS 设置/扫描路径的常用调用。
+- 构建验证：`npm run build` 通过；Vite 仍提示主 chunk 超过 500 kB（既有体积告警，不影响本阶段）。
 
 ### P4：新增 `nyaachat-ext-host`
 

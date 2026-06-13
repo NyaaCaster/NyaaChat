@@ -62,6 +62,9 @@ type JQueryCollection = Array<HTMLElement> & {
   empty: () => JQueryCollection;
   find: (selector: string) => JQueryCollection;
   closest: (selector: string) => JQueryCollection;
+  filter: (selectorOrCb: string | ((this: HTMLElement, index: number, el: HTMLElement) => boolean)) => JQueryCollection;
+  first: () => JQueryCollection;
+  last: () => JQueryCollection;
   each: (cb: (this: HTMLElement, index: number, el: HTMLElement) => void) => JQueryCollection;
   text: (value?: string) => string | JQueryCollection;
   html: (value?: string) => string | JQueryCollection;
@@ -71,10 +74,11 @@ type JQueryCollection = Array<HTMLElement> & {
   addClass: (className: string) => JQueryCollection;
   removeClass: (className: string) => JQueryCollection;
   attr: (name: string, value?: string) => string | null | JQueryCollection;
+  toArray: () => HTMLElement[];
 };
 
 type JQueryLite = {
-  (arg: string | HTMLElement | Document | (() => void)): JQueryCollection | void;
+  (arg: string | HTMLElement | Document | (() => void), context?: Document | HTMLElement): JQueryCollection | void;
   get: (url: string) => Promise<string>;
 };
 
@@ -116,6 +120,12 @@ function makeCollection(items: HTMLElement[]): JQueryCollection {
   };
   arr.find = (selector) => makeCollection(arr.flatMap((el) => Array.from(el.querySelectorAll<HTMLElement>(selector))));
   arr.closest = (selector) => makeCollection(arr.map((el) => el.closest<HTMLElement>(selector)).filter(Boolean) as HTMLElement[]);
+  arr.filter = (selectorOrCb) => {
+    if (typeof selectorOrCb === "string") return makeCollection(arr.filter((el) => el.matches(selectorOrCb)));
+    return makeCollection(arr.filter((el, i) => selectorOrCb.call(el, i, el)));
+  };
+  arr.first = () => makeCollection(arr[0] ? [arr[0]] : []);
+  arr.last = () => makeCollection(arr.length ? [arr[arr.length - 1]] : []);
   arr.each = (cb) => {
     arr.forEach((el, i) => cb.call(el, i, el));
     return arr;
@@ -154,11 +164,12 @@ function makeCollection(items: HTMLElement[]): JQueryCollection {
     arr.forEach((el) => el.setAttribute(name, value));
     return arr;
   };
+  arr.toArray = () => [...arr];
   return arr;
 }
 
 function createJQueryLite(): JQueryLite {
-  const jq = ((arg: string | HTMLElement | Document | (() => void)) => {
+  const jq = ((arg: string | HTMLElement | Document | (() => void), context?: Document | HTMLElement) => {
     if (typeof arg === "function") {
       if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", arg, { once: true });
       else queueMicrotask(arg);
@@ -169,7 +180,8 @@ function createJQueryLite(): JQueryLite {
       if (trimmed.startsWith("<") && trimmed.endsWith(">")) {
         return makeCollection(toElements(trimmed).filter((x): x is HTMLElement => x instanceof HTMLElement));
       }
-      return makeCollection(Array.from(document.querySelectorAll<HTMLElement>(arg)));
+      const root = context ?? document;
+      return makeCollection(Array.from(root.querySelectorAll<HTMLElement>(arg)));
     }
     if (arg instanceof Document) return makeCollection([arg.documentElement]);
     return makeCollection(arg instanceof HTMLElement ? [arg] : []);
