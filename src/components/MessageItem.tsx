@@ -276,7 +276,7 @@ export const MessageItem = React.memo(function MessageItem({
       transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
       className={`flex w-full my-4 ${isUser ? "justify-end" : "justify-start"}`}
     >
-      <div className={`max-w-[85%] sm:max-w-[80%] min-w-0 flex flex-col gap-1 ${isUser ? "items-end" : "items-start"}`}>
+      <div className={`max-w-[92%] sm:max-w-[80%] min-w-0 flex flex-col gap-1 ${isUser ? "items-end" : "items-start"}`}>
       <div
         className={`w-full rounded-2xl px-5 py-4 bg-white dark:bg-[#111111] text-gray-900 dark:text-gray-100 shadow-elevation-1 ${
           isUser
