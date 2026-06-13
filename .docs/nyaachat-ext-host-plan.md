@@ -4,7 +4,7 @@
 > 目标是在**不支持运行时安装 / 更新 / 删除扩展**的前提下，让通过 git + rebuild 内置进项目的 SillyTavern 扩展获得足够的前端宿主与轻量后端能力。
 >
 > 创建：2026-06-14
-> 状态：规划中
+> 状态：P0 完成；下一阶段 P1（extension_settings 本地持久化）
 
 ---
 
@@ -233,13 +233,45 @@ location /api/ext-host/ {
 
 ### P0：审计与样本接入
 
-- [ ] 在开发环境以 git/rebuild 方式加入 JS-Slash-Runner 样本扩展。
-- [ ] 在开发环境以 git/rebuild 方式加入 st-Quote-TTS 样本扩展。
-- [ ] 确认两个样本的 manifest / CSS / JS 能被 loader 注入。
-- [ ] 记录首轮 missing module / missing export / runtime error / DOM mount failure。
-- [ ] 产出 `docs` 内兼容缺口表，按 JSR 型与 Quote-TTS 型分别归类。
+- [x] 在开发环境以 git/rebuild 方式加入 JS-Slash-Runner 样本扩展。
+- [x] 在开发环境以 git/rebuild 方式加入 st-Quote-TTS 样本扩展。
+- [x] 确认两个样本的 manifest / CSS / JS 能被 loader 注入。
+- [x] 记录首轮 missing module / missing export / runtime error / DOM mount failure。
+- [x] 产出 `docs` 内兼容缺口表，按 JSR 型与 Quote-TTS 型分别归类。
 
 验收：能稳定复现并记录两类样本扩展启动缺口，而不是盲补。
+
+#### P0 接入记录（2026-06-14）
+
+- 样本来源：`.ref/JS-Slash-Runner` 与 `.ref/st-Quote-TTS`。
+- 治理边界：`public/extensions/` 下的第三方扩展子目录不属于 NyaaChat 主仓库；由运营方以独立 git 项目/子目录在部署环境中加入，并通过 rebuild 分发。NyaaChat 主仓库只保留宿主代码、shim、文档和 `public/extensions/registry.json`。
+- 审计接入方式：本轮曾临时复制样本到 `public/extensions/JS-Slash-Runner/` 与 `public/extensions/st-Quote-TTS/` 验证 manifest / asset 路径，审计后已从主仓库移除扩展本体，避免把第三方扩展发布包纳入 NyaaChat 源码。
+- 默认状态建议：真实样本在部署 registry 中使用 `rootEnabled=true`、`defaultUserEnabled=false`，避免普通启动时直接触发大量未兼容 shim；审计时在扩展面板手动启用后刷新复现。
+- 构建验证：`npm run build` 通过；manifest / CSS / JS 均会作为 public 静态资源进入 `dist/`。
+- 首轮审计方式：对 JSR bundle 的静态 ESM import 与现有 `public/script.js`、`public/scripts/*.js` shim 导出做对照；对 Quote-TTS 读取入口依赖与 DOM/API 访问点。
+
+#### 兼容缺口表（首轮）
+
+| 样本 | 类型 | 触发点 / 现象 | 当前状态 | 分类 | 后续阶段 |
+|---|---|---|---|---|---|
+| JS-Slash-Runner | missing module | `../../../../../scripts/i18n.js` -> `/scripts/i18n.js` | 未提供 shim，模块加载会 404 / import 失败 | shim 纯前端可补 | P6 |
+| JS-Slash-Runner | missing module | `/scripts/world-info.js` | 未提供世界书模块 shim | shim + 数据桥；完整写入暂不支持 | P6 / P5 |
+| JS-Slash-Runner | missing module | `/scripts/extensions/regex/engine.js` | 现有正则实现只在 `src/compat`，未暴露 ST 深度模块 | shim 纯前端可补 | P6 |
+| JS-Slash-Runner | missing module | `/scripts/preset-manager.js` | 未提供 preset manager shim | shim 桩；完整 preset 管理非 P0 | P6 |
+| JS-Slash-Runner | missing module | `/scripts/openai.js` | 未提供 OpenAI/promptManager 相关导出 | prompt / generation 深依赖；需谨慎桩化 | P6，prompt 注入类能力不扩大 |
+| JS-Slash-Runner | missing module | `/scripts/macros.js`、`/scripts/RossAscends-mods.js`、`/scripts/power-user.js`、`/scripts/user.js`、`/scripts/authors-note.js`、`/scripts/PromptManager.js`、`/scripts/sse-stream.js`、`/scripts/tokenizers.js` | 未提供 shim | 多数可先用只读常量 / no-op / 轻量函数桩 | P6 |
+| JS-Slash-Runner | missing module | `/scripts/slash-commands/SlashCommandArgument.js`、`SlashCommandCommonEnumsProvider.js`、`SlashCommandEnumValue.js` | 当前只提供 `SlashCommand.js` 与 `SlashCommandParser.js` | slash 参数元数据 shim | P6 |
+| JS-Slash-Runner | missing export | `/scripts/utils.js` 缺 `getImageSizeFromDataURL`、`ensureImageFormatSupported`、`isDataURL`、`Stopwatch`、`showFontAwesomePicker`、`getSanitizedFilename` | import 会因 named export 不存在失败 | shim 纯前端可补 | P6 |
+| JS-Slash-Runner | missing export | `/script.js` 缺 `reloadMarkdownProcessor`、`getThumbnailUrl`、`user_avatar`、`clearChat`、`printMessages`、`saveSettings`、`is_send_press`、`getPastCharacterChats`、`system_avatar`、`default_avatar`、`showSwipeButtons`、`saveMetadata`、`saveCharacterDebounced`、`getOneCharacter`、`selectCharacterById`、`printCharacters`、`unshallowCharacter`、`deleteCharacter`、`getCharacters`、`scrollChatToBottom`、`system_message_types`、`activateSendButtons`、`setGenerationProgress`、`extension_prompts`、`baseChatReplace`、`getCharacterCardFields`、`getBiasStrings`、`getExtensionPromptRoleByName`、`getMaxContextSize`、`getExtensionPromptByName`、`cleanUpMessage`、`isOdd`、`countOccurrences`、`stopGeneration`、`deactivateSendButtons`、`main_api`、`online_status`、`Generate` | import 会因 named export 不存在失败 | 纯前端 shim + generation/metadata 桥分层 | P6 / P5 |
+| JS-Slash-Runner | missing export | `/scripts/extensions.js` 缺 `saveMetadataDebounced` | import 会因 named export 不存在失败 | shim 纯前端可补；实际持久化属 metadata 桥 | P6 / P5 |
+| JS-Slash-Runner | DOM mount failure | bundle 末尾执行 ` $('<div id="tavern_helper">').appendTo('#extensions_settings'); G0.mount(e[0])` | 当前 NyaaChat 没有常驻 `#extensions_settings`，且 parent window 未提供 jQuery；即使 import 补齐也无法挂载设置 UI | DOM 宿主 + jQuery 全局 | P2 |
+| JS-Slash-Runner | runtime error | 依赖 `globalThis.YAML`、`globalThis.z`、Vue app 与 JSON editor；`../lib/jsoneditor.js` 需从扩展目录正确 served | `jsoneditor.js` 已随样本复制；其它全局需实机加载后继续确认 | 运行时全局 / 静态资源 | P6 |
+| st-Quote-TTS | missing module/export | `../../../extensions.js`、`../../../../script.js` 的当前导出足以满足入口静态 import：`extension_settings`、`getContext`、`saveSettingsDebounced`、`getRequestHeaders`、`eventSource`、`event_types` | 静态 import 层暂无缺口 | 已覆盖 | P0 完成 |
+| st-Quote-TTS | DOM mount failure | 初始化轮询 `#extensions_settings`，再 `$.get('scripts/extensions/third-party/st-Quote-TTS/settings.html')` 并 append | 当前缺 `#extensions_settings` 与 parent window jQuery；设置面板不会加载 | DOM 宿主 + jQuery 全局 | P2 |
+| st-Quote-TTS | DOM mount failure | 扫描 `#chat .mes_text`、`.mes_block .name_text` 并注入 `.quote-tts-btn` | 当前 React 消息 DOM 未提供 ST 形状逃逸区；按钮无法注入 | ST DOM 兼容区 | P3 |
+| st-Quote-TTS | runtime/API error | 播放调用 `POST /api/openai/custom/generate-voice`，body 带 `provider_endpoint`、`api_key`、`token` | 当前 nginx/app 没有该接口；未来必须受控代理，不得任意转发扩展传入 endpoint | 需要 `nyaachat-ext-host` | P4 |
+| st-Quote-TTS | persistence gap | 写 `extension_settings.quote_tts.characterMap` 后调用 `saveSettingsDebounced()` | 当前 `extension_settings` 仍内存对象，刷新丢失 | localStorage / IndexedDB | P1 |
+
 
 ### P1：extension_settings 本地持久化
 
