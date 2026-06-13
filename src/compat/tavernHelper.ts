@@ -17,6 +17,7 @@
 
 import { eventSource } from "./events";
 import { getChat, getMeta } from "./runtimeStore";
+import { generate, generateRaw } from "./generate";
 import {
   getVariables,
   replaceVariables,
@@ -139,15 +140,9 @@ export function createTavernHelper(): Record<string, unknown> {
     getTavernRegexes: () => [],
     version: () => "nyaachat-compat",
 
-    // deferred to a later pass — degrade with a warning, don't throw
-    generate: () => {
-      warnOnce("generate");
-      return Promise.resolve("");
-    },
-    generateRaw: () => {
-      warnOnce("generateRaw");
-      return Promise.resolve("");
-    },
+    // generation — real LLM calls (side requests, no chat write-back)
+    generate,
+    generateRaw,
     triggerSlash: () => {
       warnOnce("triggerSlash");
       return Promise.resolve("");

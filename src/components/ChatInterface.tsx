@@ -21,7 +21,7 @@ import { ChatComposer } from "./ChatComposer";
 import { motion, AnimatePresence } from "motion/react";
 import { useFullscreen } from "../hooks/useFullscreen";
 import { useAttachments } from "../hooks/useAttachments";
-import { syncChat, syncMeta, getEffectiveRegexScripts, resetTransientVariables } from "../compat";
+import { syncChat, syncMeta, getEffectiveRegexScripts, resetTransientVariables, setGenerateApiResolver } from "../compat";
 
 /**
  * Map a thrown error from the API layer to a user-friendly Chinese message.
@@ -134,6 +134,21 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
   useEffect(() => {
     syncChat(messages);
   }, [messages]);
+
+  // Compat layer: let front-end cards' TavernHelper.generate reach the active
+  // LLM provider. A ref keeps the resolver reading the latest settings without
+  // re-registering on every settings change.
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
+  useEffect(() => {
+    setGenerateApiResolver(() => {
+      const s = settingsRef.current;
+      const provider = getActiveLlmProvider(s);
+      if (!provider) return null;
+      return { ...providerToApiSettings(provider), isStreaming: false };
+    });
+    return () => setGenerateApiResolver(null);
+  }, []);
 
   // Mirror the active character / user identity into the compat runtime.
   // Keyed on the resolved ids/names so a character or role switch propagates
