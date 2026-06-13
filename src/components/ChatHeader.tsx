@@ -1,4 +1,5 @@
-import React from "react";
+import React, { useState } from "react";
+import { createPortal } from "react-dom";
 import {
   Settings,
   PlusCircle,
@@ -13,6 +14,7 @@ import {
 } from "lucide-react";
 import { motion } from "motion/react";
 import type { CharacterSettings } from "../types";
+import { VersionModal } from "./VersionModal";
 
 interface ChatHeaderProps {
   characters: CharacterSettings[] | undefined;
@@ -52,6 +54,7 @@ export function ChatHeader({
 }: ChatHeaderProps) {
   const currentName =
     characters?.find((c) => c.id === currentCharacterId)?.name || "AI助手";
+  const [isVersionOpen, setIsVersionOpen] = useState(false);
 
   return (
     <div data-app-header className="flex-shrink-0 bg-white/70 dark:bg-[#0A0A0A]/70 backdrop-blur-xl border-b border-gray-200/60 dark:border-white/5 sticky top-0 z-20 flex flex-col">
@@ -65,6 +68,14 @@ export function ChatHeader({
             style={{ fontFamily: "var(--font-display)" }}
           >
             <a href="https://github.com/NyaaCaster/NyaaChat" target="_blank" rel="noopener noreferrer">NyaaChat</a>
+            <button
+              type="button"
+              onClick={() => setIsVersionOpen(true)}
+              className="ml-1.5 align-baseline text-[11px] font-medium text-gray-400 hover:text-blue-500 dark:text-gray-500 dark:hover:text-blue-400 transition-colors cursor-pointer"
+              title="查看版本信息"
+            >
+              v{__APP_VERSION__}
+            </button>
           </h1>
           {isBypassActive && (
             <motion.span
@@ -153,6 +164,14 @@ export function ChatHeader({
           </button>
         </div>
       </div>
+
+      {/* Portal to body: this header div has backdrop-blur (backdrop-filter),
+          which would otherwise become the containing block for the modal's
+          fixed positioning and pin it inside the header instead of the viewport. */}
+      {createPortal(
+        <VersionModal isOpen={isVersionOpen} onClose={() => setIsVersionOpen(false)} />,
+        document.body,
+      )}
     </div>
   );
 }

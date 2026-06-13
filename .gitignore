@@ -11,3 +11,5 @@ src/temp/
 .claude/settings.local.json
 # Playwright MCP browser artifacts
 .playwright-mcp/
+# Local reference material — not for sharing
+.ref/
