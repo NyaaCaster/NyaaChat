@@ -4,7 +4,7 @@
 > 目标是在**不支持运行时安装 / 更新 / 删除扩展**的前提下，让通过 git + rebuild 内置进项目的 SillyTavern 扩展获得足够的前端宿主与轻量后端能力。
 >
 > 创建：2026-06-14
-> 状态：P1 完成；下一阶段 P2（类 ST 扩展设置 UI 宿主）
+> 状态：P2 完成；下一阶段 P3（ST DOM / 事件兼容补强）
 
 ---
 
@@ -291,12 +291,19 @@ location /api/ext-host/ {
 
 ### P2：类 ST 扩展设置 UI 宿主
 
-- [ ] 创建常驻 `#extensions_settings`。
-- [ ] 改造 `ExtensionsModal`，显示扩展列表 + 扩展设置区域。
-- [ ] 确保扩展 append 到 `#extensions_settings` 的 UI 能显示。
-- [ ] 不提供安装 / 更新 / 删除。
+- [x] 创建常驻 `#extensions_settings`。
+- [x] 改造 `ExtensionsModal`，显示扩展列表 + 扩展设置区域。
+- [x] 确保扩展 append 到 `#extensions_settings` 的 UI 能显示。
+- [x] 不提供安装 / 更新 / 删除。
 
 验收：JSR 的 `#tavern_helper` 根节点能挂载并在 NyaaChat 扩展面板中可见；st-Quote-TTS 的 `settings.html` 能 append 到 `#extensions_settings` 并可交互。
+
+#### P2 实施记录（2026-06-14）
+
+- 新增稳定 DOM 宿主 `src/compat/extensions/settingsHost.ts`，在扩展加载前创建 `#extensions_settings`，关闭面板时停泊到 React 外部隐藏容器，避免扩展自有 DOM 被卸载。
+- 改造 `ExtensionsModal` 为左侧扩展启停列表 + 右侧扩展设置区域；启停仍只写 `nyaachat_ext_prefs`，不提供安装 / 更新 / 删除。
+- 父窗口新增最小 jQuery-like 全局 `$` / `jQuery`，覆盖 P2 设置面板所需的 ready、选择器、`$.get()`、append/appendTo、事件绑定与表单读写路径。
+- 构建验证：`npm run build` 通过；Vite 仍提示主 chunk 超过 500 kB（既有体积告警，不影响本阶段）。
 
 ### P3：ST DOM / 事件兼容补强
 

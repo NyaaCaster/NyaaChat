@@ -7,6 +7,11 @@ export {
   saveUserPref,
   EXTENSIONS_BASE,
 } from "./registry";
+export {
+  ensureExtensionSettingsHost,
+  attachExtensionSettingsHost,
+  parkExtensionSettingsHost,
+} from "./settingsHost";
 export type { UserExtensionPrefs } from "./registry";
 export type {
   ExtensionManifest,

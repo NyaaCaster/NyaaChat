@@ -1,15 +1,14 @@
 // Global shims SillyTavern extensions expect on `window`.
 //
-// ST runs with jQuery (`window.$`), lodash (`window._`), toastr
-// (`window.toastr`) and highlight.js (`window.hljs`) already on the page, and
-// extensions call them freely. NyaaChat ships none of these.
+// ST runs with jQuery (`window.$` / `window.jQuery`), lodash (`window._`),
+// toastr (`window.toastr`) and highlight.js (`window.hljs`) already on the page,
+// and extensions call them freely. NyaaChat ships none of these.
 //
-// Per decision A3 we implement these on-demand, not wholesale. In P1 the only
-// one extensions reach for outside an iframe is `toastr` (user-facing notices
-// during load/settings). jQuery / lodash / hljs are consumed by the *front-end
-// card* code, which runs inside the render iframe and pulls them from a CDN
-// (SSOT §2.4) — so they are deliberately NOT polyfilled on the parent window
-// here. If a future extension needs them parent-side we add them then.
+// Per decision A3 we implement these on-demand, not wholesale. Parent-window
+// jQuery is now required by the P2 extension settings host (e.g. st-Quote-TTS
+// waits on `jQuery(async () => ...)`, polls `#extensions_settings`, loads
+// settings.html through `$.get`, and wires form events). lodash / hljs remain
+// unpolyfilled until a concrete extension needs them parent-side.
 //
 // Everything here is idempotent: main.tsx mounts under StrictMode, so installs
 // run twice in dev. We never clobber a global that's already present.
@@ -56,6 +55,133 @@ const toastr: ToastrLike = {
   error: (m, t) => emitToast("error", m, t),
 };
 
+type JQueryCollection = Array<HTMLElement> & {
+  length: number;
+  append: (content: unknown) => JQueryCollection;
+  appendTo: (target: string | HTMLElement | JQueryCollection) => JQueryCollection;
+  empty: () => JQueryCollection;
+  find: (selector: string) => JQueryCollection;
+  closest: (selector: string) => JQueryCollection;
+  each: (cb: (this: HTMLElement, index: number, el: HTMLElement) => void) => JQueryCollection;
+  text: (value?: string) => string | JQueryCollection;
+  html: (value?: string) => string | JQueryCollection;
+  val: (value?: string) => string | JQueryCollection;
+  on: (event: string, handler: EventListener) => JQueryCollection;
+  hasClass: (className: string) => boolean;
+  addClass: (className: string) => JQueryCollection;
+  removeClass: (className: string) => JQueryCollection;
+  attr: (name: string, value?: string) => string | null | JQueryCollection;
+};
+
+type JQueryLite = {
+  (arg: string | HTMLElement | Document | (() => void)): JQueryCollection | void;
+  get: (url: string) => Promise<string>;
+};
+
+function toElements(content: unknown): Node[] {
+  if (typeof content === "string") {
+    const tpl = document.createElement("template");
+    tpl.innerHTML = content;
+    return Array.from(tpl.content.childNodes);
+  }
+  if (content instanceof Node) return [content];
+  if (Array.isArray(content)) return content.filter((x): x is Node => x instanceof Node);
+  const maybe = content as { toArray?: () => Node[] } | null;
+  if (maybe?.toArray) return maybe.toArray();
+  return [];
+}
+
+function makeCollection(items: HTMLElement[]): JQueryCollection {
+  const arr = items as JQueryCollection;
+  arr.append = (content) => {
+    const nodes = toElements(content);
+    arr.forEach((el, index) => {
+      for (const node of nodes) el.appendChild(index === 0 ? node : node.cloneNode(true));
+    });
+    return arr;
+  };
+  arr.appendTo = (target) => {
+    const targetCollection =
+      typeof target === "string"
+        ? makeCollection(Array.from(document.querySelectorAll<HTMLElement>(target)))
+        : target instanceof HTMLElement
+          ? makeCollection([target])
+          : target;
+    targetCollection.append(arr);
+    return arr;
+  };
+  arr.empty = () => {
+    arr.forEach((el) => (el.textContent = ""));
+    return arr;
+  };
+  arr.find = (selector) => makeCollection(arr.flatMap((el) => Array.from(el.querySelectorAll<HTMLElement>(selector))));
+  arr.closest = (selector) => makeCollection(arr.map((el) => el.closest<HTMLElement>(selector)).filter(Boolean) as HTMLElement[]);
+  arr.each = (cb) => {
+    arr.forEach((el, i) => cb.call(el, i, el));
+    return arr;
+  };
+  arr.text = (value) => {
+    if (value === undefined) return arr.map((el) => el.textContent ?? "").join("");
+    arr.forEach((el) => (el.textContent = value));
+    return arr;
+  };
+  arr.html = (value) => {
+    if (value === undefined) return arr[0]?.innerHTML ?? "";
+    arr.forEach((el) => (el.innerHTML = value));
+    return arr;
+  };
+  arr.val = (value) => {
+    const fields = arr as Array<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>;
+    if (value === undefined) return fields[0]?.value ?? "";
+    fields.forEach((el) => (el.value = value));
+    return arr;
+  };
+  arr.on = (event, handler) => {
+    arr.forEach((el) => el.addEventListener(event, handler));
+    return arr;
+  };
+  arr.hasClass = (className) => !!arr[0]?.classList.contains(className);
+  arr.addClass = (className) => {
+    arr.forEach((el) => el.classList.add(className));
+    return arr;
+  };
+  arr.removeClass = (className) => {
+    arr.forEach((el) => el.classList.remove(className));
+    return arr;
+  };
+  arr.attr = (name, value) => {
+    if (value === undefined) return arr[0]?.getAttribute(name) ?? null;
+    arr.forEach((el) => el.setAttribute(name, value));
+    return arr;
+  };
+  return arr;
+}
+
+function createJQueryLite(): JQueryLite {
+  const jq = ((arg: string | HTMLElement | Document | (() => void)) => {
+    if (typeof arg === "function") {
+      if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", arg, { once: true });
+      else queueMicrotask(arg);
+      return;
+    }
+    if (typeof arg === "string") {
+      const trimmed = arg.trim();
+      if (trimmed.startsWith("<") && trimmed.endsWith(">")) {
+        return makeCollection(toElements(trimmed).filter((x): x is HTMLElement => x instanceof HTMLElement));
+      }
+      return makeCollection(Array.from(document.querySelectorAll<HTMLElement>(arg)));
+    }
+    if (arg instanceof Document) return makeCollection([arg.documentElement]);
+    return makeCollection(arg instanceof HTMLElement ? [arg] : []);
+  }) as JQueryLite;
+  jq.get = async (url: string) => {
+    const res = await fetch(url, { cache: "no-cache" });
+    if (!res.ok) throw new Error(`GET ${url} failed: ${res.status}`);
+    return res.text();
+  };
+  return jq;
+}
+
 /**
  * Mount the minimal global shims on `window`. Idempotent — existing globals are
  * left untouched so we never stomp a real jQuery/lodash someone else loaded.
@@ -65,6 +191,11 @@ export function installGlobals(): void {
   const w = window as unknown as Record<string, unknown>;
   if (!w.toastr) {
     w.toastr = toastr;
+  }
+  if (!w.$ && !w.jQuery) {
+    const jq = createJQueryLite();
+    w.$ = jq;
+    w.jQuery = jq;
   }
 }
 

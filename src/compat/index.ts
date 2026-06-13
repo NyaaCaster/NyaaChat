@@ -22,7 +22,7 @@ import { setChatAccessor, setDefaultEnvProvider } from "./macros";
 import { getChat, getMeta, subscribe as subscribeRuntime } from "./runtimeStore";
 import { createTavernHelper } from "./tavernHelper";
 import { installSlashCommands } from "./slash";
-import { loadEnabledExtensions } from "./extensions";
+import { ensureExtensionSettingsHost, loadEnabledExtensions } from "./extensions";
 
 let installed = false;
 
@@ -99,6 +99,11 @@ export function installCompatLayer(): void {
     event_types,
     subscribe: (cb: () => void) => subscribeRuntime(() => cb()),
   };
+
+  // ST extensions poll/query this container during module init and append their
+  // own settings panels into it. Create it before asset injection; the React
+  // modal later moves this same node into view without changing its identity.
+  ensureExtensionSettingsHost();
 
   // Load build-time bundled extensions (decision B-revised). Fire-and-forget:
   // extension loading is async (fetch registry + manifests + inject scripts)
@@ -187,6 +192,9 @@ export {
   resolveExtensions,
   loadUserPrefs,
   saveUserPref,
+  ensureExtensionSettingsHost,
+  attachExtensionSettingsHost,
+  parkExtensionSettingsHost,
 } from "./extensions";
 export type {
   ExtensionManifest,
