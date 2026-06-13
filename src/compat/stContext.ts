@@ -18,6 +18,7 @@ import { eventSource, event_types } from "./events";
 import { substituteParams, substituteParamsExtended } from "./macros";
 import { getChat, getMeta, getMessageByMesId } from "./runtimeStore";
 import type { RuntimeMessage } from "./runtimeStore";
+import { executeSlashCommands, registerSlashCommand, addCommandObject } from "./slash";
 
 /** A character entry as getContext().characters exposes it. Minimal subset. */
 export interface STCharacter {
@@ -157,6 +158,27 @@ export function getContext(): Record<string, unknown> {
 
     // --- message lookup helpers ---
     getMessageByMesId,
+
+    // --- slash commands (STscript subset, see compat/slash) ---
+    // Both the legacy registerSlashCommand(name, cb, aliases, help) and the
+    // newer SlashCommandParser.addCommandObject(SlashCommand.fromProps({...}))
+    // registration paths map onto our registry. SlashCommand.fromProps is the
+    // identity pass-through ST uses to build the def object. Argument-metadata
+    // classes (SlashCommandNamedArgument/Argument) aren't exposed here — they're
+    // ESM-import-only in ST and our addCommandObject ignores arg lists anyway.
+    registerSlashCommand,
+    executeSlashCommands,
+    executeSlashCommandsWithOptions: (text: string) => executeSlashCommands(text),
+    SlashCommandParser: {
+      addCommand: (
+        name: string,
+        callback: Parameters<typeof registerSlashCommand>[1],
+        aliases: string[] = [],
+        helpString = "",
+      ) => registerSlashCommand(name, callback, aliases, helpString),
+      addCommandObject,
+    },
+    SlashCommand: { fromProps: (props: Parameters<typeof addCommandObject>[0]) => props },
 
     // --- not yet implemented (clearly fail rather than silently misbehave) ---
     // These are mapped as we reach the features that need them (P4/P5).

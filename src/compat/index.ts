@@ -18,9 +18,10 @@
 import { eventSource, event_types } from "./events";
 import { getContext } from "./stContext";
 import { installGlobals } from "./globals";
-import { setChatAccessor } from "./macros";
-import { getChat } from "./runtimeStore";
+import { setChatAccessor, setDefaultEnvProvider } from "./macros";
+import { getChat, getMeta } from "./runtimeStore";
 import { createTavernHelper } from "./tavernHelper";
+import { installSlashCommands } from "./slash";
 import { loadEnabledExtensions } from "./extensions";
 
 let installed = false;
@@ -38,7 +39,21 @@ export function installCompatLayer(): void {
   // {{lastMessage}} etc. resolve against the current mirror.
   setChatAccessor(() => getChat());
 
+  // Wire the baseline macro env so {{user}} / {{char}} (and <USER>/<BOT>) resolve
+  // against the active identity. Reads live from runtimeStore meta on each call,
+  // so a character/role switch is reflected without re-registering. Without this
+  // those macros stay literal everywhere substituteParams runs (regex pipelines,
+  // slash commands, card text).
+  setDefaultEnvProvider(() => {
+    const m = getMeta();
+    return { user: m.userName ?? "user", char: m.characterName ?? "" };
+  });
+
   installGlobals();
+
+  // Register the built-in slash commands so getContext().executeSlashCommands
+  // and TavernHelper.triggerSlash work, and extensions can register their own.
+  installSlashCommands();
 
   // The ST global. getContext() returns a fresh object with live getters on
   // each call (matching ST), so we expose the function, not a snapshot.
@@ -112,6 +127,14 @@ export {
 } from "./variables";
 export type { VariableScope, VariableOption } from "./variables";
 export { setGenerateApiResolver } from "./generate";
+export {
+  executeSlashCommands,
+  registerSlashCommand,
+  addCommandObject as addSlashCommand,
+  listSlashCommands,
+  setSlashCommandHost,
+} from "./slash";
+export type { SlashResult, SlashHost } from "./slash";
 export {
   loadEnabledExtensions,
   isExtensionLoaded,

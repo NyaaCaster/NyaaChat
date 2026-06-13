@@ -18,6 +18,7 @@
 import { eventSource } from "./events";
 import { getChat, getMeta, commandSetMessage, commandInsertMessage, commandDeleteMessage } from "./runtimeStore";
 import { generate, generateRaw } from "./generate";
+import { executeSlashCommands } from "./slash";
 import {
   getVariables,
   replaceVariables,
@@ -26,13 +27,6 @@ import {
   deleteVariable,
   updateVariablesWith,
 } from "./variables";
-
-const warned = new Set<string>();
-function warnOnce(name: string): void {
-  if (warned.has(name)) return;
-  warned.add(name);
-  console.warn(`[compat] TavernHelper.${name} is not implemented yet (P5 scope)`);
-}
 
 // --- chat message reads -----------------------------------------------------
 
@@ -206,9 +200,14 @@ export function createTavernHelper(): Record<string, unknown> {
     // generation — real LLM calls (side requests, no chat write-back)
     generate,
     generateRaw,
-    triggerSlash: () => {
-      warnOnce("triggerSlash");
-      return Promise.resolve("");
+    // slash — run a (piped) STscript command, return the pipe (ST semantics:
+    // throw on error so callers `await` failures, per JSR's triggerSlash).
+    triggerSlash: async (command: string): Promise<string> => {
+      const result = await executeSlashCommands(command);
+      if (result.isError) {
+        throw new Error(`运行 Slash 命令 '${command}' 时出错: ${result.errorMessage ?? "unknown error"}`);
+      }
+      return result.pipe;
     },
 
     // predefine.js flattens TavernHelper._bind onto globals; we don't ship that
