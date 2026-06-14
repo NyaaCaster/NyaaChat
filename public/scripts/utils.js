@@ -117,6 +117,70 @@ export function trimSpaces(str) {
   return String(str).trim();
 }
 
+export function isDataURL(value) {
+  return typeof value === "string" && /^data:[^,]+;base64,/i.test(value);
+}
+
+export function getImageSizeFromDataURL(dataUrl) {
+  return new Promise((resolve, reject) => {
+    if (!isDataURL(dataUrl)) {
+      reject(new Error("Invalid data URL"));
+      return;
+    }
+    const image = new Image();
+    image.onload = () => resolve({ width: image.naturalWidth, height: image.naturalHeight });
+    image.onerror = () => reject(new Error("Failed to load image"));
+    image.src = dataUrl;
+  });
+}
+
+export function ensureImageFormatSupported(dataUrl) {
+  return Promise.resolve(dataUrl);
+}
+
+export class Stopwatch {
+  constructor() {
+    this.start = performance.now();
+    this.lap = this.start;
+  }
+  get elapsed() {
+    return performance.now() - this.start;
+  }
+  getElapsedTime() {
+    return this.elapsed;
+  }
+  getTime() {
+    return this.elapsed;
+  }
+  click() {
+    const now = performance.now();
+    const delta = now - this.lap;
+    this.lap = now;
+    return delta;
+  }
+  restart() {
+    this.start = performance.now();
+    this.lap = this.start;
+  }
+  toString() {
+    return `${Math.round(this.elapsed)}ms`;
+  }
+}
+
+export async function showFontAwesomePicker(...args) {
+  void args;
+  warnOnce("showFontAwesomePicker() is not implemented; returns null");
+  return null;
+}
+
+export function getSanitizedFilename(name) {
+  return String(name ?? "")
+    .replace(/[<>:"/\\|?*\x00-\x1F]/g, "_")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 240);
+}
+
 /** Get the filename portion of a character avatar (drops the extension). */
 export function getCharaFilename(chid) {
   warnOnce("getCharaFilename() returns null in the NyaaChat compat layer");

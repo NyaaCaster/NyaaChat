@@ -8,6 +8,9 @@
 // We pull it from getContext() once at eval (the host keeps a single instance).
 
 import { ctx, warnOnce } from "./_compat-host.js";
+import { saveMetadataDebounced as saveMetadataDebouncedFromRoot } from "../script.js";
+
+export { saveMetadataDebouncedFromRoot as saveMetadataDebounced };
 
 export const UNSET_VALUE = "__@@UNSET@@__";
 

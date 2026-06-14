@@ -4,7 +4,7 @@
 > 目标是在**不支持运行时安装 / 更新 / 删除扩展**的前提下，让通过 git + rebuild 内置进项目的 SillyTavern 扩展获得足够的前端宿主与轻量后端能力。
 >
 > 创建：2026-06-14
-> 状态：P5 完成；下一阶段 P6（JSR shim 缺口迭代）
+> 状态：P6 完成；扩展运行宿主补充计划阶段性收口
 
 ---
 
@@ -367,12 +367,21 @@ location /api/ext-host/ {
 
 ### P6：JSR shim 缺口迭代
 
-- [ ] 按 P0 缺口补 `/script.js` 导出。
-- [ ] 补 `@sillytavern/scripts/openai` / promptManager 必要桩或等价实现。
-- [ ] 补 slash argument 相关模块。
-- [ ] 补 JSR 脚本管理 UI 运行所需的最小 API。
+- [x] 按 P0 缺口补 `/script.js` 导出。
+- [x] 补 `@sillytavern/scripts/openai` / promptManager 必要桩或等价实现。
+- [x] 补 slash argument 相关模块。
+- [x] 补 JSR 脚本管理 UI 运行所需的最小 API。
 
 验收：JSR 设置界面、渲染器设置、用户脚本列表、基础脚本执行路径可用。
+
+#### P6 实施记录（2026-06-14）
+
+- `/script.js` 补齐 JSR `dist/index.js` 静态 import 所需的 UI / 聊天生命周期 / 角色 / prompt 查询类导出：`reloadMarkdownProcessor`、头像常量、`clearChat`、`printMessages`、`saveSettings`、`saveCharacterDebounced`、`scrollChatToBottom`、`extension_prompts`、`Generate` 等；写入/删除类高风险能力保持 warn-once 或 no-op，不扩大宿主治理面。
+- 新增 JSR import 图所需的静态 shim 模块：`i18n.js`、`world-info.js`、`preset-manager.js`、`openai.js`、`PromptManager.js`、`macros.js`、`RossAscends-mods.js`、`power-user.js`、`user.js`、`authors-note.js`、`sse-stream.js`、`tokenizers.js` 与 `/scripts/extensions/regex/engine.js`。
+- `openai.js` / `PromptManager.js` 仅提供容器、模型名、消息集合与 inert request helpers；不把第三方扩展 promptManager 接入 NyaaChat 主对话 prompt builder，保持动态提示词与外部文本的信任边界由 NyaaChat 自身请求构造层控制。
+- 补 slash argument 元数据模块：`SlashCommandArgument.js`、`SlashCommandEnumValue.js`、`SlashCommandCommonEnumsProvider.js`，满足 JSR 注册命令时的参数描述、枚举、自动补全元数据 import；实际执行仍走现有 `src/compat/slash` 子集。
+- `utils.js` 补 `isDataURL`、`getImageSizeFromDataURL`、`ensureImageFormatSupported`、`Stopwatch`、`showFontAwesomePicker`、`getSanitizedFilename`；`extensions.js` 补 `saveMetadataDebounced` re-export；`slash-commands.js` 接收 options 参数但仍委托现有执行器。
+- 验证：以 `.ref/JS-Slash-Runner/dist/index.js` 静态 import 图对照 `public/` shim，所有相对 ST 模块与 named export 均已覆盖；`npm run build` 通过（仍有既有主 chunk > 500 kB 告警）；`npm run lint` 通过，仅保留既有 `src/components/ChatInterface.tsx:634` hooks warning。
 
 ---
 

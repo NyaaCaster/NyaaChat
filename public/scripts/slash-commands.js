@@ -16,6 +16,7 @@ export function executeSlashCommands(text) {
   return ctx().executeSlashCommands(text);
 }
 
-export function executeSlashCommandsWithOptions(text) {
+export function executeSlashCommandsWithOptions(text, options = {}) {
+  void options;
   return ctx().executeSlashCommandsWithOptions(text);
 }

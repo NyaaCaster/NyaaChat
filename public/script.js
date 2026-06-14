@@ -22,6 +22,13 @@ export let name1 = ctx().name1;
 export let name2 = ctx().name2;
 export let chat_metadata = ctx().chat_metadata;
 export const UNSET_EXTENSION_FIELD = "__@@UNSET@@__";
+export const system_message_types = { HELP: "help", GENERIC: "generic", NARRATOR: "narrator" };
+export const default_avatar = "img/ai4.png";
+export const system_avatar = "img/five.png";
+export const user_avatar = "img/user-default.png";
+export const main_api = "openai";
+export const online_status = "no_connection";
+export let is_send_press = false;
 
 onHostChange(() => {
   const c = ctx();
@@ -57,8 +64,142 @@ export const extension_prompt_types = { IN_PROMPT: 0, IN_CHAT: 1, BEFORE_PROMPT:
 export const extension_prompt_roles = { SYSTEM: 0, USER: 1, ASSISTANT: 2 };
 export const MAX_INJECTION_DEPTH = 1000;
 export const systemUserName = "System";
+export const extension_prompts = ctx().extensionPrompts ?? {};
 
-// --- chat lifecycle (best-effort / not wired) ------------------------------
+// --- UI / chat lifecycle best-effort shims ---------------------------------
+export function reloadMarkdownProcessor(...args) {
+  void args;
+  return Promise.resolve();
+}
+
+export function getThumbnailUrl(type, file) {
+  if (!file) return "";
+  if (typeof file === "string" && /^(https?:|data:|blob:|\/)/.test(file)) return file;
+  return type ? `/${type}/${file}` : String(file);
+}
+
+export function saveSettings(...args) {
+  void args;
+  return ctx().saveSettingsDebounced?.();
+}
+
+export function clearChat(...args) {
+  void args;
+  warnOnce("clearChat() is not implemented in the NyaaChat compat layer");
+  return Promise.resolve();
+}
+
+export function printMessages(...args) {
+  void args;
+  return Promise.resolve();
+}
+
+export function scrollChatToBottom() {
+  document.getElementById("chat")?.lastElementChild?.scrollIntoView?.({ block: "end" });
+}
+
+export function activateSendButtons() {
+  is_send_press = false;
+}
+
+export function deactivateSendButtons() {
+  is_send_press = true;
+}
+
+export function setGenerationProgress(...args) {
+  void args;
+}
+
+export function showSwipeButtons(...args) {
+  void args;
+}
+
+export function stopGeneration(...args) {
+  void args;
+  warnOnce("stopGeneration() is not wired to the NyaaChat generator");
+}
+
+export function cleanUpMessage(text) {
+  return String(text ?? "").trim();
+}
+
+export function isOdd(value) {
+  return Number(value) % 2 !== 0;
+}
+
+export function countOccurrences(string, subString) {
+  const source = String(string ?? "");
+  const needle = String(subString ?? "");
+  if (!needle) return 0;
+  return source.split(needle).length - 1;
+}
+
+export function baseChatReplace(text) {
+  return String(text ?? "");
+}
+
+export function getMaxContextSize() {
+  return 0;
+}
+
+export function getBiasStrings() {
+  return [];
+}
+
+export function getCharacterCardFields(character = characters?.[this_chid]) {
+  const data = character?.data ?? character ?? {};
+  return {
+    description: data.description ?? "",
+    personality: data.personality ?? "",
+    scenario: data.scenario ?? "",
+    mes_example: data.mes_example ?? "",
+    creator_notes: data.creator_notes ?? "",
+    system_prompt: data.system_prompt ?? "",
+    post_history_instructions: data.post_history_instructions ?? "",
+  };
+}
+
+export function getExtensionPromptByName(name) {
+  return extension_prompts?.[name]?.value ?? extension_prompts?.[name] ?? "";
+}
+
+export function getExtensionPromptRoleByName(name) {
+  return extension_prompts?.[name]?.role ?? extension_prompt_roles.SYSTEM;
+}
+
+export function getPastCharacterChats(...args) {
+  void args;
+  return Promise.resolve([]);
+}
+
+export function getOneCharacter(id = this_chid) {
+  return characters?.[id] ?? null;
+}
+
+export function getCharacters() {
+  return Promise.resolve(characters ?? []);
+}
+
+export function selectCharacterById(...args) {
+  void args;
+  warnOnce("selectCharacterById() is not implemented in the NyaaChat compat layer");
+  return Promise.resolve(false);
+}
+
+export function printCharacters(...args) {
+  void args;
+}
+
+export function unshallowCharacter(character) {
+  return Promise.resolve(character);
+}
+
+export function deleteCharacter(...args) {
+  void args;
+  warnOnce("deleteCharacter() is blocked in the NyaaChat compat layer");
+  return Promise.resolve(false);
+}
+
 export function getCurrentChatId() {
   // NyaaChat sessions aren't exposed to the compat layer as a chat id yet.
   return undefined;
@@ -66,6 +207,7 @@ export function getCurrentChatId() {
 export const saveChat = () => Promise.resolve();
 export const saveChatConditional = () => Promise.resolve();
 export const reloadCurrentChat = () => Promise.resolve();
+export const saveCharacterDebounced = () => Promise.resolve();
 export const addOneMessage = forward("addOneMessage", undefined);
 
 // --- generation (warn-once stubs; semantics differ from TavernHelper) -------
@@ -84,6 +226,7 @@ export function generateQuietPrompt(...args) {
   warnOnce("generateQuietPrompt() is not implemented in the NyaaChat compat layer");
   return Promise.resolve("");
 }
+export const Generate = generate;
 
 // --- popups (re-exported from the popup shim for `import { callPopup }`) ----
 export { callPopup, callGenericPopup, Popup, POPUP_TYPE, POPUP_RESULT } from "./scripts/popup.js";
