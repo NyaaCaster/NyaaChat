@@ -1,6 +1,6 @@
 ---
 name: rebuild
-description: Rebuild the NyaaChat Docker image and restart containers. Use this whenever the project needs a Docker rebuild + restart (e.g., after Dockerfile, nginx.conf, docker-compose.yml, or built frontend asset changes). Picks rebuild.ps1 on Windows and rebuild.sh on Linux/macOS, and always invokes PowerShell with `-ExecutionPolicy Bypass`.
+description: Rebuild the NyaaChat Docker image and restart containers. Use this whenever the project needs a Docker rebuild + restart (e.g., after Dockerfile, nginx.conf, docker-compose.yml, extension registry, or built frontend asset changes). Picks rebuild.ps1 on Windows and rebuild.sh on Linux/macOS, and always invokes PowerShell with `-ExecutionPolicy Bypass`.
 ---
 
 # rebuild
@@ -12,6 +12,7 @@ description: Rebuild the NyaaChat Docker image and restart containers. Use this 
 - 用户明确要求"重新编译"、"重建镜像"、"重启容器"、"rebuild"。
 - 改动了 `Dockerfile`、`docker-compose.yml`、`nginx.conf` 等容器构建相关文件。
 - 改动了前端构建产物所依赖的源码或配置，需要让镜像内的静态资源同步更新。
+- 安装、更新、删除 `public/extensions/<id>/` 下的第三方扩展，或需要刷新 `public/extensions/registry.json`。
 - 通过 `/rebuild` 显式调用。
 
 ## 选择脚本
@@ -26,6 +27,17 @@ description: Rebuild the NyaaChat Docker image and restart containers. Use this 
 判断依据优先级：
 1. 环境信息中的 `Platform`（如 `win32` → PowerShell）。
 2. 当前可用的 shell（PowerShell 工具可用 → Windows；仅 Bash → Linux/macOS）。
+
+## 扩展 registry 自动生成
+
+脚本会在 Docker build 前自动执行 `node ./scripts/generate-extension-registry.mjs`（Windows 路径显示为 `.\scripts\generate-extension-registry.mjs`），按 `public/extensions/*/manifest.json` 重新生成 `public/extensions/registry.json`。
+
+- 0 扩展状态会生成空清单：`{ "version": 1, "extensions": [] }`。
+- 安装扩展：`git clone` 到 `public/extensions/<id>/` 后运行 rebuild，registry 自动加入该目录。
+- 更新扩展：在扩展目录内 `git pull` 后运行 rebuild，registry 自动保持同步。
+- 删除扩展：删除 `public/extensions/<id>/` 后运行 rebuild，registry 自动移除该目录。
+- 默认生成项为 `rootEnabled: true`、`defaultUserEnabled: false`。
+- 如果生成脚本校验失败（例如 `manifest.json` 非法或缺少 `display_name`），应先修复扩展目录/manifest，再重新 rebuild；不要手写绕过 registry。
 
 ## 缓存策略
 
@@ -65,7 +77,7 @@ description: Rebuild the NyaaChat Docker image and restart containers. Use this 
   - Windows（无缓存）: `powershell -ExecutionPolicy Bypass -File .\rebuild.ps1 -NoCache`
   - Linux/macOS（默认有缓存）: `bash ./rebuild.sh`
   - Linux/macOS（无缓存）: `bash ./rebuild.sh --no-cache`
-- 脚本本身已包含：构建（默认带缓存）→ 清理 dangling 镜像 → `docker compose up -d` 按需重建容器 → 列出运行中容器。`up -d` 只在镜像 hash 或 service 配置变化时重建容器，volume（如 `image-cache`）自动保留。不要再额外手动执行这些步骤。
+- 脚本本身已包含：生成 `public/extensions/registry.json` → 构建（默认带缓存）→ 清理 dangling 镜像 → `docker compose up -d` 按需重建容器 → 列出运行中容器。`up -d` 只在镜像 hash 或 service 配置变化时重建容器，volume（如 `image-cache`）自动保留。不要再额外手动执行这些步骤。
 - 执行前请确认工作目录是项目根目录（含 `docker-compose.yml`）。
 - 执行后向用户简要汇报：脚本是否成功结束、当前运行中的容器状态。
 

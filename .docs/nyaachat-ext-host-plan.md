@@ -4,7 +4,7 @@
 > 目标是在**不支持运行时安装 / 更新 / 删除扩展**的前提下，让通过 git + rebuild 内置进项目的 SillyTavern 扩展获得足够的前端宿主与轻量后端能力。
 >
 > 创建：2026-06-14
-> 状态：P3 完成；下一阶段 P4（新增 `nyaachat-ext-host`）
+> 状态：P4 完成；下一阶段 P5（扩展字段与 metadata 桥）
 
 ---
 
@@ -12,12 +12,12 @@
 
 NyaaChat 已完成第一阶段 SillyTavern 兼容工作：扩展 registry、静态扩展加载、ST 目录深度 serving、部分 ESM shim、`SillyTavern.getContext()`、事件总线、变量、slash 子集、正则兼容等。
 
-但当前能力仍是「扩展加载器 + 高频 shim」，还不是「完整 ST 扩展运行宿主」。后续支持目标聚焦在两类扩展样本：
+但当前能力仍是「扩展加载器 + 高频 shim」，还不是「完整 ST 扩展运行宿主」。后续支持目标通过两类第三方扩展样本考察通用宿主缺口，但样本扩展不得被写死进 NyaaChat / `nyaachat-ext-host`：
 
 - `JS-Slash-Runner`：大型前端 UI、渲染器、脚本库、TavernHelper/常用 ST shim 深依赖。
 - `st-Quote-TTS`：轻量 jQuery 设置面板、消息 DOM 扫描、后端 TTS proxy。
 
-它们共同需要：
+它们只用于发现共同需要的 ST 通用宿主能力：
 
 - 类 ST 的扩展设置 UI 宿主（如 `#extensions_settings`）。
 - 可持久化的 `extension_settings` / `chat_metadata` / 角色扩展字段。
@@ -30,7 +30,7 @@ NyaaChat 已完成第一阶段 SillyTavern 兼容工作：扩展 registry、静�
 
 ## 1. 目标
 
-让 NyaaChat 能够运行通过 git/rebuild 内置的 ST 扩展，首批聚焦两类可控样本：JS-Slash-Runner 这类大型前端/渲染器扩展，以及 st-Quote-TTS 这类轻量设置面板 + 消息 DOM + 后端代理扩展。不把 JSR 代码重写进 NyaaChat，也不把 memory/prompt 注入类扩展纳入本阶段核心目标。
+让 NyaaChat 能够运行通过 git/rebuild 内置的 ST 扩展。开发期以 JS-Slash-Runner 这类大型前端/渲染器扩展，以及 st-Quote-TTS 这类轻量设置面板 + 消息 DOM + 后端代理扩展作为考察样本，反推出通用 ST 宿主能力；不得把任一扩展的代码、私有数据结构、默认 endpoint、扩展 ID 特判或业务逻辑写入 NyaaChat / `nyaachat-ext-host`。memory/prompt 注入类扩展不纳入本阶段核心目标。
 
 具体目标：
 
@@ -39,7 +39,7 @@ NyaaChat 已完成第一阶段 SillyTavern 兼容工作：扩展 registry、静�
 3. 保持扩展安装 / 更新 / 删除由 git + rebuild 治理，不提供运行时管理 API。
 4. 将 NyaaChat 的「扩展」界面补全为类 ST 扩展前端宿主：能显示扩展列表、启停扩展、显示扩展自己的设置 UI。
 5. 支持用户在前端导入 / 编辑 / 保存扩展自定义数据（例如 JSR 自定义脚本），默认落浏览器本地存储；必要的共享运行时状态由 `nyaachat-ext-host` 提供薄 API。
-6. 以 JS-Slash-Runner 与 st-Quote-TTS 组成首批验收样本矩阵：前者覆盖大型前端 UI / 渲染器 / 用户脚本，后者覆盖轻量设置 UI / 消息 DOM 扫描 / TTS proxy。
+6. 以 JS-Slash-Runner 与 st-Quote-TTS 组成开发期考察样本矩阵：前者覆盖大型前端 UI / 渲染器 / 用户脚本，后者覆盖轻量设置 UI / 消息 DOM 扫描 / TTS proxy；最终验收必须先在 0 扩展部署状态确认宿主正常，再通过 git clone 到扩展目录 + rebuild 验证扩展工作。
 
 ---
 
@@ -53,7 +53,7 @@ NyaaChat 已完成第一阶段 SillyTavern 兼容工作：扩展 registry、静�
 - 不实现 ST 的完整账号 / 用户隔离 / 多用户服务端存档模型。
 - 不复刻完整 SillyTavern 后端。
 - 不改动现有 NyaaChat MCP 架构；MCP 仍只服务 LLM 工具链。
-- 不把 JS-Slash-Runner 的功能内置重写进 NyaaChat；扩展内容由扩展本体提供。
+- 不把任何具体扩展的功能内置重写进 NyaaChat；扩展内容由扩展本体提供，宿主只提供通用 ST 兼容契约。
 - 不支持 memory/prompt 注入类 ST 扩展作为本阶段核心目标，例如深度改写 `CHAT_COMPLETION_PROMPT_READY`、注册复杂宏、读写大量消息级扩展字段的扩展。此类扩展会触及 NyaaChat prompt builder 与信任边界，需未来另立「受控 prompt bridge」计划。
 
 ---
@@ -65,7 +65,7 @@ browser
   ├─ NyaaChat React app
   ├─ ST compat frontend layer
   ├─ Extension UI host (#extensions_settings)
-  └─ bundled ST extensions (JS-Slash-Runner, st-Quote-TTS, etc.)
+  └─ operator-managed ST extensions (optional; installed by git clone + rebuild)
 
 nginx app container
   ├─ serve dist/
@@ -104,14 +104,14 @@ NyaaChat 当前没有服务端用户账号；用户配置主要存在浏览器 l
 | 扩展本体文件 | git + 镜像 | `public/extensions/<id>/`，运营方 rebuild 分发 |
 | rootEnabled / defaultUserEnabled | git + registry | 仓库治理 |
 | 用户启停偏好 | localStorage | 当前已有 `nyaachat_ext_prefs` |
-| `extension_settings` | localStorage / IndexedDB 优先 | JSR 自定义脚本、渲染器设置等用户私有数据 |
+| `extension_settings` | localStorage / IndexedDB 优先 | 扩展自定义脚本、渲染器设置等用户私有数据 |
 | 大型脚本库 | IndexedDB 优先 | 避免 localStorage 容量限制 |
 | `chat_metadata` | 当前会话 / localStorage | 与 NyaaChat session 绑定 |
 | message variables | `Message.variables` | 已有基础 |
 | 角色扩展字段 | `settings.characters[].extensions` 或映射字段 | 仍随用户 localStorage 设置走 |
 | 服务端共享运行态 | `nyaachat-ext-host` 可选 | 仅放无用户隔离也安全的共享信息 |
 
-原则：JSR 用户自定义脚本属于用户定制化数据，应保存在用户浏览器侧；不要求服务端按用户保存。
+原则：扩展自定义脚本属于用户定制化数据，应保存在用户浏览器侧；不要求服务端按用户保存。
 
 ---
 
@@ -124,7 +124,7 @@ NyaaChat 当前没有服务端用户账号；用户配置主要存在浏览器 l
 - `#extensions_settings`
 - 必须在扩展脚本加载前存在。
 - 不应随 modal 开关销毁；可以常驻隐藏，Modal 只负责显示其内容。
-- 扩展可以向其中 append 自己的根节点，例如 JSR 的 `#tavern_helper`。
+- 扩展可以向其中 append 自己的根节点。
 
 ### 5.2 扩展面板改造
 
@@ -134,7 +134,7 @@ NyaaChat 当前没有服务端用户账号；用户配置主要存在浏览器 l
 - 主区域：扩展设置 UI 宿主（`#extensions_settings` 的可视区域）。
 - 去掉安装 / 更新 / 删除。
 - 保留「启停变更需刷新」提示。
-- 若启用 JS-Slash-Runner，提示关闭 NyaaChat 自带前端渲染，避免双渲染。
+- 若启用第三方前端卡渲染扩展，提示关闭 NyaaChat 自带前端渲染，避免双渲染。
 
 ### 5.3 扩展加载顺序
 
@@ -161,7 +161,7 @@ NyaaChat 当前没有服务端用户账号；用户配置主要存在浏览器 l
 - 可选：保存/读取共享 extension runtime metadata。
 - 可选：提供 extension field 写入接口，用于前端桥接角色 / 聊天扩展字段。
 - 可选：提供受控资源 proxy 或临时文件接口（仅在具体扩展需要时补）。
-- 提供 st-Quote-TTS 需要的受控 TTS proxy，避免浏览器扩展变成任意 URL 开放代理。
+- 提供 ST-compatible 受控 TTS / voice proxy，避免浏览器扩展变成任意 URL 开放代理。
 
 ### 6.2 API 草案
 
@@ -182,7 +182,7 @@ POST /api/extensions/update    -> 501 operator-managed
 POST /api/extensions/delete    -> 501 operator-managed
 ```
 
-`POST /api/openai/custom/generate-voice` 用于兼容 st-Quote-TTS 这类扩展。该接口必须使用服务端白名单或 preset 映射约束目标 endpoint；不得信任扩展传入的任意 `provider_endpoint` 直接转发。
+`POST /api/openai/custom/generate-voice` 是 ST-compatible 通用 voice proxy。该接口必须使用服务端白名单或 preset 映射约束目标 endpoint；不得信任扩展传入的任意 `provider_endpoint` 直接转发，也不得内置任何具体扩展的 endpoint、voice、model 或私有参数默认值。
 
 实际是否需要暴露这些 501 endpoint，按扩展调用情况决定；默认不主动添加。
 
@@ -212,20 +212,21 @@ location /api/ext-host/ {
 
 ## 7. ST shim 补全策略
 
-不盲目复刻 ST 全量导出。以真实扩展运行缺口为驱动：
+不盲目复刻 ST 全量导出。以真实扩展运行缺口为驱动，但只沉淀通用 ST 宿主能力，不沉淀扩展专属逻辑：
 
-1. 把 JS-Slash-Runner 与 st-Quote-TTS 作为内置扩展样本加入本地 registry（仅开发分支/测试环境）。
-2. 浏览器加载，记录：
+1. 先在 0 扩展状态完成宿主开发与 rebuild 验证，确认 NyaaChat 无扩展也能正常运行。
+2. 再由运营方通过 git clone 将考察样本放入 `public/extensions/<id>/`，配套 registry 后 rebuild。
+3. 浏览器加载样本扩展，记录：
    - missing module URL
    - missing named export
    - runtime `notImplemented()` 调用
    - DOM mount failure
-3. 对每个缺口分类：
+4. 对每个缺口分类：
    - shim 纯前端可补；
    - localStorage/IndexedDB 可补；
    - 需要 `nyaachat-ext-host`；
    - 明确不支持。
-4. 每轮只补一批高价值 API，并写入兼容表。
+5. 每轮只补一批高价值通用 API，并写入兼容表；若缺口只属于某个扩展私有实现，则标为扩展侧能力或不支持，不进入宿主。
 
 ---
 
@@ -326,15 +327,26 @@ location /api/ext-host/ {
 
 ### P4：新增 `nyaachat-ext-host`
 
-- [ ] 新建 Node sidecar 项目目录。
-- [ ] 实现 health/status API。
-- [ ] 实现受控 `POST /api/openai/custom/generate-voice` TTS proxy。
-- [ ] docker-compose 增加 `ext-host` 服务。
-- [ ] nginx 增加 `/api/ext-host/` 反代。
-- [ ] nginx 为 `/api/openai/custom/generate-voice` 接到 `ext-host` 或等价后端路径。
-- [ ] 保证现有 MCP 路径不变。
+- [x] 新建 Node sidecar 项目目录。
+- [x] 实现 health/status API。
+- [x] 实现受控 `POST /api/openai/custom/generate-voice` TTS proxy。
+- [x] docker-compose 增加 `ext-host` 服务。
+- [x] nginx 增加 `/api/ext-host/` 反代。
+- [x] nginx 为 `/api/openai/custom/generate-voice` 接到 `ext-host` 或等价后端路径。
+- [x] 保证现有 MCP 路径不变。
 
-验收：rebuild 后 `nyaachat-ext-host` 容器启动，`/api/ext-host/health` 返回 OK，st-Quote-TTS 的 TTS 请求可被受控转发，MCP 功能不受影响。
+验收：rebuild 后，0 扩展部署状态下 `nyaachat-ext-host` 容器启动，`/api/ext-host/health` 返回 OK，NyaaChat 与 MCP 功能不受影响；随后通过 git clone 安装第三方扩展到扩展目录并 rebuild，验证其 TTS 请求只能经白名单 / preset 受控转发。
+
+#### P4 实施记录（2026-06-14）
+
+- 新增 `ext-host/` 轻量 Node sidecar，默认监听容器内 `3099`，只通过 nginx 同源反代暴露给浏览器，不映射宿主机端口。
+- 实现通用扩展宿主 API：`GET /health`、`GET /status`、`GET/PUT /runtime-metadata`、`POST /extension-field` 与 ST-compatible `POST /openai/custom/generate-voice`。
+- `generate-voice` 仅作为通用受控 voice proxy：endpoint 必须来自 `TTS_DEFAULT_ENDPOINT`、`TTS_PRESETS` 或 `TTS_ALLOWED_ENDPOINTS`；请求体只剥离 `provider` / `provider_endpoint` / `api_key` / `token` 控制字段，其余字段原样转发，不内置任何扩展专属 endpoint / model / voice / 默认参数。
+- `docker-compose.yml` 增加 `ext-host` 服务，`app` 通过 `depends_on` 等待 sidecar 启动；`nginx.conf` 增加 `/api/ext-host/` 与 `/api/openai/custom/generate-voice` 反代，现有 `/api/mcp` 与 `/api/mcp/health` 路径不变。
+- 新增 `scripts/generate-extension-registry.mjs`，并接入 `npm run build`、`rebuild.ps1`、`rebuild.sh`：rebuild 前自动按 `public/extensions/*/manifest.json` 生成 `public/extensions/registry.json`，0 扩展状态生成空清单。
+- 更新 `rebuild` skill，明确安装 / 更新 / 删除第三方扩展目录后通过 rebuild 自动刷新 registry。
+- 验证：`node --check ext-host/src/server.js` 通过；`npm run lint` 通过但保留既有 `src/components/ChatInterface.tsx:612` hooks warning；`npm run build` 通过（仍有既有 chunk size warning）；`docker compose config` 通过；`powershell -ExecutionPolicy Bypass -File .\rebuild.ps1` 成功构建并启动 `nyaachat-app-1` 与 `nyaachat-ext-host-1`。
+- 运行验证：`http://localhost:3095/api/ext-host/health` 返回 `{"ok":true,"service":"nyaachat-ext-host"}`；`/api/ext-host/status` 返回 sidecar 状态且 TTS 未配置时 `configured=false`；`/extensions/registry.json` 返回 0 扩展空清单；`/api/mcp/health` 返回现有 MCP 健康状态。
 
 ### P5：扩展字段与 metadata 桥
 
@@ -358,22 +370,23 @@ location /api/ext-host/ {
 ## 9. 风险与约束
 
 - JS-Slash-Runner 是大型扩展，完整功能面远大于当前 shim；必须按真实缺口迭代。
-- st-Quote-TTS 会引入后端代理面；TTS proxy 必须做 endpoint 白名单或 preset 映射，避免成为任意 URL 开放代理。
+- TTS / voice proxy 会引入后端代理面；必须做 endpoint 白名单或 preset 映射，避免成为任意 URL 开放代理。
 - 用户自定义脚本运行在浏览器，具备读取页面状态/localStorage 的能力；安全模型是用户信任自己导入的脚本。
 - localStorage 容量有限，脚本库可能需要 IndexedDB。
 - 没有账号系统，因此服务端不可保存用户私有脚本，除非未来引入用户隔离。
 - React DOM 与扩展 jQuery/Vue DOM 操作存在天然冲突，需要明确扩展可操作区域。
 - memory/prompt 注入类扩展暂不纳入本阶段，避免为兼容扩展破坏 NyaaChat prompt builder、缓存布局与信任边界。
-- 不要为了兼容扩展而破坏现有 NyaaChat MCP、聊天、正则、角色设置路径。
+- 任何具体扩展都只能作为考察样本；禁止在 NyaaChat / `nyaachat-ext-host` 中写扩展 ID 特判、扩展私有数据结构、扩展专属默认值、专属 endpoint 或内置扩展业务逻辑。
 
 ---
 
 ## 10. 当前决策
 
 - 采用轻量 Node sidecar，服务名暂定 `nyaachat-ext-host`。
-- 扩展治理继续使用 git + rebuild。
-- 首批核心验收样本限定为 JS-Slash-Runner 与 st-Quote-TTS 两类；放弃 st-memory-enhancement 这类 memory/prompt 注入型扩展作为本阶段目标。
+- 扩展治理继续使用 git + rebuild；基础宿主必须支持 0 扩展部署正常运行，第三方扩展通过 git clone 到 `public/extensions/<id>/` 后 rebuild 生效。
+- JS-Slash-Runner 与 st-Quote-TTS 仅作为开发期通用能力考察样本，不作为内置扩展或专属适配目标；放弃 st-memory-enhancement 这类 memory/prompt 注入型扩展作为本阶段目标。
 - 用户定制脚本和扩展设置优先存浏览器本地。
-- st-Quote-TTS 所需 TTS proxy 由 `nyaachat-ext-host` 或等价后端路径受控提供，必须限制目标 endpoint。
+- ST-compatible TTS / voice proxy 由 `nyaachat-ext-host` 或等价后端路径受控提供，必须限制目标 endpoint，且不得内置任何扩展专属 endpoint / model / voice / 默认参数。
 - MCP 不作为扩展运行宿主；现有 MCP 代码和部署不动。
-- 前端渲染不是本计划主线；若启用真实 JS-Slash-Runner 渲染器，应关闭 NyaaChat 自带前端渲染。
+- 前端渲染不是本计划主线；若启用第三方前端卡渲染扩展，应关闭 NyaaChat 自带前端渲染。
+- 不要为了兼容扩展而破坏现有 NyaaChat MCP、聊天、正则、角色设置路径。

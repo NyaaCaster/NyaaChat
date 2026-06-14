@@ -55,8 +55,12 @@ const toastr: ToastrLike = {
   error: (m, t) => emitToast("error", m, t),
 };
 
-type JQueryCollection = Array<HTMLElement> & {
+type JQueryCollection = {
+  [index: number]: HTMLElement;
   length: number;
+  forEach: Array<HTMLElement>["forEach"];
+  map: Array<HTMLElement>["map"];
+  [Symbol.iterator]: Array<HTMLElement>[typeof Symbol.iterator];
   append: (content: unknown) => JQueryCollection;
   appendTo: (target: string | HTMLElement | JQueryCollection) => JQueryCollection;
   empty: () => JQueryCollection;
@@ -96,10 +100,11 @@ function toElements(content: unknown): Node[] {
 }
 
 function makeCollection(items: HTMLElement[]): JQueryCollection {
-  const arr = items as JQueryCollection;
+  const arr = items as unknown as JQueryCollection;
+  const source = arr as unknown as HTMLElement[];
   arr.append = (content) => {
     const nodes = toElements(content);
-    arr.forEach((el, index) => {
+    source.forEach((el, index) => {
       for (const node of nodes) el.appendChild(index === 0 ? node : node.cloneNode(true));
     });
     return arr;
@@ -118,16 +123,16 @@ function makeCollection(items: HTMLElement[]): JQueryCollection {
     arr.forEach((el) => (el.textContent = ""));
     return arr;
   };
-  arr.find = (selector) => makeCollection(arr.flatMap((el) => Array.from(el.querySelectorAll<HTMLElement>(selector))));
-  arr.closest = (selector) => makeCollection(arr.map((el) => el.closest<HTMLElement>(selector)).filter(Boolean) as HTMLElement[]);
+  arr.find = (selector) => makeCollection(source.flatMap((el) => Array.from(el.querySelectorAll<HTMLElement>(selector))));
+  arr.closest = (selector) => makeCollection(source.map((el) => el.closest<HTMLElement>(selector)).filter(Boolean) as HTMLElement[]);
   arr.filter = (selectorOrCb) => {
-    if (typeof selectorOrCb === "string") return makeCollection(arr.filter((el) => el.matches(selectorOrCb)));
-    return makeCollection(arr.filter((el, i) => selectorOrCb.call(el, i, el)));
+    if (typeof selectorOrCb === "string") return makeCollection(source.filter((el) => el.matches(selectorOrCb)));
+    return makeCollection(source.filter((el, i) => selectorOrCb.call(el, i, el)));
   };
-  arr.first = () => makeCollection(arr[0] ? [arr[0]] : []);
-  arr.last = () => makeCollection(arr.length ? [arr[arr.length - 1]] : []);
+  arr.first = () => makeCollection(source[0] ? [source[0]] : []);
+  arr.last = () => makeCollection(source.length ? [source[source.length - 1]] : []);
   arr.each = (cb) => {
-    arr.forEach((el, i) => cb.call(el, i, el));
+    source.forEach((el, i) => cb.call(el, i, el));
     return arr;
   };
   arr.text = (value) => {
@@ -141,7 +146,7 @@ function makeCollection(items: HTMLElement[]): JQueryCollection {
     return arr;
   };
   arr.val = (value) => {
-    const fields = arr as Array<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>;
+    const fields = arr as unknown as Array<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>;
     if (value === undefined) return fields[0]?.value ?? "";
     fields.forEach((el) => (el.value = value));
     return arr;

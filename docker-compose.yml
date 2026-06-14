@@ -19,12 +19,21 @@ services:
       - NGINX_ENVSUBST_FILTER=^MCP_
     ports:
       - "3095:3095"
+    depends_on:
+      - ext-host
     restart: unless-stopped
     volumes:
       # Persist the nginx image-proxy cache across container rebuilds so
       # users don't lose access to images generated on previous deploys.
       # Sized at 5GB by nginx.conf:proxy_cache_path.
       - image-cache:/var/cache/nginx/images
+
+  ext-host:
+    build: ./ext-host
+    environment:
+      - TZ=Asia/Shanghai
+      - PORT=3099
+    restart: unless-stopped
 
 volumes:
   image-cache:

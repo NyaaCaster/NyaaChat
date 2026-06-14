@@ -9,6 +9,9 @@ for arg in "$@"; do
     esac
 done
 
+echo "Generating extension registry..."
+node ./scripts/generate-extension-registry.mjs
+
 if [ "$NO_CACHE" = "1" ]; then
     echo "Building image (no cache)..."
     docker compose -f $COMPOSE_FILE build --no-cache

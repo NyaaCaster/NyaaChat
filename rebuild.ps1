@@ -5,6 +5,9 @@ param(
 $ErrorActionPreference = "Stop"
 $COMPOSE_FILE = "docker-compose.yml"
 
+Write-Host "Generating extension registry..." -ForegroundColor Cyan
+node .\scripts\generate-extension-registry.mjs
+
 if ($NoCache) {
     Write-Host "Building image (no cache)..." -ForegroundColor Cyan
     docker compose -f $COMPOSE_FILE build --no-cache
