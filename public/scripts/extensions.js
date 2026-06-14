@@ -9,6 +9,8 @@
 
 import { ctx, warnOnce } from "./_compat-host.js";
 
+export const UNSET_VALUE = "__@@UNSET@@__";
+
 /** The shared, stable extension settings object. Same identity as
  *  getContext().extension_settings, so reads/writes are seen by the host. */
 export const extension_settings = ctx().extension_settings;
@@ -39,10 +41,10 @@ export function renderExtensionTemplate(...args) {
   return "";
 }
 
-/** Persist a field into a character's data.extensions. Best-effort no-op:
- *  NyaaChat doesn't write character cards from extensions. */
-export function writeExtensionField(...args) {
-  void args;
+/** Persist a field into a character's data.extensions. */
+export function writeExtensionField(characterId, key, value) {
+  const fn = ctx().writeExtensionField;
+  if (typeof fn === "function") return fn(characterId, key, value);
   warnOnce("writeExtensionField() is not implemented in the NyaaChat compat layer");
   return Promise.resolve();
 }

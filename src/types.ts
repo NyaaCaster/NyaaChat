@@ -111,6 +111,9 @@ export interface CharacterSettings {
   description: string;
   firstMes?: string;
   worldInfo?: WorldInfoRule[];
+  /** ST-style character extension fields (`data.extensions`). Used by bundled
+   *  extensions for character script bindings and character-scoped variables. */
+  extensions?: Record<string, unknown>;
   /** Character-scoped regex scripts (ST: `data.extensions.regex_scripts`).
    *  Run after global scripts in the combined chain. */
   regexScripts?: RegexScript[];
@@ -244,6 +247,9 @@ export interface ChatSession {
   characterId: string;
   characterName: string;
   messages: Message[];
+  /** ST-compatible chat_metadata. Persisted with the session in addition to the
+   *  browser-local draft metadata scope used before a chat is first saved. */
+  metadata?: Record<string, unknown>;
   createdAt: number;
 }
 

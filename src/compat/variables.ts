@@ -9,6 +9,10 @@
 //   - global:  persisted to localStorage, shared across all chats.
 //   - chat:    persisted to localStorage (single key for now — NOT yet
 //              partitioned per session; see TODO). Survives reload.
+//   - character: persisted through the active CharacterSettings.extensions via
+//              metadataBridge/writeExtensionField. Used by character script
+//              variables and bindings from ST-style extensions.
+//   - preset:  in-memory placeholder; NyaaChat has no ST preset store yet.
 //   - script:  in-memory, keyed by script id. Lives for the page session.
 //   - message: stored ON the message object (Message.variables) in React state,
 //              so it serializes with the session and follows the message under
@@ -25,6 +29,9 @@
 // klona-on-read contract.
 
 import { getChat, getMessageByMesId, commandSetMessageVariables } from "./runtimeStore";
+import { getMeta } from "./runtimeStore";
+import { getContext } from "./stContext";
+import { getCharacterExtensions, writeExtensionField } from "./metadataBridge";
 
 export type VariableScope = "global" | "chat" | "script" | "message" | "character" | "preset";
 
@@ -59,9 +66,9 @@ const scriptVars = new Map<string, Record<string, unknown>>();
 // mesid) keeps entries attached to the right message under insert/delete index
 // shifts. Seeded lazily from the runtime store; cleared on session change.
 const messageVarOverlay = new Map<string, Record<string, unknown>>();
-// character / preset have no NyaaChat home yet — kept in memory so reads/writes
-// are coherent within a session without throwing.
-const characterVars: Record<string, unknown> = {};
+// character variables are read from the active character's extension field and
+// write back through metadataBridge, so they survive refresh with character settings.
+const CHARACTER_VARIABLE_FIELD = "TavernHelper_characterScriptVariables";
 const presetVars: Record<string, unknown> = {};
 
 function deepClone<T>(v: T): T {
@@ -101,6 +108,20 @@ function getGlobalStore(): Record<string, unknown> {
 function getChatStore(): Record<string, unknown> {
   if (!chatCache) chatCache = loadPersisted(chatKey(activeChatScope));
   return chatCache;
+}
+
+function getCharacterStore(): Record<string, unknown> {
+  const chid = getMeta().chid;
+  const character = typeof chid === "number" ? getContext().characters?.[chid] : undefined;
+  const extensions = getCharacterExtensions(character);
+  const vars = extensions[CHARACTER_VARIABLE_FIELD];
+  return vars && typeof vars === "object" && !Array.isArray(vars) ? (vars as Record<string, unknown>) : {};
+}
+
+function commitCharacterStore(store: Record<string, unknown>): void {
+  const chid = getMeta().chid;
+  if (typeof chid !== "number") return;
+  void writeExtensionField(chid, CHARACTER_VARIABLE_FIELD, deepClone(store));
 }
 
 /** Switch the active chat-variable scope (called on session change). Persists
@@ -156,7 +177,7 @@ function resolveStore(option: VariableOption): Record<string, unknown> {
     case "chat":
       return getChatStore();
     case "character":
-      return characterVars;
+      return getCharacterStore();
     case "preset":
       return presetVars;
     case "script": {
@@ -176,6 +197,7 @@ function resolveStore(option: VariableOption): Record<string, unknown> {
 function persistIfNeeded(option: VariableOption): void {
   if (option.type === "global") savePersisted(GLOBAL_KEY, getGlobalStore());
   else if (option.type === "chat") savePersisted(chatKey(activeChatScope), getChatStore());
+  else if (option.type === "character") commitCharacterStore(getCharacterStore());
 }
 
 /** Read a scope's variables (deep clone). */
@@ -212,9 +234,8 @@ export function replaceVariables(
       scriptVars.set(option.script_id ?? "__default__", next);
       break;
     case "character":
-      Object.keys(characterVars).forEach((k) => delete characterVars[k]);
-      Object.assign(characterVars, next);
-      break;
+      commitCharacterStore(next);
+      return;
     case "preset":
       Object.keys(presetVars).forEach((k) => delete presetVars[k]);
       Object.assign(presetVars, next);

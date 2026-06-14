@@ -16,7 +16,8 @@
 // module only declares HOW the compat layer reads app state, not WHEN.
 
 import { eventSource, event_types } from "./events";
-import { getContext } from "./stContext";
+import { getContext, writeExtensionField } from "./stContext";
+import { saveMetadataNow } from "./metadataBridge";
 import { installGlobals } from "./globals";
 import { setChatAccessor, setDefaultEnvProvider } from "./macros";
 import { getChat, getMeta, subscribe as subscribeRuntime } from "./runtimeStore";
@@ -98,6 +99,8 @@ export function installCompatLayer(): void {
     eventSource,
     event_types,
     subscribe: (cb: () => void) => subscribeRuntime(() => cb()),
+    writeExtensionField,
+    saveMetadata: saveMetadataNow,
   };
 
   // ST extensions poll/query this container during module init and append their
@@ -144,6 +147,8 @@ export {
   setContextProvider,
   setSettingsPersister,
   saveSettingsDebounced,
+  saveMetadata,
+  saveMetadataDebounced,
 } from "./stContext";
 export {
   extension_settings,
@@ -152,6 +157,18 @@ export {
   loadExtensionSettingsFromIndexedDb,
   saveExtensionSettingsToIndexedDb,
 } from "./extensionSettings";
+export {
+  UNSET_EXTENSION_FIELD,
+  applyExtensionFieldToCharacters,
+  getChatMetadata,
+  replaceChatMetadata,
+  saveMetadataNow,
+  setActiveChatMetadataScope,
+  setExtensionFieldWriter,
+  writeExtensionField,
+  toSTCharacter,
+} from "./metadataBridge";
+export type { CharacterLikeWithExtensions, ExtensionFieldWrite, ExtensionFieldWriter, STCharacterLike } from "./metadataBridge";
 export { setToastSink } from "./globals";
 export {
   getRegexedString,

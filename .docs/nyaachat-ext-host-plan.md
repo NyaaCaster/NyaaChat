@@ -4,7 +4,7 @@
 > 目标是在**不支持运行时安装 / 更新 / 删除扩展**的前提下，让通过 git + rebuild 内置进项目的 SillyTavern 扩展获得足够的前端宿主与轻量后端能力。
 >
 > 创建：2026-06-14
-> 状态：P4 完成；下一阶段 P5（扩展字段与 metadata 桥）
+> 状态：P5 完成；下一阶段 P6（JSR shim 缺口迭代）
 
 ---
 
@@ -350,11 +350,20 @@ location /api/ext-host/ {
 
 ### P5：扩展字段与 metadata 桥
 
-- [ ] 设计 `writeExtensionField` 到 NyaaChat 用户本地角色/聊天设置的映射。
-- [ ] 接通 JSR `predefine.js` 期望的 `writeExtensionField`。
-- [ ] 支持角色脚本绑定和角色脚本变量的最小持久化。
+- [x] 设计 `writeExtensionField` 到 NyaaChat 用户本地角色/聊天设置的映射。
+- [x] 接通 JSR `predefine.js` 期望的 `writeExtensionField`。
+- [x] 支持角色脚本绑定和角色脚本变量的最小持久化。
 
 验收：JSR 脚本绑定类设置能在刷新后保留。
+
+#### P5 实施记录（2026-06-14）
+
+- 新增 `src/compat/metadataBridge.ts`，把 ST 的 `character.data.extensions` 映射到 NyaaChat `CharacterSettings.extensions`，并通过 `setExtensionFieldWriter()` 让 compat 层把写入意图回交给 React/`onSettingsChange`，继续由浏览器本地设置持久化。
+- `window.SillyTavern.getContext()` 现在返回由当前角色列表生成的 ST-like character 对象，包含 `data.extensions`、顶层 `extensions` 与 `json_data`，并提供 `writeExtensionField`、`saveMetadata`、`saveMetadataDebounced`。
+- `/scripts/extensions.js` 的 `writeExtensionField()` 不再是 no-op，改为转发到宿主桥；同步导出 ST sentinel `UNSET_VALUE`。`/script.js` 也补出 `saveMetadata*` 与 `UNSET_EXTENSION_FIELD` 便于 ESM import shim 使用。
+- `chat_metadata` 增加按会话 scoped 的 localStorage backing，并在保存聊天记录时写入 `ChatSession.metadata`；会话切换时恢复对应 metadata，未保存草稿使用 `__draft__` scope。
+- `src/compat/variables.ts` 的 `character` scope 从内存占位升级为写入当前角色的 `TavernHelper_characterScriptVariables` 扩展字段，覆盖角色脚本变量的最小持久化路径；`preset` scope 仍为内存占位，留到 P6/后续按真实缺口扩展。
+- 验证：`npm run lint` 通过，仅保留既有 `src/components/ChatInterface.tsx:634` hooks warning；`npm run build` 通过，仍有既有主 chunk > 500 kB 告警。
 
 ### P6：JSR shim 缺口迭代
 

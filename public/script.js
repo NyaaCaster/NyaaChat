@@ -21,6 +21,7 @@ export let this_chid = ctx().this_chid;
 export let name1 = ctx().name1;
 export let name2 = ctx().name2;
 export let chat_metadata = ctx().chat_metadata;
+export const UNSET_EXTENSION_FIELD = "__@@UNSET@@__";
 
 onHostChange(() => {
   const c = ctx();
@@ -39,6 +40,8 @@ export function getContext() {
 
 // --- events / macros / settings (forward to compat) ------------------------
 export const saveSettingsDebounced = (...a) => ctx().saveSettingsDebounced(...a);
+export const saveMetadata = (...a) => ctx().saveMetadata(...a);
+export const saveMetadataDebounced = (...a) => ctx().saveMetadataDebounced(...a);
 export const substituteParams = (...a) => ctx().substituteParams(...a);
 export const substituteParamsExtended = (...a) => ctx().substituteParamsExtended(...a);
 export const setExtensionPrompt = (...a) => ctx().setExtensionPrompt(...a);

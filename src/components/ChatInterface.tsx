@@ -21,7 +21,7 @@ import { ChatComposer } from "./ChatComposer";
 import { motion, AnimatePresence } from "motion/react";
 import { useFullscreen } from "../hooks/useFullscreen";
 import { useAttachments } from "../hooks/useAttachments";
-import { syncChat, syncMeta, getEffectiveRegexScripts, subscribeRegexScripts, resetTransientVariables, setGenerateApiResolver, setMessageWriter, setActiveChatScope, emitChatChanged, emitChatLoaded, emitMessageDeleted, emitMessageReceived, emitMessageSent, emitMessageUpdated, emitUserMessageRendered, emitCharacterMessageRendered } from "../compat";
+import { syncChat, syncMeta, getEffectiveRegexScripts, subscribeRegexScripts, resetTransientVariables, setGenerateApiResolver, setMessageWriter, setActiveChatScope, setActiveChatMetadataScope, setContextProvider, setExtensionFieldWriter, applyExtensionFieldToCharacters, getChatMetadata, replaceChatMetadata, saveMetadataNow, toSTCharacter, emitChatChanged, emitChatLoaded, emitMessageDeleted, emitMessageReceived, emitMessageSent, emitMessageUpdated, emitUserMessageRendered, emitCharacterMessageRendered } from "../compat";
 
 /**
  * Map a thrown error from the API layer to a user-friendly Chinese message.
@@ -103,6 +103,8 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
   );
   const charName = currentCharacter?.name || "AI助手";
   const userName = currentUserRole?.name || "user";
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
 
   // Effective regex chain (global + this character), enabled-only. Held in state
   // so MessageItem's memo isn't busted by a fresh array identity every render:
@@ -125,6 +127,28 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
       abortControllerRef.current = null;
     }
   };
+
+  useEffect(() => {
+    setContextProvider({
+      characters: () => settingsRef.current.characters.map(toSTCharacter),
+      thisChid: () => {
+        const s = settingsRef.current;
+        const idx = s.characters.findIndex((c) => c.id === s.currentCharacterId);
+        return idx >= 0 ? idx : null;
+      },
+    });
+    return () => setContextProvider(null);
+  }, []);
+
+  useEffect(() => {
+    setExtensionFieldWriter(({ characterId, key, value }) => {
+      const result = applyExtensionFieldToCharacters(settingsRef.current.characters, { characterId, key, value });
+      if (!result.changed) return false;
+      onSettingsChange({ ...settingsRef.current, characters: result.characters });
+      return true;
+    });
+    return () => setExtensionFieldWriter(null);
+  }, [onSettingsChange]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -175,8 +199,6 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
   // Compat layer: let front-end cards' TavernHelper.generate reach the active
   // LLM provider. A ref keeps the resolver reading the latest settings without
   // re-registering on every settings change.
-  const settingsRef = useRef(settings);
-  settingsRef.current = settings;
   useEffect(() => {
     setGenerateApiResolver(() => {
       const s = settingsRef.current;
@@ -626,11 +648,15 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
         characterId: currentSession?.characterId ?? currentCharacter?.id ?? "default",
         characterName: currentSession?.characterName ?? charName,
         messages,
+        metadata: getChatMetadata(),
         createdAt: currentSession?.createdAt ?? Date.now(),
       };
       try {
+        saveMetadataNow();
         saveSession(session);
         if (!currentSession || currentSession.id !== session.id) {
+          setActiveChatScope(session.id);
+          setActiveChatMetadataScope(session.id);
           onSessionChange(session);
         }
       } catch (err: any) {
@@ -860,12 +886,14 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
 
   // Load session when selected from history
   useEffect(() => {
+    // Point the compat chat-variable and metadata scopes at this session so
+    // front-end-card state is partitioned per conversation (null = draft scratch).
+    setActiveChatScope(currentSession?.id ?? null);
+    setActiveChatMetadataScope(currentSession?.id ?? null);
     if (currentSession) {
       setMessages(currentSession.messages);
+      replaceChatMetadata(currentSession.metadata);
     }
-    // Point the compat chat-variable scope at this session so front-end-card
-    // chat variables are partitioned per conversation (null = draft scratch).
-    setActiveChatScope(currentSession?.id ?? null);
     // Depending on the id alone is intentional: when the same session object
     // is passed back (e.g. after rename) we don't want to re-import messages.
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -20,6 +20,8 @@ import { getChat, getMeta, getMessageByMesId } from "./runtimeStore";
 import type { RuntimeMessage } from "./runtimeStore";
 import { executeSlashCommands, registerSlashCommand, addCommandObject } from "./slash";
 import { extension_settings, saveExtensionSettingsNow } from "./extensionSettings";
+import { getChatMetadata, saveMetadataNow, writeExtensionField } from "./metadataBridge";
+export { writeExtensionField };
 
 /** A character entry as getContext().characters exposes it. Minimal subset. */
 export interface STCharacter {
@@ -28,6 +30,9 @@ export interface STCharacter {
   description?: string;
   /** ST nests card data (including regex_scripts) under `data`. */
   data?: Record<string, unknown>;
+  /** NyaaChat also mirrors `data.extensions` here for extensions that probe it directly. */
+  extensions?: Record<string, unknown>;
+  json_data?: string;
 }
 
 /** Identity/context info the shim can't derive from runtimeStore alone. Filled
@@ -35,7 +40,6 @@ export interface STCharacter {
 export interface ContextProvider {
   characters: () => STCharacter[];
   thisChid: () => number | null;
-  chatMetadata: () => Record<string, unknown>;
 }
 
 let provider: ContextProvider | null = null;
@@ -105,6 +109,24 @@ export function saveSettingsDebounced(): void {
   }, 1000);
 }
 
+let metadataSaveTimer: ReturnType<typeof setTimeout> | null = null;
+
+export function saveMetadata(): void {
+  saveMetadataNow();
+}
+
+export function saveMetadataDebounced(): void {
+  if (metadataSaveTimer) clearTimeout(metadataSaveTimer);
+  metadataSaveTimer = setTimeout(() => {
+    metadataSaveTimer = null;
+    try {
+      saveMetadataNow();
+    } catch (err) {
+      console.error("[compat] metadata persist threw", err);
+    }
+  }, 1000);
+}
+
 // --- the context object -----------------------------------------------------
 
 function notImplemented(name: string): (...args: unknown[]) => never {
@@ -132,7 +154,7 @@ export function getContext(): Record<string, unknown> {
     characterId: thisChid,
     this_chid: thisChid,
     get chat_metadata(): Record<string, unknown> {
-      return provider?.chatMetadata() ?? {};
+      return getChatMetadata();
     },
     name1: meta.userName ?? "user",
     name2: meta.characterName ?? "",
@@ -154,6 +176,9 @@ export function getContext(): Record<string, unknown> {
     extensionSettings: extension_settings,
     extension_settings,
     saveSettingsDebounced,
+    saveMetadata,
+    saveMetadataDebounced,
+    writeExtensionField,
 
     // --- message lookup helpers ---
     getMessageByMesId,
