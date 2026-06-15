@@ -169,6 +169,13 @@ function makeCollection(items: JQueryElement[]): JQueryCollection {
     return makeCollection(selector ? siblings.filter((el) => el.matches(selector)) : siblings);
   };
   arr.closest = (selector) => makeCollection(elements().map((el) => el.closest(selector)).filter(Boolean) as HTMLElement[]);
+  arr.parent = (selector) => {
+    const parents = elements()
+      .map((el) => el.parentElement)
+      .filter((p): p is HTMLElement => p != null);
+    const unique = [...new Set(parents)];
+    return makeCollection(selector ? unique.filter((el) => el.matches(selector)) : unique);
+  };
   arr.filter = (selectorOrCb) => {
     if (typeof selectorOrCb === "string") return makeCollection(elements().filter((el) => el.matches(selectorOrCb)));
     return makeCollection(nativeFilter.call(arr, (el: JQueryElement, i: number) => selectorOrCb.call(el, i, el)));
@@ -181,12 +188,19 @@ function makeCollection(items: JQueryElement[]): JQueryCollection {
   };
   arr.text = (value) => {
     if (value === undefined) return elements().map((el) => el.textContent ?? "").join("");
-    elements().forEach((el) => (el.textContent = value));
+    // jQuery accepts a function: (index, oldText) => newText. JSR's macro
+    // pipeline (macro_like.ts) relies on this form.
+    elements().forEach((el, i) => {
+      el.textContent = typeof value === "function" ? value.call(el, i, el.textContent ?? "") : value;
+    });
     return arr;
   };
   arr.html = (value) => {
     if (value === undefined) return elements()[0]?.innerHTML ?? "";
-    elements().forEach((el) => (el.innerHTML = value));
+    // jQuery accepts a function: (index, oldHtml) => newHtml (used by macro_like).
+    elements().forEach((el, i) => {
+      el.innerHTML = typeof value === "function" ? value.call(el, i, el.innerHTML) : value;
+    });
     return arr;
   };
   arr.val = (value) => {
@@ -215,7 +229,14 @@ function makeCollection(items: JQueryElement[]): JQueryCollection {
     arr.forEach((el) => el.dispatchEvent(new Event(event, { bubbles: true })));
     return arr;
   };
-  arr.is = (selector) => !!elements()[0]?.matches(selector);
+  arr.is = (selector) => {
+    // jQuery's `:visible` / `:hidden` are not valid CSS, so el.matches() throws
+    // on them. JSR's collapse-code-block toggle queries `:visible`; emulate the
+    // jQuery semantics (laid-out box = visible) instead of crashing.
+    if (selector === ":visible") return elements().some((el) => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length));
+    if (selector === ":hidden") return elements().some((el) => !(el.offsetWidth || el.offsetHeight || el.getClientRects().length));
+    return !!elements()[0]?.matches(selector);
+  };
   arr.css = (name, value) => {
     if (value === undefined) return elements()[0] ? getComputedStyle(elements()[0]).getPropertyValue(name) : "";
     elements().forEach((el) => el.style.setProperty(name, value));
@@ -259,6 +280,37 @@ function makeCollection(items: JQueryElement[]): JQueryCollection {
   };
   arr.clone = () => makeCollection(elements().map((el) => el.cloneNode(true) as HTMLElement));
   arr.get = (index) => (index === undefined ? [...arr] : arr[index]);
+  arr.map = (cb) => {
+    // jQuery semantics: callback is (index, element); returns are collected into
+    // a new collection, array returns are flattened, null/undefined are skipped.
+    // JSR's render pipeline (render$mes) chains .filter().map().toArray(), so the
+    // result MUST be a collection (with toArray), not a plain Array.
+    const out: unknown[] = [];
+    arr.forEach((el: JQueryElement, i: number) => {
+      const r = cb.call(el, i, el);
+      if (r == null) return;
+      if (Array.isArray(r)) {
+        for (const x of r) if (x != null) out.push(x);
+      } else {
+        out.push(r);
+      }
+    });
+    return makeCollection(out as JQueryElement[]);
+  };
+  arr.wrap = (wrapper) => {
+    // jQuery wraps EACH element in its own (cloned) wrapper structure, inserting
+    // the element at the innermost descendant. JSR uses `$pre.wrap('<div class="TH-render">')`.
+    elements().forEach((el, i) => {
+      const source = typeof wrapper === "function" ? wrapper.call(el, i) : wrapper;
+      const wrapNode = toElements(source).find((n): n is HTMLElement => n instanceof HTMLElement);
+      if (!wrapNode) return;
+      el.parentNode?.insertBefore(wrapNode, el);
+      let inner: HTMLElement = wrapNode;
+      while (inner.firstElementChild) inner = inner.firstElementChild as HTMLElement;
+      inner.appendChild(el);
+    });
+    return arr;
+  };
   arr.toArray = () => [...arr];
   return arr;
 }

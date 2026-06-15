@@ -55,7 +55,7 @@
 - 全局 `window.SillyTavern.getContext()`：返回约 80+ 字段的上下文对象（`st-context.js:115+`），关键：`chat` / `characters` / `this_chid` / `chat_metadata` / `eventSource` / `eventTypes` / `substituteParams(Extended)` / `setExtensionPrompt` / `extension_settings` / `saveSettingsDebounced` / `messageFormatting` / `addOneMessage` / `generate(Raw)` / `getRequestHeaders` …
 - `eventSource`（emit/on/once/makeFirst/makeLast/removeListener/emitAndWait）+ `event_types`。渲染触发命脉事件：`CHARACTER_MESSAGE_RENDERED` / `USER_MESSAGE_RENDERED` / `MESSAGE_UPDATED` / `MESSAGE_SWIPED` / `MESSAGE_DELETED` / `MORE_MESSAGES_LOADED` / `chatLoaded` / `app_ready`。
 - 全局：`window.$`(jQuery)、`window._`(lodash)、`window.toastr`、`window.hljs`。
-- DOM 约定：`#chat > .mes[mesid="N"]`、`.mes_text`、`#extensions_settings`。
+- DOM 约定：`#chat > .mes[mesid="N"]`（**直接子**，JSR 渲染管线全程用 `$('#chat > .mes')` 子组合器枚举楼层）、`.mes_text`、`#extensions_settings`。NyaaChat 已让 `.mes` 成为 `#chat` 的真实直接子节点，并常驻一个隐藏 `#chat > .welcomePanel` 哨兵（JSR 渲染 store 的初次 `rerenderAll` 以它存在为门槛），详见 §2.5。
 
 ### 2.3 正则模块（双管线是精髓）
 - 核心 `getRegexedString(raw, placement, { isMarkdown, isPrompt, isEdit, depth, characterOverride })`（`extensions/regex/engine.js:334-381`）。
@@ -94,6 +94,15 @@ A3 混合策略曾把「JSR 风格前端卡渲染」作为 NyaaChat 原生能力
 - 推荐使用方式：
   - **未安装 / 未启用 JSR**：保持「前端渲染」开启，使用 NyaaChat 自带渲染器。
   - **安装并启用 JSR 渲染器**：关闭 NyaaChat「前端渲染」，让 JSR 成为唯一渲染器，避免双渲染和 `TavernHelper` 语义分叉。
+
+**DOM 直接子契约修正（2026-06-15）**：上一节虽把渲染收敛为可控开关，但**关闭自带渲染后 JSR 渲染器仍不生效**——根因是 NyaaChat 当时把 `.mes` 套在 `#chat` 下两层包裹 `div`（`max-w-3xl mx-auto` 居中层 + `flex-col` 列表层）里，而 JSR 全管线（`store/iframe_runtimes/message.ts`、`panel/render/*`、`function/chat_message.ts` 等共 22 处）用的是**直接子选择器** `$('#chat > .mes')`，命中 0 个元素 → `runtimes` 恒空 → 一帧不渲染。此外 JSR 渲染 store 的初次 `rerenderAll` 以 `$('#chat > .welcomePanel').length > 0` 为门槛，而 NyaaChat 无此元素。
+
+修正（对齐 §2.2 契约与真实 ST 的 `#chat` 扁平结构）：
+- 移除 `#chat` 与 `.mes` 间的两层包裹 `div`；`.mes` 现为 `#chat` 的真实直接子节点（`AnimatePresence` 与 React Fragment 不产生 DOM 节点）。
+- 原居中/限宽（`max-w-3xl mx-auto`）下放到每行 `.mes` 自身，逐像素保持原视觉（同宽同居中、气泡仍由内部 `justify-end/start` 左右对齐）。
+- `#chat` 内常驻一个隐藏 `<div class="welcomePanel" hidden>` 哨兵，满足 JSR 初次 `rerenderAll` 门槛（真实 ST 的 `#chat` 本就常驻 welcomePanel）。
+- 自带 `FrontendCard` 渲染不受影响：它在 `.mes` 深处、纯 React、不依赖 `#chat > .mes` 选择器；与 JSR 仍由 `isFrontendRenderingEnabled` 开关二选一互斥。
+- 仍存的遗留风险属硬骨头 #1（见 §3）：JSR 用 `$pre.wrap`/`addClass('hidden!')`/Teleport 篡改 React 受控 DOM，在流式/编辑/swipe 已渲染消息时可能与 React 协调冲突；本次修正不涉及，留真机观察。
 
 ---
 

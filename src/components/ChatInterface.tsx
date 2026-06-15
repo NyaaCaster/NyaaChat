@@ -935,13 +935,16 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
 
       {/* Main Chat Area */}
       <main id="chat" className="flex-1 overflow-y-auto p-4 sm:p-6 scroll-smooth z-10 relative">
-        <div className="max-w-3xl mx-auto flex flex-col h-full">
-          {messages.length === 0 ? (
+        {/* ST DOM anchor. JSR's render store gates its initial rerenderAll on
+            `#chat > .welcomePanel` existing (the sentinel ST always keeps in
+            #chat). Persisted hidden so the gate passes; never shown to users. */}
+        <div className="welcomePanel" hidden aria-hidden="true" />
+        {messages.length === 0 ? (
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
-              className="flex-1 flex flex-col items-center justify-center text-center mt-10"
+              className="min-h-full flex flex-col items-center justify-center text-center"
             >
               <div className="w-20 h-20 bg-white dark:bg-white/5 border border-gray-100 dark:border-white/10 shadow-elevation-1 rounded-3xl flex items-center justify-center mb-8 relative">
                 <Sparkles
@@ -961,7 +964,7 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
               </p>
             </motion.div>
           ) : (
-            <div className="flex flex-col flex-1 pb-4">
+            <>
               <AnimatePresence initial={false}>
                 {messages.map((message, idx) => (
                   <MessageItem
@@ -987,9 +990,8 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
                 ))}
               </AnimatePresence>
               <div ref={messagesEndRef} className="h-6" />
-            </div>
+            </>
           )}
-        </div>
       </main>
 
       {/* Input Area */}

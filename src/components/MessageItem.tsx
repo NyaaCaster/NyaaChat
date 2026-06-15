@@ -279,7 +279,7 @@ export const MessageItem = React.memo(function MessageItem({
       initial={{ opacity: 0, y: 15, scale: 0.98 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-      className={`mes flex w-full my-4 ${isUser ? "justify-end" : "justify-start"}`}
+      className={`mes flex w-full max-w-3xl mx-auto my-4 ${isUser ? "justify-end" : "justify-start"}`}
     >
       <div className={`max-w-[92%] sm:max-w-[80%] min-w-0 flex flex-col gap-1 mes_block ${isUser ? "items-end" : "items-start"}`}>
       <div
