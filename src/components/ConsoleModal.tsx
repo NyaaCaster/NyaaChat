@@ -1,5 +1,5 @@
-import React, { useRef, useEffect } from 'react';
-import { X, Terminal, Trash2 } from 'lucide-react';
+import React, { useRef, useEffect, useState } from 'react';
+import { X, Terminal, Trash2, Copy, Check } from 'lucide-react';
 import { LogEntry } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -10,8 +10,58 @@ interface ConsoleModalProps {
   onClearLogs: () => void;
 }
 
+/** Serialize a single log entry to copyable JSON (2-space indent, with an ISO
+ *  timestamp alongside the raw epoch ms for human readability). */
+function serializeLog(log: LogEntry): string {
+  return JSON.stringify(
+    {
+      ...log,
+      timestampIso: new Date(log.timestamp).toISOString(),
+    },
+    null,
+    2,
+  );
+}
+
+// navigator.clipboard needs a secure context (HTTPS / localhost). When the app
+// is served over plain HTTP from an IP/host the modern API is unavailable, so
+// we fall back to the hidden-textarea + execCommand path that still works.
+async function copyToClipboard(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // fall through to legacy path
+  }
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
 export function ConsoleModal({ isOpen, onClose, logs, onClearLogs }: ConsoleModalProps) {
   const endRef = useRef<HTMLDivElement>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  const handleCopySingle = async (log: LogEntry) => {
+    const ok = await copyToClipboard(serializeLog(log));
+    if (!ok) return;
+    setCopiedId(log.id);
+    setTimeout(() => {
+      setCopiedId((prev) => (prev === log.id ? null : prev));
+    }, 1500);
+  };
 
   useEffect(() => {
     if (isOpen) {
@@ -58,6 +108,7 @@ export function ConsoleModal({ isOpen, onClose, logs, onClearLogs }: ConsoleModa
               <div className="flex items-center gap-3">
                 <Terminal size={18} className="text-gray-400" />
                 <h2 className="text-sm font-semibold tracking-wider text-gray-200">Terminal Output Logs</h2>
+                <span className="text-[10px] text-gray-500 ml-1">{logs.length} 条</span>
               </div>
               <div className="flex items-center gap-2">
                 <button 
@@ -96,6 +147,8 @@ export function ConsoleModal({ isOpen, onClose, logs, onClearLogs }: ConsoleModa
                     bgBadge = 'bg-emerald-900/30 text-emerald-400 border border-emerald-800/50';
                   } else if (log.direction === 'error') {
                     bgBadge = 'bg-red-900/30 text-red-400 border border-red-800/50';
+                  } else if (log.direction === 'info') {
+                    bgBadge = 'bg-slate-800/40 text-slate-400 border border-slate-700/50';
                   }
 
                   return (
@@ -106,6 +159,22 @@ export function ConsoleModal({ isOpen, onClose, logs, onClearLogs }: ConsoleModa
                           {log.direction}
                         </span>
                         <span className="text-gray-300 font-medium">{log.content}</span>
+                        {log.meta?.durationMs !== undefined && (
+                          <span className="text-[10px] mr-1 px-1.5 py-0.5 rounded border border-gray-800 text-gray-400">
+                            {log.meta.durationMs}ms
+                          </span>
+                        )}
+                        {log.meta?.status !== undefined && (
+                          <span
+                            className={`text-[10px] mr-1 px-1.5 py-0.5 rounded border ${
+                              Number(log.meta.status) >= 400
+                                ? 'border-red-800/50 text-red-400 bg-red-900/20'
+                                : 'border-gray-800 text-gray-400'
+                            }`}
+                          >
+                            HTTP {log.meta.status}
+                          </span>
+                        )}
                         {log.meta?.usage?.prompt_tokens !== undefined && (
                           <span className="text-[10px] mr-1 px-1.5 py-0.5 rounded bg-blue-900/20 text-blue-400 border border-blue-900/50">
                             IN: {log.meta.usage.prompt_tokens}
@@ -142,6 +211,18 @@ export function ConsoleModal({ isOpen, onClose, logs, onClearLogs }: ConsoleModa
                             TOTAL: {log.meta.usage.total_tokens}
                           </span>
                         )}
+                        <button
+                          type="button"
+                          onClick={() => handleCopySingle(log)}
+                          className="ml-auto shrink-0 p-1 text-gray-600 hover:text-gray-200 hover:bg-gray-800 rounded transition-colors opacity-60 group-hover:opacity-100"
+                          title={copiedId === log.id ? '已复制' : '复制此条日志(JSON)'}
+                        >
+                          {copiedId === log.id ? (
+                            <Check size={13} className="text-emerald-400" />
+                          ) : (
+                            <Copy size={13} />
+                          )}
+                        </button>
                       </div>
                       
                       {log.meta && (

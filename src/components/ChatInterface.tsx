@@ -401,6 +401,8 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
       }
     }
 
+    // Declared outside the try so the catch can report elapsed time too.
+    let chatStartedAt = Date.now();
     try {
       // MCP tools assembly. Done BEFORE buildRequestMessages so we can
       // pass the advertised tool name list through and let the system
@@ -538,6 +540,9 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
         },
       });
 
+      // Reset to the moment we actually hand off to the network, so the
+      // duration reflects the request itself, not the MCP/prompt assembly above.
+      chatStartedAt = Date.now();
       let fullResponse = "";
       const usageResult = await fetchChatCompletion(
         messagesForApi,
@@ -576,7 +581,7 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
       onAddLog({
         direction: "response",
         content: "Received chat completion stream fully",
-        meta: { response: fullResponse, usage: usageResult },
+        meta: { response: fullResponse, usage: usageResult, durationMs: Date.now() - chatStartedAt },
       });
     } catch (error: any) {
       console.error(error);
@@ -587,7 +592,11 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
         content: isAbort
           ? "Chat completion aborted by user"
           : "Failed during chat completion request",
-        meta: { error: error?.message || String(error), status: error?.status },
+        meta: {
+          error: error?.message || String(error),
+          status: error?.status,
+          durationMs: Date.now() - chatStartedAt,
+        },
       });
       setMessages((prev) =>
         prev.map((m) =>
@@ -764,6 +773,8 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
       const controller = new AbortController();
       abortControllerRef.current = controller;
 
+      // Declared outside the try so the catch can report elapsed time too.
+      let imageStartedAt = Date.now();
       try {
         // Wire-level size strategy (kept in sync with imageApi.ts):
         //   默认           → field omitted (regardless of model)
@@ -787,6 +798,8 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
             prompt,
           },
         });
+        // Reset to the moment we actually hand off to the network.
+        imageStartedAt = Date.now();
         const url = await generateImage(prompt, activeImageApi, controller.signal);
         setMessages((prev) =>
           prev.map((m) =>
@@ -806,7 +819,7 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
         onAddLog({
           direction: "response",
           content: "Received image",
-          meta: { model: activeImageApi.model, url },
+          meta: { model: activeImageApi.model, url, durationMs: Date.now() - imageStartedAt },
         });
       } catch (err: any) {
         const isAbort =
@@ -819,7 +832,7 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
           content: isAbort
             ? "Image generation aborted by user"
             : "Failed during image generation",
-          meta: { error: description },
+          meta: { error: description, status: err?.status, durationMs: Date.now() - imageStartedAt },
         });
         if (replaceImageId) {
           // Regenerate path: keep the existing image. On abort just dismiss

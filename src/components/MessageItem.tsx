@@ -297,8 +297,11 @@ export const MessageItem = React.memo(function MessageItem({
               <div className="text-[11px] font-semibold uppercase tracking-wider name_text">
                 {userName || "You"}
               </div>
-              {(timeStr || message.tokenCount !== undefined) && (
+              {(timeStr || message.tokenCount !== undefined || mesid !== undefined) && (
                 <div className="flex items-center gap-2">
+                  {mesid !== undefined && (
+                    <span className="text-[10px] opacity-70 font-mono"># {mesid}</span>
+                  )}
                   {timeStr && (
                     <span className="text-[10px] opacity-70">{timeStr}</span>
                   )}
@@ -318,8 +321,11 @@ export const MessageItem = React.memo(function MessageItem({
                   {charName || "Assistant"}
                 </span>
               </div>
-              {(timeStr || message.tokenCount !== undefined) && (
+              {(timeStr || message.tokenCount !== undefined || mesid !== undefined) && (
                 <div className="flex items-center gap-2">
+                  {mesid !== undefined && (
+                    <span className="text-[10px] opacity-70 font-mono"># {mesid}</span>
+                  )}
                   {timeStr && (
                     <span className="text-[10px] opacity-70">{timeStr}</span>
                   )}
