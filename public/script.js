@@ -67,9 +67,31 @@ export const systemUserName = "System";
 export const extension_prompts = ctx().extensionPrompts ?? {};
 
 // --- UI / chat lifecycle best-effort shims ---------------------------------
-export function reloadMarkdownProcessor(...args) {
-  void args;
-  return Promise.resolve();
+//
+// ST's reloadMarkdownProcessor() builds and returns a showdown Converter
+// (synchronous, exposes makeHtml). JS-Slash-Runner calls
+// `reloadMarkdownProcessor().makeHtml(md)` to render front-end card markdown, so
+// this must return a real converter, not a Promise. showdown is installed as a
+// page global by the compat layer (installGlobals); we mirror ST's converter
+// options. The instance is cached so repeated calls don't rebuild it.
+let _markdownConverter = null;
+export function reloadMarkdownProcessor() {
+  const showdown = typeof window !== "undefined" ? window.showdown : undefined;
+  if (!showdown || typeof showdown.Converter !== "function") {
+    warnOnce("reloadMarkdownProcessor(): showdown global missing; returning a no-op converter");
+    return { makeHtml: (text) => String(text ?? "") };
+  }
+  _markdownConverter = new showdown.Converter({
+    emoji: true,
+    literalMidWordUnderscores: true,
+    parseImgDimensions: true,
+    tables: true,
+    underline: true,
+    simpleLineBreaks: true,
+    strikethrough: true,
+    disableForced4SpacesIndentedSublists: true,
+  });
+  return _markdownConverter;
 }
 
 export function getThumbnailUrl(type, file) {

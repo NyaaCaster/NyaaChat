@@ -1,0 +1,283 @@
+/*
+ * SillyTavern host compatibility stylesheet.
+ *
+ * NyaaChat hosts SillyTavern extensions (JS-Slash-Runner, st-Quote-TTS, ...).
+ * Those extensions style themselves with SillyTavern's core CSS contract:
+ *   1. A set of theme CSS custom properties defined on :root (colors, the
+ *      --mainFontSize typography base that ST-targeting Tailwind v4 remaps onto
+ *      its --spacing scale, animation durations, grey/alpha palette).
+ *   2. Core UI classes ST provides globally — .menu_button, .interactable,
+ *      .text_pole, .flex-container (+ helpers), .inline-drawer-* — which are NOT
+ *      Tailwind utilities and are not part of any extension's own bundle.
+ *
+ * NyaaChat is not ST and ships none of this, so extension panels rendered as
+ * unstyled text with dead (zero-padding) buttons and transparent modals. This
+ * file restores that contract, ported verbatim from SillyTavern's public/style.css
+ * and public/css/st-tailwind.css so the values match what extensions were built
+ * against. It is loaded as a static stylesheet (see index.html), separate from
+ * NyaaChat's own Tailwind build.
+ *
+ * Generic host contract — no extension is special-cased. Values are ST's default
+ * (dark) theme; ST extensions are authored for it, so their panels look native.
+ *
+ * Deliberately OMITTED: `.inline-drawer-content { display: none }`. ST collapses
+ * drawers by default and expands them via its own jQuery drawer JS, which NyaaChat
+ * does not run. Keeping extension panels always-expanded inside the dedicated
+ * settings pane is the correct behavior here; importing the collapse rule would
+ * hide every extension panel with no way to open it.
+ */
+
+:root {
+  --transparent: rgba(0, 0, 0, 0);
+
+  --black30a: rgba(0, 0, 0, 0.3);
+  --black50a: rgba(0, 0, 0, 0.5);
+  --black60a: rgba(0, 0, 0, 0.6);
+  --black70a: rgba(0, 0, 0, 0.7);
+  --black90a: rgba(0, 0, 0, 0.9);
+  --black100: rgba(0, 0, 0, 1);
+
+  --white20a: rgba(255, 255, 255, 0.2);
+  --white30a: rgba(255, 255, 255, 0.3);
+  --white50a: rgba(255, 255, 255, 0.5);
+  --white60a: rgba(255, 255, 255, 0.6);
+  --white70a: rgba(255, 255, 255, 0.7);
+  --white100: rgba(255, 255, 255, 1);
+
+  --grey10: rgb(25, 25, 25);
+  --grey30: rgb(75, 75, 75);
+  --grey50: rgb(125, 125, 125);
+  --grey5020a: rgba(125, 125, 125, 0.2);
+  --grey5050a: rgba(125, 125, 125, 0.5);
+  --grey70: rgb(175, 175, 175);
+  --grey75: rgb(190, 190, 190);
+  --grey30a: rgba(50, 50, 50, 0.3);
+  --grey7070a: rgba(175, 175, 175, 0.7);
+
+  --fullred: rgba(255, 0, 0, 1);
+  --crimson: rgba(100, 0, 0, 1);
+  --crimson70a: rgba(100, 0, 0, 0.7);
+  --crimson-hover: rgba(150, 50, 50, 0.5);
+  --okGreen70a: rgba(0, 100, 0, 0.7);
+  --cobalt30a: rgba(100, 100, 255, 0.3);
+  --golden: rgb(248, 211, 0);
+  --warning: rgba(255, 0, 0, 0.9);
+  --active: rgb(88, 182, 0);
+  --preferred: rgb(244, 67, 54);
+
+  --interactable-outline-color: var(--white100);
+  --interactable-outline-color-faint: var(--white20a);
+
+  /* Default (dark) theme — ST authors extensions against these. */
+  --SmartThemeBodyColor: rgb(220, 220, 210);
+  --SmartThemeEmColor: rgb(145, 145, 145);
+  --SmartThemeUnderlineColor: rgb(188, 231, 207);
+  --SmartThemeQuoteColor: rgb(225, 138, 36);
+  --SmartThemeBlurTintColor: rgba(23, 23, 23, 1);
+  --SmartThemeChatTintColor: rgba(23, 23, 23, 1);
+  --SmartThemeUserMesBlurTintColor: rgba(0, 0, 0, 0.3);
+  --SmartThemeBotMesBlurTintColor: rgba(60, 60, 60, 0.3);
+  --SmartThemeShadowColor: rgba(0, 0, 0, 0.5);
+  --SmartThemeBorderColor: rgba(0, 0, 0, 0.5);
+  --mainTextColor: var(--SmartThemeBodyColor);
+
+  /* Typography base — JS-Slash-Runner remaps Tailwind's --spacing onto this. */
+  --fontScale: 1;
+  --mainFontSize: calc(var(--fontScale) * 15px);
+  --mainFontFamily: "Noto Sans", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --monoFontFamily: "Noto Sans Mono", ui-monospace, Consolas, monospace;
+
+  --blurStrength: 10;
+  --shadowWidth: 2;
+
+  --animation-duration: 125ms;
+  --animation-duration-2x: calc(var(--animation-duration) * 2);
+  --animation-duration-3x: calc(var(--animation-duration) * 3);
+  --animation-duration-slow: var(--animation-duration-3x);
+}
+
+/* ---- Core interactive controls (ST public/style.css) ---- */
+
+.menu_button {
+  color: var(--SmartThemeBodyColor);
+  filter: grayscale(0.5);
+  background-color: var(--SmartThemeBlurTintColor);
+  border: 1px solid var(--SmartThemeBorderColor);
+  border-radius: 5px;
+  padding: 3px 5px;
+  width: min-content;
+  cursor: pointer;
+  margin: 5px 0;
+  transition: var(--animation-duration-2x);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.menu_button:hover {
+  filter: brightness(1.2) grayscale(0.5);
+}
+
+.menu_button_icon {
+  display: flex;
+  align-items: center;
+  width: fit-content;
+  gap: 5px;
+}
+
+.menu_button_icon span {
+  font-size: calc(var(--mainFontSize) * 0.9);
+}
+
+.interactable {
+  border-radius: 5px;
+}
+
+.interactable:focus-visible {
+  outline: 1px solid var(--interactable-outline-color);
+}
+
+/* ---- Text inputs (ST public/style.css) ---- */
+
+.text_pole {
+  background-color: var(--black30a);
+  color: var(--SmartThemeBodyColor);
+  border: 1px solid var(--SmartThemeBorderColor);
+  border-radius: 5px;
+  font-family: var(--mainFontFamily);
+  padding: 3px 5px;
+  width: 100%;
+  margin: 5px 0;
+  height: fit-content;
+}
+
+.text_pole::placeholder {
+  color: var(--SmartThemeEmColor) !important;
+  opacity: 0.7;
+}
+
+select.text_pole {
+  padding-right: 20px;
+}
+
+/* ---- Flex helpers (ST public/css/st-tailwind.css) ---- */
+
+.flex-container {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.alignitemscenter,
+.alignItemsCenter {
+  align-items: center;
+}
+
+.alignitemsstart,
+.alignItemsStart {
+  align-items: start;
+}
+
+.justifyCenter {
+  justify-content: center;
+}
+
+.justifySpaceBetween {
+  justify-content: space-between;
+}
+
+.flexFlowColumn {
+  flex-flow: column;
+}
+
+.wide100p {
+  width: 100%;
+}
+
+/* ---- Inline drawer (ST public/style.css). Visual only — collapse behavior is
+   intentionally omitted (see file header). ---- */
+
+.inline-drawer-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 5px 0;
+  cursor: pointer;
+}
+
+.inline-drawer-icon {
+  display: block;
+  cursor: pointer;
+  font-size: calc(var(--mainFontSize) * 1.5);
+  filter: brightness(75%);
+}
+
+/* The extension-panel "standout" header look ST applies to drawer headers that
+   live inside #extensions_settings (which is exactly NyaaChat's host id). */
+#extensions_settings .inline-drawer-toggle.inline-drawer-header {
+  background-image: linear-gradient(
+    348deg,
+    var(--white30a) 2%,
+    var(--grey30a) 10%,
+    var(--black70a) 95%,
+    var(--SmartThemeQuoteColor) 100%
+  );
+  margin-bottom: 5px;
+  border-radius: 10px;
+  padding: 2px 5px;
+  border: 1px solid var(--SmartThemeBorderColor);
+  transition: all var(--animation-duration-2x);
+}
+
+#extensions_settings .inline-drawer-toggle.inline-drawer-header:hover {
+  filter: brightness(150%);
+}
+
+/* ---- Popup / dialog (ST public/css/popup.css) ----
+   JS-Slash-Runner's modal wrapper (Popup.vue) renders its dialog with ST's
+   `.popup` class and `:hide-overlay="true"`, i.e. it relies entirely on `.popup`
+   for the panel's opaque background, border and — critically on phones — the
+   viewport-bounded sizing. Without it the secondary modals were transparent
+   (content bled through the main panel) and overflowed the screen edges in
+   portrait. Ported verbatim from ST: the opaque --SmartThemeBlurTintColor
+   background fixes transparency, and max-width/height: calc(100dvw/dvh - 2em)
+   clamps the 500px dialog inside the viewport on mobile. */
+.popup {
+  width: 500px;
+  text-align: center;
+  box-shadow: 0 0 14px var(--black70a);
+  border: 1px solid var(--SmartThemeBorderColor);
+  padding: 4px 14px;
+  background-color: var(--SmartThemeBlurTintColor);
+  color: var(--SmartThemeBodyColor);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - 2em);
+  max-width: calc(100dvw - 2em);
+  min-height: fit-content;
+  overflow: visible;
+  backface-visibility: hidden;
+  -webkit-font-smoothing: subpixel-antialiased;
+}
+
+.popup-controls {
+  margin-top: 10px;
+  display: flex;
+  align-self: center;
+  gap: 20px;
+}
+
+.menu_button.popup-button-ok {
+  background-color: var(--crimson70a);
+}
+
+.menu_button.popup-button-ok:hover {
+  background-color: var(--crimson-hover);
+}
+
+.popup-controls .menu_button {
+  width: unset;
+}
+

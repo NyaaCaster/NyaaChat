@@ -122,7 +122,7 @@ export function installCompatLayer(): void {
 // single module: `import { eventSource, substituteParams } from "@/compat"`.
 export { eventSource, event_types } from "./events";
 export type { EventType } from "./events";
-export { substituteParams, substituteParamsExtended, setDefaultEnvProvider } from "./macros";
+export { substituteParams, substituteParamsExtended, setDefaultEnvProvider, registerMacro, unregisterMacro } from "./macros";
 export type { MacroEnv } from "./macros";
 export {
   syncChat,

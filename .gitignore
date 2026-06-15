@@ -13,7 +13,7 @@ src/temp/
 .playwright-mcp/
 # Local reference material — not for sharing
 .ref/
-# Operator-managed third-party SillyTavern extensions. Keep only registry.json
-# in this repo; extension project directories are added by git/rebuild outside
-# NyaaChat source control.
+# Operator-managed third-party SillyTavern extensions. Extension directories
+# and generated registry are maintained locally by git/rebuild.
 public/extensions/*/
+public/extensions/registry.json

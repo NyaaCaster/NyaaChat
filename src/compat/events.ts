@@ -30,6 +30,14 @@ export const event_types = {
   MORE_MESSAGES_LOADED: "more_messages_loaded",
   GENERATION_STARTED: "generation_started",
   GENERATION_ENDED: "generation_ended",
+  // OpenAI-preset lifecycle. NyaaChat has no ST preset system, so these never
+  // fire here, but extensions (JS-Slash-Runner's preset store) subscribe to them
+  // at setup via event_types.OAI_PRESET_*. The keys must exist with ST's exact
+  // string values or those subscriptions bind to `undefined`.
+  OAI_PRESET_CHANGED_BEFORE: "oai_preset_changed_before",
+  OAI_PRESET_CHANGED_AFTER: "oai_preset_changed_after",
+  OAI_PRESET_EXPORT_READY: "oai_preset_export_ready",
+  OAI_PRESET_IMPORT_READY: "oai_preset_import_ready",
 } as const;
 
 export type EventType = (typeof event_types)[keyof typeof event_types];

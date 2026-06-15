@@ -15,7 +15,7 @@
 // compat installer, so this module stays decoupled from React/app state.
 
 import { eventSource, event_types } from "./events";
-import { substituteParams, substituteParamsExtended } from "./macros";
+import { substituteParams, substituteParamsExtended, registerMacro, unregisterMacro } from "./macros";
 import { getChat, getMeta, getMessageByMesId } from "./runtimeStore";
 import type { RuntimeMessage } from "./runtimeStore";
 import { executeSlashCommands, registerSlashCommand, addCommandObject } from "./slash";
@@ -167,6 +167,8 @@ export function getContext(): Record<string, unknown> {
     // --- macros ---
     substituteParams,
     substituteParamsExtended,
+    registerMacro,
+    unregisterMacro,
 
     // --- extension prompt injection ---
     setExtensionPrompt,

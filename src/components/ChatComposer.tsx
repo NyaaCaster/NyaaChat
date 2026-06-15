@@ -246,7 +246,13 @@ export function ChatComposer({
   const isWebSearchOn = !!settings.isWebSearchEnabled;
 
   return (
-    <footer className="flex-shrink-0 bg-transparent p-4 sm:px-6 sm:pb-6 z-20">
+    // id="send_form": ST DOM-compat anchor. ST extensions (JS-Slash-Runner)
+    // locate the message input form by `#send_form` and prepend their own
+    // quick-reply bar (`#qr--bar`) into it, and attach a MutationObserver to
+    // `$('#send_form')[0]` — which throws if the element is absent. The node JSR
+    // injects is outside React's render tree, so React's diff leaves it alone
+    // (same escape-hatch boundary as `.mes_text` in P3).
+    <footer id="send_form" className="flex-shrink-0 bg-transparent p-4 sm:px-6 sm:pb-6 z-20">
       <div className="max-w-3xl mx-auto relative">
         <input
           type="file"
