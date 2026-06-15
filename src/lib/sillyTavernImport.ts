@@ -62,45 +62,6 @@ function isSillyTavernFormat(parsed: any): boolean {
   );
 }
 
-// Detect UI-rendering entries (status bars, formatted output templates)
-// that rely on SillyTavern's frontend rendering and are useless in NyaaChat
-function isUiRenderingEntry(entry: any): boolean {
-  const content: string = entry.content ?? "";
-  const comment: string = entry.comment ?? "";
-
-  // Check tavern_helper script references by comment name
-  const scripts: any[] = entry._scripts ?? [];
-  if (scripts.length > 0) return true;
-
-  // Detect status-bar / formatted-output patterns
-  const uiPatterns = [
-    /请严格按照以下格式输出/,
-    /\[异界状态/,
-    /\[环境信息\]/,
-    /\[状态栏\]/,
-    /<(div|span|table|style)[^>]*>/i,
-    /每次回复.*结束后.*格式/,
-  ];
-  return uiPatterns.some(p => p.test(content) || p.test(comment));
-}
-
-// Collect comment names referenced by tavern_helper scripts
-function getScriptReferencedComments(data: any): Set<string> {
-  const referenced = new Set<string>();
-  const scripts: any[] = data.extensions?.tavern_helper?.scripts ?? [];
-  for (const script of scripts) {
-    // Scripts typically reference world info by name in their source
-    const src: string = script.script ?? script.source ?? JSON.stringify(script);
-    const entries: any[] = data.character_book?.entries ?? [];
-    for (const entry of entries) {
-      if (entry.comment && src.includes(entry.comment)) {
-        referenced.add(entry.comment);
-      }
-    }
-  }
-  return referenced;
-}
-
 // Map a SillyTavern character card's `data.extensions.regex_scripts` into our
 // RegexScript model (the scoped/local regex that travels with the card and
 // applies only while this character is active). ST uses the same field names,
@@ -163,12 +124,14 @@ function mapEntryPosition(entry: any): "system" | "assistant" {
 export function convertSillyTavernCharacter(parsed: any): CharacterSettings {
   const data = parsed.data ?? parsed;
 
-  const scriptReferenced = getScriptReferencedComments(data);
+  // Import every world-info entry the card carries — no filtering. Earlier
+  // versions dropped status-bar / UI-rendering entries (and entries referenced
+  // by tavern_helper scripts) because NyaaChat could not render them; now that
+  // frontend rendering exists, those entries must survive the import intact.
+  // Disabled entries are kept as well, preserving their disabled state below,
+  // so nothing in the card is silently lost.
   const entries: any[] = data.character_book?.entries ?? [];
   const worldInfo: WorldInfoRule[] = entries
-    .filter((e: any) => e.enabled !== false)
-    .filter((e: any) => !scriptReferenced.has(e.comment))
-    .filter((e: any) => !isUiRenderingEntry(e))
     .map((e: any) => ({
       id: e.id != null ? String(e.id) : newId(),
       name: e.comment || `Rule ${e.id}`,
