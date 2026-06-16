@@ -1,7 +1,7 @@
 import React, { useState, useRef } from "react";
 import { Sparkles, Plus, Upload, Check, Edit2, Trash2 } from "lucide-react";
 import { AppState, CharacterSettings } from "../types";
-import { isSillyTavernFormat, convertSillyTavernCharacter, parseSillyTavernPng } from "../lib/sillyTavernImport";
+import { isSillyTavernFormat, convertSillyTavernCharacter, parseSillyTavernPng, convertRegexScripts } from "../lib/sillyTavernImport";
 import { newId } from "../lib/id";
 import { BaseModal } from "./BaseModal";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -59,11 +59,14 @@ export function CharacterSelectionModal({
         } else {
           if (!parsed.name || typeof parsed.name !== "string") throw new Error('Missing or invalid "name"');
           if (!parsed.description || typeof parsed.description !== "string") throw new Error('Missing or invalid "description"');
+          const scopedRegex = convertRegexScripts(parsed);
           newCharacter = {
             id: newId(),
             name: parsed.name,
             description: parsed.description,
+            firstMes: typeof parsed.firstMes === "string" && parsed.firstMes.trim() ? parsed.firstMes : undefined,
             worldInfo: Array.isArray(parsed.worldInfo) ? parsed.worldInfo : [],
+            ...(scopedRegex.length ? { regexScripts: scopedRegex } : {}),
           };
         }
       }

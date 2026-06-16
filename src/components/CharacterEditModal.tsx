@@ -48,17 +48,28 @@ export function CharacterEditModal({
       description: description.trim(),
       firstMes: firstMes.trim() || undefined,
       worldInfo: worldInfo,
+      // Preserve card data this modal has no editor for, so editing+saving a
+      // character never silently strips its character-scoped regex (managed in
+      // the 正则 panel) or its ST extension bindings / character variables.
+      ...(initialCharacter?.regexScripts ? { regexScripts: initialCharacter.regexScripts } : {}),
+      ...(initialCharacter?.extensions ? { extensions: initialCharacter.extensions } : {}),
     });
 
     onClose();
   };
 
   const handleExport = () => {
+    // Character-scoped regex lives on CharacterSettings.regexScripts (managed in
+    // the 正则 panel, not in this modal). Emit it under ST's canonical
+    // `extensions.regex_scripts` location so the entries match the structure our
+    // SillyTavern importer parses (convertRegexScripts) and round-trip on import.
+    const scopedRegex = initialCharacter?.regexScripts ?? [];
     const data = {
       name: name.trim(),
       description: description.trim(),
       firstMes: firstMes.trim() || undefined,
       worldInfo: worldInfo,
+      ...(scopedRegex.length ? { extensions: { regex_scripts: scopedRegex } } : {}),
     };
     const json = JSON.stringify(data, null, 2);
     const blob = new Blob([json], { type: "application/json" });
@@ -67,7 +78,8 @@ export function CharacterEditModal({
     const now = new Date();
     const pad = (n: number) => n.toString().padStart(2, "0");
     const timestamp = `${now.getFullYear().toString().slice(-2)}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
-    const filename = `NyaaChatChar-${timestamp}.json`;
+    const safeName = (name.trim() || "未命名").replace(/[\\/:*?"<>|]/g, "_");
+    const filename = `NyaaChatChar-${safeName}-${timestamp}.json`;
 
     const a = document.createElement("a");
     a.href = url;
