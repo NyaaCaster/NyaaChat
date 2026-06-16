@@ -59,17 +59,22 @@ export function CharacterEditModal({
   };
 
   const handleExport = () => {
-    // Character-scoped regex lives on CharacterSettings.regexScripts (managed in
-    // the 正则 panel, not in this modal). Emit it under ST's canonical
-    // `extensions.regex_scripts` location so the entries match the structure our
-    // SillyTavern importer parses (convertRegexScripts) and round-trip on import.
+    // NyaaChat-native character card — a lossless round-trip of CharacterSettings,
+    // deliberately NOT shaped like a SillyTavern card. Regex stays under our own
+    // top-level `regexScripts` (not ST's `extensions.regex_scripts`); `extensions`
+    // is an opaque passthrough of character-scoped variables / ST extension data
+    // so a backup keeps them. SillyTavern interop is a separate ST-format export.
     const scopedRegex = initialCharacter?.regexScripts ?? [];
+    const ext = initialCharacter?.extensions;
     const data = {
+      format: "nyaachat-character",
+      version: 1,
       name: name.trim(),
       description: description.trim(),
-      firstMes: firstMes.trim() || undefined,
+      ...(firstMes.trim() ? { firstMes: firstMes.trim() } : {}),
       worldInfo: worldInfo,
-      ...(scopedRegex.length ? { extensions: { regex_scripts: scopedRegex } } : {}),
+      ...(scopedRegex.length ? { regexScripts: scopedRegex } : {}),
+      ...(ext && Object.keys(ext).length ? { extensions: ext } : {}),
     };
     const json = JSON.stringify(data, null, 2);
     const blob = new Blob([json], { type: "application/json" });

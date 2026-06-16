@@ -66,10 +66,8 @@ function isSillyTavernFormat(parsed: any): boolean {
 // RegexScript model (the scoped/local regex that travels with the card and
 // applies only while this character is active). ST uses the same field names,
 // so this is mostly a defensive copy with sane fallbacks. Entries with no find
-// pattern are dropped. Exported so the native (NyaaChat JSON) import path can
-// parse regex carried at the same `extensions.regex_scripts` location our own
-// exporter writes, sharing one structure with the ST card path.
-export function convertRegexScripts(data: any): RegexScript[] {
+// pattern are dropped.
+function convertRegexScripts(data: any): RegexScript[] {
   const raw: any[] = data.extensions?.regex_scripts ?? data.regex_scripts ?? [];
   if (!Array.isArray(raw)) return [];
   return raw
