@@ -7,6 +7,7 @@ import { motion } from "motion/react";
 import { Copy, Check, Trash2, RefreshCw, Pencil, X as XIcon, ImagePlus, Download, Loader2 } from "lucide-react";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ImageViewerModal } from "./ImageViewerModal";
+import { CoverViewerModal } from "./CoverViewerModal";
 import { downloadImage } from "../lib/imageApi";
 import { applyPlaceholders } from "../lib/chatPipeline";
 import { getRegexedString, regex_placement, FrontendCard, splitFrontendContent } from "../compat";
@@ -136,6 +137,11 @@ interface MessageItemProps {
   mesid?: number;
   /** Controls NyaaChat's native JS-Slash-Runner-style iframe renderer. */
   frontendRenderingEnabled?: boolean;
+  /** Object URL of the active character's cover (512×768). When present and the
+   *  bubble is a character (assistant) text bubble, it shows as a feathered
+   *  side image on PC and a feathered top-right avatar on mobile, and opens the
+   *  cover viewer on click. */
+  coverUrl?: string | null;
 }
 
 export const MessageItem = React.memo(function MessageItem({
@@ -152,12 +158,14 @@ export const MessageItem = React.memo(function MessageItem({
   regexScripts,
   mesid,
   frontendRenderingEnabled = true,
+  coverUrl,
 }: MessageItemProps) {
   const [copiedMsg, setCopiedMsg] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState(message.content);
   const [viewerOpen, setViewerOpen] = useState(false);
+  const [coverViewerOpen, setCoverViewerOpen] = useState(false);
   const editRef = useRef<HTMLTextAreaElement>(null);
 
   // Resolve {{user}} / {{char}} for display. Fallbacks mirror the send path
@@ -271,6 +279,10 @@ export const MessageItem = React.memo(function MessageItem({
 
   const timeStr = formatTime(message.timestamp);
 
+  // Character cover decoration: only on assistant TEXT bubbles (not user, not
+  // system — those return early above — not image bubbles, not while editing).
+  const showCover = !isUser && !message.imageUrl && !editing && !!coverUrl;
+
   return (
     <motion.div
       data-mesid={mesid}
@@ -279,16 +291,59 @@ export const MessageItem = React.memo(function MessageItem({
       initial={{ opacity: 0, y: 15, scale: 0.98 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-      className={`mes flex w-full max-w-3xl mx-auto my-4 ${isUser ? "justify-end" : "justify-start"}`}
+      className={`mes flex w-full max-w-3xl lg:max-w-[60rem] mx-auto my-4 ${isUser ? "justify-end" : "justify-start"}`}
     >
-      <div className={`max-w-[92%] sm:max-w-[80%] min-w-0 flex flex-col gap-1 mes_block ${isUser ? "items-end" : "items-start"}`}>
+      <div className={`max-w-[100%] min-w-0 flex flex-col gap-1 mes_block ${isUser ? "items-end" : "items-start"}`}>
       <div
-        className={`w-full rounded-2xl px-5 py-4 bg-white dark:bg-[#111111] text-gray-900 dark:text-gray-100 shadow-elevation-1 ${
+        className={`relative w-full overflow-hidden rounded-2xl px-5 py-4 bg-white dark:bg-[#111111] text-gray-900 dark:text-gray-100 shadow-elevation-1 ${
           isUser
             ? "rounded-tr-sm self-end border border-blue-500"
             : "rounded-tl-sm border border-gray-100 dark:border-white/5"
-        }`}
+        } ${showCover ? "cover-host" : ""}`}
       >
+        {/* PC: portrait cover pinned to the bubble's top-right corner. Width
+            fills its reserved column (w-48); height is the 2:3 aspect of the
+            512×768 cover (aspect-[2/3]) and is CAPPED there — top-anchored, so a
+            very tall bubble does NOT stretch/over-crop the cover (it stays 192×
+            288 at the top). A short bubble clips it via the bubble's
+            overflow-hidden, showing the top/face (spec: chatbox-pc2). Visibility
+            via the app-private `.cover-side` class (index.css), not Tailwind
+            `hidden lg:block`, because the hosted JS-Slash-Runner extension
+            injects a global `.hidden{display:none}` that clobbers `lg:block`.
+            The bubble's `cover-host` reserves the right column so prose never
+            overlaps the cover. */}
+        {showCover && (
+          <button
+            type="button"
+            onClick={() => setCoverViewerOpen(true)}
+            className="cover-side absolute top-0 right-0 w-48 aspect-[2/3] cover-side-mask"
+            title="查看角色封面"
+          >
+            <img
+              src={coverUrl!}
+              alt="角色封面"
+              className="absolute inset-0 w-full h-full object-cover object-top"
+              draggable={false}
+            />
+          </button>
+        )}
+        {/* Mobile portrait: a LARGE cover flush to the bubble's top-right
+            corner. Uses float (not absolute) so the message text reflows AROUND
+            it — the header sits to its left and the body is pushed BELOW it (via
+            clear-right on the prose). Negative margins cancel the bubble padding
+            so it bleeds to the corner; the bubble's rounded overflow-hidden clips
+            it. Feathered on its left/bottom edges. Hidden on lg+ where the side
+            strip takes over. */}
+        {showCover && (
+          <button
+            type="button"
+            onClick={() => setCoverViewerOpen(true)}
+            className="cover-avatar float-right -mt-4 -mr-5 mb-2 ml-3 w-[44%] max-w-[210px] aspect-[5/4] cover-avatar-mask"
+            title="查看角色封面"
+          >
+            <img src={coverUrl!} alt="角色封面" className="w-full h-full object-cover object-top" draggable={false} />
+          </button>
+        )}
         <div
           className={`mb-2 space-y-1 ${isUser ? "text-blue-600 dark:text-blue-400" : "text-gray-500 dark:text-gray-400"}`}
         >
@@ -300,7 +355,7 @@ export const MessageItem = React.memo(function MessageItem({
               {(timeStr || message.tokenCount !== undefined || mesid !== undefined) && (
                 <div className="flex items-center gap-2">
                   {mesid !== undefined && (
-                    <span className="text-[10px] opacity-70 font-mono"># {mesid}</span>
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-md bg-gray-100 dark:bg-white/10 text-gray-500 dark:text-gray-400">#{mesid}</span>
                   )}
                   {timeStr && (
                     <span className="text-[10px] opacity-70">{timeStr}</span>
@@ -322,22 +377,28 @@ export const MessageItem = React.memo(function MessageItem({
                 </span>
               </div>
               {(timeStr || message.tokenCount !== undefined || mesid !== undefined) && (
-                <div className="flex items-center gap-2">
-                  {mesid !== undefined && (
-                    <span className="text-[10px] opacity-70 font-mono"># {mesid}</span>
-                  )}
-                  {timeStr && (
-                    <span className="text-[10px] opacity-70">{timeStr}</span>
-                  )}
-                  {message.tokenCount !== undefined && (
-                    <span className="text-[10px] opacity-70 border border-gray-200 dark:border-gray-700 rounded px-1">
-                      {message.tokenCount} tokens
-                    </span>
-                  )}
-                  {message.model && (
-                    <span className="text-[10px] opacity-70 border border-gray-200 dark:border-gray-700 rounded px-1">
-                      {message.model}
-                    </span>
+                <div className="meta-row flex flex-col lg:flex-row lg:items-center gap-1 lg:gap-2">
+                  <div className="flex items-center gap-2">
+                    {mesid !== undefined && (
+                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-md bg-gray-100 dark:bg-white/10 text-gray-500 dark:text-gray-400">#{mesid}</span>
+                    )}
+                    {timeStr && (
+                      <span className="text-[10px] opacity-70">{timeStr}</span>
+                    )}
+                  </div>
+                  {(message.tokenCount !== undefined || message.model) && (
+                    <div className="flex items-center gap-2">
+                      {message.tokenCount !== undefined && (
+                        <span className="text-[10px] opacity-70 border border-gray-200 dark:border-gray-700 rounded px-1">
+                          {message.tokenCount} tokens
+                        </span>
+                      )}
+                      {message.model && (
+                        <span className="text-[10px] opacity-70 border border-gray-200 dark:border-gray-700 rounded px-1">
+                          {message.model}
+                        </span>
+                      )}
+                    </div>
                   )}
                 </div>
               )}
@@ -345,7 +406,7 @@ export const MessageItem = React.memo(function MessageItem({
           )}
         </div>
         <div
-          className={`prose prose-sm md:prose-base max-w-none prose-p:leading-relaxed prose-pre:bg-gray-900 prose-pre:text-gray-100 dark:prose-invert mes_text ${isUser ? "prose-a:text-blue-600 dark:prose-a:text-blue-400" : ""}`}
+          className={`prose prose-sm md:prose-base max-w-none prose-p:leading-relaxed prose-pre:bg-gray-900 prose-pre:text-gray-100 dark:prose-invert mes_text ${showCover ? "lg:clear-none clear-right" : ""} ${isUser ? "prose-a:text-blue-600 dark:prose-a:text-blue-400" : ""}`}
         >
           <div
             className="markdown-body"
@@ -526,6 +587,14 @@ export const MessageItem = React.memo(function MessageItem({
         )}
       </div>
       </div>
+      {showCover && coverUrl && (
+        <CoverViewerModal
+          isOpen={coverViewerOpen}
+          onClose={() => setCoverViewerOpen(false)}
+          src={coverUrl}
+          alt={charName}
+        />
+      )}
       {message.imageUrl && (
         <ImageViewerModal
           isOpen={viewerOpen}

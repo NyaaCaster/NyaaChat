@@ -109,8 +109,59 @@ function toElements(content: unknown): Node[] {
   return [];
 }
 
+// jQuery/Sizzle tolerates selector forms that native DOM APIs reject and throw
+// SyntaxError on — most notably UNQUOTED attribute values like `[mesid=0]`
+// (JSR's collapse-code-block builds `#chat > .mes[mesid=${n}]`). Native
+// querySelectorAll/matches/closest require `[mesid="0"]`. We quote unquoted
+// attribute values, then run native; the safe* wrappers fall back to the
+// normalized form on any throw and never let an extension selector crash the
+// host (mirrors the `:visible`/`:hidden` handling in `arr.is`).
+function normalizeSelector(selector: string): string {
+  return selector.replace(
+    /\[\s*([-\w]+)\s*([~^$*|]?=)\s*(?!["'])([^\]\s]+)/g,
+    (_m, name, op, val) => `[${name}${op}"${val}"`,
+  );
+}
+
+function safeQueryAll(root: ParentNode, selector: string): HTMLElement[] {
+  try {
+    return Array.from(root.querySelectorAll<HTMLElement>(selector));
+  } catch {
+    try {
+      return Array.from(root.querySelectorAll<HTMLElement>(normalizeSelector(selector)));
+    } catch {
+      return [];
+    }
+  }
+}
+
+function safeMatches(el: Element | null | undefined, selector: string): boolean {
+  if (!el) return false;
+  try {
+    return el.matches(selector);
+  } catch {
+    try {
+      return el.matches(normalizeSelector(selector));
+    } catch {
+      return false;
+    }
+  }
+}
+
+function safeClosest(el: Element, selector: string): HTMLElement | null {
+  try {
+    return el.closest<HTMLElement>(selector);
+  } catch {
+    try {
+      return el.closest<HTMLElement>(normalizeSelector(selector));
+    } catch {
+      return null;
+    }
+  }
+}
+
 function resolveTarget(target: string | JQueryElement | JQueryCollection): JQueryCollection {
-  if (typeof target === "string") return makeCollection(Array.from(document.querySelectorAll<HTMLElement>(target)));
+  if (typeof target === "string") return makeCollection(safeQueryAll(document, target));
   if (Array.isArray(target)) return target;
   return makeCollection([target]);
 }
@@ -157,27 +208,27 @@ function makeCollection(items: JQueryElement[]): JQueryCollection {
     elements().forEach((el) => (el.textContent = ""));
     return arr;
   };
-  arr.find = (selector) => makeCollection(elements().flatMap((el) => Array.from(el.querySelectorAll(selector))));
+  arr.find = (selector) => makeCollection(elements().flatMap((el) => safeQueryAll(el, selector)));
   arr.children = (selector) => {
     const children = elements().flatMap((el) => Array.from(el.children).filter((x): x is HTMLElement => x instanceof HTMLElement));
-    return makeCollection(selector ? children.filter((el) => el.matches(selector)) : children);
+    return makeCollection(selector ? children.filter((el) => safeMatches(el, selector)) : children);
   };
   arr.siblings = (selector) => {
     const siblings = elements().flatMap((el) =>
       Array.from(el.parentElement?.children ?? []).filter((x): x is HTMLElement => x instanceof HTMLElement && x !== el),
     );
-    return makeCollection(selector ? siblings.filter((el) => el.matches(selector)) : siblings);
+    return makeCollection(selector ? siblings.filter((el) => safeMatches(el, selector)) : siblings);
   };
-  arr.closest = (selector) => makeCollection(elements().map((el) => el.closest(selector)).filter(Boolean) as HTMLElement[]);
+  arr.closest = (selector) => makeCollection(elements().map((el) => safeClosest(el, selector)).filter(Boolean) as HTMLElement[]);
   arr.parent = (selector) => {
     const parents = elements()
       .map((el) => el.parentElement)
       .filter((p): p is HTMLElement => p != null);
     const unique = [...new Set(parents)];
-    return makeCollection(selector ? unique.filter((el) => el.matches(selector)) : unique);
+    return makeCollection(selector ? unique.filter((el) => safeMatches(el, selector)) : unique);
   };
   arr.filter = (selectorOrCb) => {
-    if (typeof selectorOrCb === "string") return makeCollection(elements().filter((el) => el.matches(selectorOrCb)));
+    if (typeof selectorOrCb === "string") return makeCollection(elements().filter((el) => safeMatches(el, selectorOrCb)));
     return makeCollection(nativeFilter.call(arr, (el: JQueryElement, i: number) => selectorOrCb.call(el, i, el)));
   };
   arr.first = () => makeCollection(arr[0] ? [arr[0]] : []);
@@ -235,7 +286,7 @@ function makeCollection(items: JQueryElement[]): JQueryCollection {
     // jQuery semantics (laid-out box = visible) instead of crashing.
     if (selector === ":visible") return elements().some((el) => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length));
     if (selector === ":hidden") return elements().some((el) => !(el.offsetWidth || el.offsetHeight || el.getClientRects().length));
-    return !!elements()[0]?.matches(selector);
+    return safeMatches(elements()[0], selector);
   };
   arr.css = (name, value) => {
     if (value === undefined) return elements()[0] ? getComputedStyle(elements()[0]).getPropertyValue(name) : "";
@@ -328,7 +379,7 @@ function createJQueryLite(): JQueryLite {
         return makeCollection(toElements(trimmed).filter((x): x is HTMLElement => x instanceof HTMLElement));
       }
       const root = context ?? document;
-      return makeCollection(Array.from(root.querySelectorAll<HTMLElement>(arg)));
+      return makeCollection(safeQueryAll(root, arg));
     }
     return makeCollection([arg]);
   }) as JQueryLite;

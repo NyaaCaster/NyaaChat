@@ -55,6 +55,40 @@
     overflow-x: auto;
     max-width: 100%;
   }
+
+  /* Character cover decorations (chat bubbles). Both feather their edges with a
+     mask so the cover dissolves into the bubble/background instead of ending on
+     a hard rectangle (spec: chatbox-m / chatbox-pc1 / chatbox-pc2).
+
+     - cover-side-mask: PC side image to the right of a character bubble. Fades
+       on its LEFT edge (toward the bubble) and gently top/bottom.
+     - cover-avatar-mask: mobile top-right avatar. Radial fade toward the
+       bottom-left so it blends into the bubble from its corner. */
+  .cover-side-mask {
+    -webkit-mask-image:
+      linear-gradient(to right, transparent 0%, #000 22%),
+      linear-gradient(to top, transparent 0%, #000 20%),
+      radial-gradient(circle at left bottom, transparent 0%, #000 20%);
+    -webkit-mask-composite: source-in, source-in;
+    mask-image:
+      linear-gradient(to right, transparent 0%, #000 22%),
+      linear-gradient(to top, transparent 0%, #000 20%),
+      radial-gradient(circle at left bottom, transparent 0%, #000 20%);
+    mask-composite: intersect;
+  }
+
+  .cover-avatar-mask {
+    -webkit-mask-image:
+      linear-gradient(to right, transparent 0%, #000 15%),
+      linear-gradient(to top, transparent 0%, #000 15%),
+      radial-gradient(circle at left bottom, transparent 0%, #000 15%);
+    -webkit-mask-composite: source-in, source-in;
+    mask-image:
+      linear-gradient(to right, transparent 0%, #000 15%),
+      linear-gradient(to top, transparent 0%, #000 15%),
+      radial-gradient(circle at left bottom, transparent 0%, #000 15%);
+    mask-composite: intersect;
+  }
 }
 
 @layer base {
@@ -106,3 +140,35 @@
     background: transparent;
   }
 }
+
+/* Character cover responsive visibility.
+   Deliberately UNLAYERED (outside every @layer) and !important so it beats any
+   injected extension stylesheet. The hosted JS-Slash-Runner extension ships its
+   own full Tailwind build whose `.hidden{display:none}` leaks into the main
+   document; loaded after the app CSS, it clobbered the cover's `hidden lg:block`
+   utility and hid the PC side cover at every width (the "flash then disappear"
+   was that extension CSS arriving). Driving show/hide through these app-private
+   classes — which no extension targets — sidesteps the collision entirely.
+   Breakpoint mirrors Tailwind `lg` (64rem): side strip on desktop, top-right
+   avatar on mobile. */
+.cover-side { display: none !important; }
+.cover-avatar { display: block !important; }
+@media (min-width: 64rem) {
+  .cover-side { display: block !important; }
+  .cover-avatar { display: none !important; }
+}
+
+/* PC bubble: reserve a right column for the full-height cover strip, and keep
+   the assistant meta row (#id / time / tokens / model) on ONE line. Same
+   extension-pollution defense as above — JSR's global `.px-5` and `.flex-col`
+   would otherwise beat Tailwind's `lg:pr-*` / `lg:flex-row`. Unlayered +
+   !important + 64rem media so the app's intent wins regardless of injected CSS. */
+@media (min-width: 64rem) {
+  .cover-host { padding-right: 13rem !important; }
+  .meta-row {
+    flex-direction: row !important;
+    align-items: center !important;
+    flex-wrap: nowrap !important;
+  }
+}
+.meta-row > div { white-space: nowrap; }

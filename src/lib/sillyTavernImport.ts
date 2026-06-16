@@ -8,7 +8,11 @@ const MAX_IMPORT_BYTES = 5 * 1024 * 1024;
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 
 // Parse SillyTavern PNG card: reads tEXt chunks to find 'chara' key (base64 JSON)
-export async function parseSillyTavernPng(file: File): Promise<CharacterSettings> {
+/** Walk a PNG's chunks and return the parsed `chara` tEXt JSON (the raw card
+ *  object — could be an ST card or a NyaaChat-native card). Throws when the file
+ *  isn't a valid PNG or carries no chara chunk. Shared by both the ST and native
+ *  import paths so format dispatch happens on the parsed object. */
+export async function extractCharaJson(file: File): Promise<any> {
   if (file.size > MAX_IMPORT_BYTES) {
     throw new Error(`PNG 文件过大（${(file.size / 1024 / 1024).toFixed(2)} MB），上限 5 MB`);
   }
@@ -47,12 +51,47 @@ export async function parseSillyTavernPng(file: File): Promise<CharacterSettings
         const utf8Bytes = Uint8Array.from(raw, c => c.charCodeAt(0));
         const jsonStr = new TextDecoder('utf-8').decode(utf8Bytes);
         const json = JSON.parse(jsonStr);
-        return convertSillyTavernCharacter(json);
+        return json;
       }
     }
     offset += 8 + length + 4; // length + type + data + crc
   }
   throw new Error("PNG 文件中未找到角色数据（chara chunk）");
+}
+
+/** Back-compat wrapper: extract + convert as a SillyTavern card. */
+export async function parseSillyTavernPng(file: File): Promise<CharacterSettings> {
+  return convertSillyTavernCharacter(await extractCharaJson(file));
+}
+
+/** Convert a NyaaChat-native card JSON (the object embedded in our own PNG
+ *  export, `format: "nyaachat-character"`) into CharacterSettings. Reads our own
+ *  top-level fields directly — regex under `regexScripts`, character variables /
+ *  ST data under `extensions`, plus the shared-system metadata groundwork. */
+export function convertNativeCard(parsed: any): CharacterSettings {
+  if (!parsed.name || typeof parsed.name !== "string") throw new Error('Missing or invalid "name"');
+  if (!parsed.description || typeof parsed.description !== "string") {
+    throw new Error('Missing or invalid "description"');
+  }
+  const passthroughExt =
+    parsed.extensions && typeof parsed.extensions === "object" && !Array.isArray(parsed.extensions)
+      ? (parsed.extensions as Record<string, unknown>)
+      : undefined;
+  return {
+    id: newId(),
+    name: parsed.name,
+    description: parsed.description,
+    firstMes: typeof parsed.firstMes === "string" && parsed.firstMes.trim() ? parsed.firstMes : undefined,
+    worldInfo: Array.isArray(parsed.worldInfo) ? parsed.worldInfo : [],
+    ...(Array.isArray(parsed.regexScripts) && parsed.regexScripts.length
+      ? { regexScripts: parsed.regexScripts }
+      : {}),
+    ...(passthroughExt ? { extensions: passthroughExt } : {}),
+    ...(typeof parsed.version === "number" ? { version: parsed.version } : {}),
+    ...(typeof parsed.author === "string" && parsed.author ? { author: parsed.author } : {}),
+    ...(parsed.source === "original" || parsed.source === "reposted" ? { source: parsed.source } : {}),
+    ...(typeof parsed.intro === "string" && parsed.intro ? { intro: parsed.intro } : {}),
+  };
 }
 
 function isSillyTavernFormat(parsed: any): boolean {

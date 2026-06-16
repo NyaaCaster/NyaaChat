@@ -1,8 +1,15 @@
 import React, { useState, useRef } from "react";
 import { Sparkles, Plus, Upload, Check, Edit2, Trash2 } from "lucide-react";
 import { AppState, CharacterSettings } from "../types";
-import { isSillyTavernFormat, convertSillyTavernCharacter, parseSillyTavernPng } from "../lib/sillyTavernImport";
-import { newId } from "../lib/id";
+import {
+  isSillyTavernFormat,
+  convertSillyTavernCharacter,
+  convertNativeCard,
+  extractCharaJson,
+} from "../lib/sillyTavernImport";
+import { imageBlobToCoverWebp } from "../lib/pngCard";
+import { saveCover, deleteCover, COVER_MARKER } from "../lib/coverStorage";
+import { useCoverObjectUrl } from "../hooks/useCoverObjectUrl";
 import { BaseModal } from "./BaseModal";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { CharacterEditModal } from "./CharacterEditModal";
@@ -46,37 +53,26 @@ export function CharacterSelectionModal({
     }
 
     try {
-      let newCharacter: CharacterSettings;
+      if (!file.name.toLowerCase().endsWith(".png")) {
+        throw new Error("仅支持 PNG 角色卡");
+      }
 
-      if (file.name.endsWith(".png")) {
-        newCharacter = await parseSillyTavernPng(file);
-      } else {
-        const content = await file.text();
-        const parsed = JSON.parse(content);
-        if (!parsed || typeof parsed !== "object") throw new Error("Invalid JSON object");
-        if (isSillyTavernFormat(parsed)) {
-          newCharacter = convertSillyTavernCharacter(parsed);
-        } else {
-          if (!parsed.name || typeof parsed.name !== "string") throw new Error('Missing or invalid "name"');
-          if (!parsed.description || typeof parsed.description !== "string") throw new Error('Missing or invalid "description"');
-          // NyaaChat-native card: read our own fields directly (regex lives at
-          // top-level `regexScripts`, `extensions` carries character variables).
-          const passthroughExt =
-            parsed.extensions && typeof parsed.extensions === "object" && !Array.isArray(parsed.extensions)
-              ? (parsed.extensions as Record<string, unknown>)
-              : undefined;
-          newCharacter = {
-            id: newId(),
-            name: parsed.name,
-            description: parsed.description,
-            firstMes: typeof parsed.firstMes === "string" && parsed.firstMes.trim() ? parsed.firstMes : undefined,
-            worldInfo: Array.isArray(parsed.worldInfo) ? parsed.worldInfo : [],
-            ...(Array.isArray(parsed.regexScripts) && parsed.regexScripts.length
-              ? { regexScripts: parsed.regexScripts }
-              : {}),
-            ...(passthroughExt ? { extensions: passthroughExt } : {}),
-          };
-        }
+      // Card data rides in the PNG's `chara` tEXt chunk; dispatch on the parsed
+      // object's shape (ST card vs. our native card).
+      const raw = await extractCharaJson(file);
+      const newCharacter: CharacterSettings = isSillyTavernFormat(raw)
+        ? convertSillyTavernCharacter(raw)
+        : convertNativeCard(raw);
+
+      // The PNG's visible pixels ARE the cover — re-encode them to a 512×768
+      // WebP and store under the new character id. Failure to decode the cover
+      // is non-fatal: the character still imports, just without a cover.
+      try {
+        const coverWebp = await imageBlobToCoverWebp(file);
+        await saveCover(newCharacter.id, coverWebp);
+        newCharacter.coverImage = COVER_MARKER;
+      } catch {
+        // leave coverImage unset
       }
 
       onSave({
@@ -85,7 +81,7 @@ export function CharacterSelectionModal({
       });
       setImportError(null);
     } catch (err: any) {
-      setImportError("角色配置内容格式错误：" + (err?.message || String(err)));
+      setImportError("角色卡导入失败：" + (err?.message || String(err)));
     }
 
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -116,6 +112,9 @@ export function CharacterSelectionModal({
 
   const handleDeleteConfirm = () => {
     if (!pendingDeleteId) return;
+    // Drop the character's cover blob from IndexedDB (fire-and-forget; a leftover
+    // blob would just be orphaned, never resurfaced).
+    void deleteCover(pendingDeleteId);
     const newCharacters = settings.characters.filter((c) => c.id !== pendingDeleteId);
     let nextCurrentId = settings.currentCharacterId;
     if (settings.currentCharacterId === pendingDeleteId) {
@@ -156,7 +155,7 @@ export function CharacterSelectionModal({
           <>
             <input
               type="file"
-              accept=".json,.png"
+              accept=".png"
               className="hidden"
               ref={fileInputRef}
               onChange={handleImport}
@@ -193,19 +192,22 @@ export function CharacterSelectionModal({
                     : "border-gray-200 dark:border-white/10 bg-white dark:bg-white/5 hover:border-gray-300 dark:hover:border-white/20 hover:bg-gray-50 dark:hover:bg-white/10"
                 }`}
               >
-                <div className="flex-1 min-w-0 pr-16">
-                  <h4
-                    className={`text-base font-medium mb-1 truncate ${
-                      settings.currentCharacterId === character.id
-                        ? "text-blue-700 dark:text-blue-400"
-                        : "text-gray-900 dark:text-gray-100"
-                    }`}
-                  >
-                    {character.name}
-                  </h4>
-                  <p className="text-sm text-gray-500 dark:text-gray-400 line-clamp-2">
-                    {character.description}
-                  </p>
+                <div className="flex-1 min-w-0 pr-16 flex items-start gap-3">
+                  <CharacterThumb character={character} />
+                  <div className="min-w-0">
+                    <h4
+                      className={`text-base font-medium mb-1 truncate ${
+                        settings.currentCharacterId === character.id
+                          ? "text-blue-700 dark:text-blue-400"
+                          : "text-gray-900 dark:text-gray-100"
+                      }`}
+                    >
+                      {character.name}
+                    </h4>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 line-clamp-2">
+                      {character.description}
+                    </p>
+                  </div>
                 </div>
 
                 <div className="absolute right-4 top-4 flex items-center gap-1">
@@ -261,5 +263,25 @@ export function CharacterSelectionModal({
         initialCharacter={editingCharacter}
       />
     </>
+  );
+}
+
+/** 25%-scale (128×192) cover thumbnail for a character list entry. Loads the
+ *  cover blob from IndexedDB; shows a neutral placeholder when there is none. */
+function CharacterThumb({ character }: { character: CharacterSettings }) {
+  const url = useCoverObjectUrl(character.id, !!character.coverImage);
+  return (
+    <div
+      className="flex-shrink-0 rounded-lg overflow-hidden bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10"
+      style={{ width: 64, height: 96 }}
+    >
+      {url ? (
+        <img src={url} alt={character.name} className="w-full h-full object-cover" draggable={false} />
+      ) : (
+        <div className="w-full h-full flex items-center justify-center text-gray-300 dark:text-white/20">
+          <Sparkles size={20} />
+        </div>
+      )}
+    </div>
   );
 }

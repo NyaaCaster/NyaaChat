@@ -253,7 +253,7 @@ export function ChatComposer({
     // injects is outside React's render tree, so React's diff leaves it alone
     // (same escape-hatch boundary as `.mes_text` in P3).
     <footer id="send_form" className="flex-shrink-0 bg-transparent p-4 sm:px-6 sm:pb-6 z-20">
-      <div className="max-w-3xl mx-auto relative">
+      <div className="max-w-3xl lg:max-w-[60rem] mx-auto relative">
         <input
           type="file"
           multiple

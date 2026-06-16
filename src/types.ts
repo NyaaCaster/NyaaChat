@@ -117,6 +117,33 @@ export interface CharacterSettings {
   /** Character-scoped regex scripts (ST: `data.extensions.regex_scripts`).
    *  Run after global scripts in the combined chain. */
   regexScripts?: RegexScript[];
+  /** Reference-style cover-image marker (512×768). The actual pixels live as a
+   *  WebP Blob in IndexedDB keyed by the character `id` (see lib/coverStorage),
+   *  NOT inline here — base64 in the settings blob would blow the localStorage
+   *  quota. This field only records *that* a cover exists (and, in a future
+   *  shared-library phase, may carry a remote URL); a truthy value means "look
+   *  it up in IndexedDB". Kept as a string for forward-compatibility with the
+   *  shared system's "cover relative path / URL" model. */
+  coverImage?: string;
+  /** --- Shared-character-system groundwork (no UI yet) ---
+   *  Reserved per .ref/我想在本项目中建立一个共享角色系统.md so a card can later
+   *  round-trip through the shared library without a data migration. All
+   *  optional and currently unpopulated by the editor. */
+  /** Local revision number for the shared system's update-detection ("server
+   *  version > local version → show update badge"). */
+  version?: number;
+  /** Slot for a server-assigned global id once the card is shared. Distinct
+   *  from the locally-generated `id`, which is NOT assumed globally unique. */
+  globalId?: string;
+  /** Uploader-declared author (governs edit/delete rights in the shared lib). */
+  author?: string;
+  /** Provenance: 原创 (original) / 转载 (reposted). */
+  source?: "original" | "reposted";
+  /** Short blurb (≤100 chars) the author writes ABOUT the character — distinct
+   *  from `description`, which is the actual card persona sent to the model. */
+  intro?: string;
+  /** Marks a card obtained from the shared library vs. a local-native one. */
+  shared?: boolean;
 }
 
 /**

@@ -21,6 +21,7 @@ import { ChatComposer } from "./ChatComposer";
 import { motion, AnimatePresence } from "motion/react";
 import { useFullscreen } from "../hooks/useFullscreen";
 import { useAttachments } from "../hooks/useAttachments";
+import { useCoverObjectUrl } from "../hooks/useCoverObjectUrl";
 import { syncChat, syncMeta, getEffectiveRegexScripts, subscribeRegexScripts, resetTransientVariables, setGenerateApiResolver, setMessageWriter, setActiveChatScope, setActiveChatMetadataScope, setContextProvider, setExtensionFieldWriter, applyExtensionFieldToCharacters, getChatMetadata, replaceChatMetadata, saveMetadataNow, toSTCharacter, emitChatChanged, emitChatLoaded, emitMessageDeleted, emitMessageReceived, emitMessageSent, emitMessageUpdated, emitUserMessageRendered, emitCharacterMessageRendered } from "../compat";
 
 /**
@@ -103,6 +104,9 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
   );
   const charName = currentCharacter?.name || "AI助手";
   const userName = currentUserRole?.name || "user";
+  // Active character cover (512×768) as an object URL, shared by every assistant
+  // bubble's side/avatar decoration and cover viewer.
+  const coverUrl = useCoverObjectUrl(currentCharacter?.id, !!currentCharacter?.coverImage);
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
 
@@ -994,6 +998,7 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
                     imageGenerating={imageGeneratingId === message.id}
                     busy={isLoading}
                     regexScripts={regexScripts}
+                    coverUrl={coverUrl}
                     frontendRenderingEnabled={
                       settings.isFrontendRenderingEnabled &&
                       (settings.frontendRenderingDepth === 0 ||
