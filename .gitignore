@@ -17,3 +17,6 @@ src/temp/
 # and generated registry are maintained locally by git/rebuild.
 public/extensions/*/
 public/extensions/registry.json
+# Generated outbound allowlist for the ext-host sidecar, aggregated from
+# installed extensions' declared network_endpoints at rebuild time.
+ext-host/network-allowlist.generated.json

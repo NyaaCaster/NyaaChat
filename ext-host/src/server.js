@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 const PORT = Number(process.env.PORT || 3099);
 const HOST = process.env.HOST || "0.0.0.0";
 const DEFAULT_TTS_PRESET = "default";
@@ -80,9 +82,27 @@ function buildTtsPresets() {
 }
 
 const ttsPresets = buildTtsPresets();
+
+// Endpoints declared by installed extensions (manifest network_endpoints or
+// operator overrides), aggregated at build time by generate-extension-registry.
+// Reading from this generated file keeps the sidecar extension-agnostic: it
+// never hardcodes any specific extension's endpoint, yet install + rebuild is
+// zero-config. Missing/invalid file simply yields no extra endpoints.
+function loadDeclaredEndpoints() {
+  try {
+    const url = new URL("../network-allowlist.generated.json", import.meta.url);
+    const parsed = JSON.parse(readFileSync(url, "utf8"));
+    const list = Array.isArray(parsed?.endpoints) ? parsed.endpoints : [];
+    return list.map(normalizeUrl).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
 const allowedTtsEndpoints = new Set([
   ...ttsPresets.values(),
   ...parseList(process.env.TTS_ALLOWED_ENDPOINTS).map(normalizeUrl).filter(Boolean),
+  ...loadDeclaredEndpoints(),
 ]);
 
 function resolveTtsEndpoint(payload) {

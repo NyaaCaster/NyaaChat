@@ -184,6 +184,17 @@ POST /api/extensions/delete    -> 501 operator-managed
 
 `POST /api/openai/custom/generate-voice` 是 ST-compatible 通用 voice proxy。该接口必须使用服务端白名单或 preset 映射约束目标 endpoint；不得信任扩展传入的任意 `provider_endpoint` 直接转发，也不得内置任何具体扩展的 endpoint、voice、model 或私有参数默认值。
 
+#### 受控白名单来源：扩展声明 + rebuild 聚合（2026-06-16）
+
+为避免"每装一个有出站网络需求的扩展都要手动配 env"导致扩展管理失去意义，白名单改为由**已安装扩展静态声明、rebuild 时自动聚合**，ext-host 代码仍保持扩展无关（不内置任何具体扩展 endpoint）：
+
+- 声明位置（两者取并集）：
+  - 扩展上游 `manifest.json` 的 `network_endpoints: string[]`（扩展作者声明，随 `auto_update` 自动带下来，装好即用，零配置）。
+  - 运营方 `public/extensions/registry.overrides.json` 中按扩展 id 的 `network_endpoints`（用于无法改上游的第三方扩展；集中、入库、**不触碰扩展目录**、不被 auto_update 覆盖）。
+- `scripts/generate-extension-registry.mjs` 在 rebuild 前扫描全部 manifest + overrides，URL 规范化（清 hash）+ 去重，写出 `ext-host/network-allowlist.generated.json`（git-ignored 生成产物，0 声明则空数组）。
+- `ext-host/Dockerfile` 在 build 时 `COPY` 该文件；`server.js` 启动读取并并入 `allowedTtsEndpoints`，与 `TTS_DEFAULT_ENDPOINT`/`TTS_PRESETS`/`TTS_ALLOWED_ENDPOINTS` 等运营级 env 覆盖层取并集。
+- 信任边界不变：声明是静态、本地、可审阅的（安装即 git clone + rebuild + code review）；运行时 ext-host 仍**只转发到聚合白名单内**的地址，未声明地址照拒，SSRF 防护完整保留。
+
 实际是否需要暴露这些 501 endpoint，按扩展调用情况决定；默认不主动添加。
 
 ### 6.3 Docker / nginx 接线
