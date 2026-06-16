@@ -1,7 +1,8 @@
 import React, { useState } from "react";
-import { Save, Plus, Download, Edit2, Trash2 } from "lucide-react";
+import { Save, Plus, Download, Edit2, Trash2, FileJson, Cat } from "lucide-react";
 import { CharacterSettings, WorldInfoRule } from "../types";
 import { newId } from "../lib/id";
+import { convertToSillyTavernCharacter } from "../lib/sillyTavernExport";
 import { BaseModal } from "./BaseModal";
 import { WorldInfoRuleModal } from "./WorldInfoRuleModal";
 
@@ -24,6 +25,7 @@ export function CharacterEditModal({
   const [worldInfo, setWorldInfo] = useState<WorldInfoRule[]>([]);
   const [isRuleModalOpen, setIsRuleModalOpen] = useState(false);
   const [editingRule, setEditingRule] = useState<WorldInfoRule | null>(null);
+  const [isExportChooserOpen, setIsExportChooserOpen] = useState(false);
 
   React.useEffect(() => {
     if (initialCharacter) {
@@ -58,25 +60,21 @@ export function CharacterEditModal({
     onClose();
   };
 
-  const handleExport = () => {
-    // NyaaChat-native character card — a lossless round-trip of CharacterSettings,
-    // deliberately NOT shaped like a SillyTavern card. Regex stays under our own
-    // top-level `regexScripts` (not ST's `extensions.regex_scripts`); `extensions`
-    // is an opaque passthrough of character-scoped variables / ST extension data
-    // so a backup keeps them. SillyTavern interop is a separate ST-format export.
-    const scopedRegex = initialCharacter?.regexScripts ?? [];
-    const ext = initialCharacter?.extensions;
-    const data = {
-      format: "nyaachat-character",
-      version: 1,
-      name: name.trim(),
-      description: description.trim(),
-      ...(firstMes.trim() ? { firstMes: firstMes.trim() } : {}),
-      worldInfo: worldInfo,
-      ...(scopedRegex.length ? { regexScripts: scopedRegex } : {}),
-      ...(ext && Object.keys(ext).length ? { extensions: ext } : {}),
-    };
-    const json = JSON.stringify(data, null, 2);
+  // Assemble the character from the current (possibly edited) modal state, plus
+  // the card data this modal has no editor for (regex / extensions) carried from
+  // initialCharacter. Shared by both export formats.
+  const buildCurrentCharacter = (): CharacterSettings => ({
+    id: initialCharacter?.id || newId(),
+    name: name.trim(),
+    description: description.trim(),
+    firstMes: firstMes.trim() || undefined,
+    worldInfo: worldInfo,
+    ...(initialCharacter?.regexScripts ? { regexScripts: initialCharacter.regexScripts } : {}),
+    ...(initialCharacter?.extensions ? { extensions: initialCharacter.extensions } : {}),
+  });
+
+  const downloadJson = (obj: unknown, filenamePrefix: string) => {
+    const json = JSON.stringify(obj, null, 2);
     const blob = new Blob([json], { type: "application/json" });
     const url = URL.createObjectURL(blob);
 
@@ -84,15 +82,44 @@ export function CharacterEditModal({
     const pad = (n: number) => n.toString().padStart(2, "0");
     const timestamp = `${now.getFullYear().toString().slice(-2)}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
     const safeName = (name.trim() || "未命名").replace(/[\\/:*?"<>|]/g, "_");
-    const filename = `NyaaChatChar-${safeName}-${timestamp}.json`;
 
     const a = document.createElement("a");
     a.href = url;
-    a.download = filename;
+    a.download = `${filenamePrefix}-${safeName}-${timestamp}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+  };
+
+  const exportNyaaChat = () => {
+    // NyaaChat-native character card — a lossless round-trip of CharacterSettings,
+    // deliberately NOT shaped like a SillyTavern card. Regex stays under our own
+    // top-level `regexScripts` (not ST's `extensions.regex_scripts`); `extensions`
+    // is an opaque passthrough of character-scoped variables / ST extension data
+    // so a backup keeps them.
+    const c = buildCurrentCharacter();
+    const data = {
+      format: "nyaachat-character",
+      version: 1,
+      name: c.name,
+      description: c.description,
+      ...(c.firstMes ? { firstMes: c.firstMes } : {}),
+      worldInfo: c.worldInfo ?? [],
+      ...(c.regexScripts && c.regexScripts.length ? { regexScripts: c.regexScripts } : {}),
+      ...(c.extensions && Object.keys(c.extensions).length ? { extensions: c.extensions } : {}),
+    };
+    downloadJson(data, "NyaaChatChar");
+    setIsExportChooserOpen(false);
+  };
+
+  const exportSillyTavern = () => {
+    // SillyTavern chara_card_v3 — world info is reverse-migrated to at-depth
+    // entries (see sillyTavernExport.ts). Lossy: hard/soft authority is dropped
+    // (ST has no such concept), mirroring the importer's soft default.
+    const card = convertToSillyTavernCharacter(buildCurrentCharacter());
+    downloadJson(card, "SillyTavernChar");
+    setIsExportChooserOpen(false);
   };
 
   const handleAddRule = () => {
@@ -131,7 +158,7 @@ export function CharacterEditModal({
         footer={
           <div className="flex gap-3">
             <button
-              onClick={handleExport}
+              onClick={() => setIsExportChooserOpen(true)}
               className="flex-shrink-0 px-4 py-2 bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 hover:bg-gray-50 dark:hover:bg-white/10 text-gray-700 dark:text-gray-300 text-sm font-medium rounded-xl transition-all flex items-center justify-center gap-2"
             >
               <Download size={16} /> 角色导出
@@ -273,6 +300,46 @@ export function CharacterEditModal({
         onSave={handleSaveRule}
         initialRule={editingRule}
       />
+
+      <BaseModal
+        isOpen={isExportChooserOpen}
+        onClose={() => setIsExportChooserOpen(false)}
+        title="选择导出格式"
+        titleIcon={<Download size={16} className="text-blue-500" />}
+        maxWidth="max-w-md"
+      >
+        <div className="p-4 sm:p-5 space-y-3">
+          <button
+            onClick={exportNyaaChat}
+            className="w-full text-left p-4 bg-gray-50 dark:bg-white/[0.03] border border-gray-200 dark:border-white/10 hover:border-blue-500 dark:hover:border-blue-500 hover:bg-blue-50/50 dark:hover:bg-blue-900/10 rounded-xl transition-all flex items-start gap-3 group"
+          >
+            <div className="flex-shrink-0 w-9 h-9 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-500">
+              <Cat size={18} />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">NyaaChat 格式</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 leading-relaxed">
+                原生格式，完整保留规则约束强度、绑定正则与角色变量，可无损导回 NyaaChat。
+              </p>
+            </div>
+          </button>
+
+          <button
+            onClick={exportSillyTavern}
+            className="w-full text-left p-4 bg-gray-50 dark:bg-white/[0.03] border border-gray-200 dark:border-white/10 hover:border-blue-500 dark:hover:border-blue-500 hover:bg-blue-50/50 dark:hover:bg-blue-900/10 rounded-xl transition-all flex items-start gap-3 group"
+          >
+            <div className="flex-shrink-0 w-9 h-9 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-500">
+              <FileJson size={18} />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">SillyTavern 格式</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 leading-relaxed">
+                兼容 SillyTavern 角色卡（chara_card_v3），世界书按 ST 规则迁移。注意：约束强度（软/硬）无对应概念，导出时会丢弃。
+              </p>
+            </div>
+          </button>
+        </div>
+      </BaseModal>
     </>
   );
 }
