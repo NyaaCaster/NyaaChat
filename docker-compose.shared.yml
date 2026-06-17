@@ -1,0 +1,37 @@
+# Shared-character backend — a SEPARATE compose project (name below) so it can
+# be rebuilt / restarted independently of the NyaaChat frontend.
+#
+# Connectivity: both this project and the main one attach to the external
+# `nyaachat-net` network, so the main nginx can reach this service by name
+# (nyaachat-shared) and proxy /api/shared/* to it same-origin. Create the
+# network once before first build:  docker network create nyaachat-net
+#
+# Large/persistent data (sqlite db + cover images) is bind-mounted to the host
+# big disk per the project's Docker large-asset convention. Override the host
+# paths via SHARED_DB_DIR / SHARED_COVERS_DIR (see .env.example) on non-Windows
+# hosts.
+name: nyaachat-shared
+
+services:
+  nyaachat-shared:
+    build: ./shared-server
+    container_name: nyaachat-shared
+    environment:
+      - TZ=Asia/Shanghai
+      - PORT=5107
+      - DB_PATH=/data/db/nyaachat-shared.db
+      - COVERS_DIR=/data/covers
+    ports:
+      # Direct exposure for debugging / health checks. Primary access is
+      # same-origin through the main nginx at /api/shared/.
+      - "5107:5107"
+    volumes:
+      - ${SHARED_DB_DIR:-E:/DockerRes/nyaachat-shared/db}:/data/db
+      - ${SHARED_COVERS_DIR:-E:/DockerRes/nyaachat-shared/covers}:/data/covers
+    networks:
+      - nyaachat-net
+    restart: unless-stopped
+
+networks:
+  nyaachat-net:
+    external: true

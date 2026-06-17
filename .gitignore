@@ -13,6 +13,9 @@ src/temp/
 .playwright-mcp/
 # Local reference material — not for sharing
 .ref/
+# Shared-character backend local data (sqlite db / covers when run outside
+# Docker). In production these live on host bind mounts, not in the repo.
+shared-server/data/
 # Operator-managed third-party SillyTavern extensions. Extension directories
 # and generated registry are maintained locally by git/rebuild.
 public/extensions/*/

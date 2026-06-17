@@ -1,0 +1,17 @@
+{
+  "name": "nyaachat-shared",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "NyaaChat shared-character backend (accounts, catfood, shared library).",
+  "scripts": {
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.8.1",
+    "express": "^4.21.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
