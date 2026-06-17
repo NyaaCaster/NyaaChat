@@ -1,6 +1,45 @@
 # 更新历史
 
-## 当前版本：v1.2.2
+## v1.3.1
+Github Commit: [40232de](https://github.com/NyaaCaster/NyaaChat/commit/40232de8df69ba69cdb5dc612c337fd1ced939ba)
+
+发布日期：2026-06-18
+
+### ✨ 新功能
+
+#### 共享角色库
+
+- 新增独立「共享角色」系统
+- 提供账号注册、登录与个人资料管理
+- 角色卡支持添加标签
+- 角色卡可发布至共享库，支持封面图上传；共享库提供关键词搜索、多维度排序及标签/作者筛选
+- 私有列表中可查看已分享的角色卡，支持更新发布内容及删除
+- 作者可对已发布的角色卡进行编辑与版本更新
+
+### 🔧 优化
+
+- 角色卡支持设置封面图，提供裁剪工具并上传存储
+- 聊天气泡中可显示角色封面图
+- 世界书条目新增「允许递归」开关，开启后该条目的内容可进一步触发其他条目的关键词激活
+
+---
+
+## v1.2.3
+Github Commit: [cf5d243](https://github.com/NyaaCaster/NyaaChat/commit/cf5d243eb2cc8205a25ab529dfae21c5235504c0)
+
+发布日期：2026-06-16
+
+### ✨ 新功能
+
+- 角色导出新增「SillyTavern」格式，可以json角色 卡方式导入酒馆
+
+### 🔧 优化
+
+- 修正Quote TTS的语音生成功能
+
+---
+
+## v1.2.2
 Github Commit: [6fcb748](https://github.com/NyaaCaster/NyaaChat/commit/6fcb748b6e2ca584a3e60489cb2410ef4d5c82bb)
 
 发布日期：2026-06-16
