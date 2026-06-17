@@ -12,7 +12,7 @@
 // placeholder when it has none — so the image that lands on the server carries
 // no character data.
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { CloudUpload, Loader2, Plus, X as XIcon, AlertTriangle } from "lucide-react";
 import { BaseModal } from "./BaseModal";
@@ -28,6 +28,7 @@ import {
   publishUpdate,
 } from "../lib/sharedCharacterApi";
 import { type ApiResult } from "../lib/sharedAccountApi";
+import { fetchTags } from "../lib/sharedLibraryApi";
 
 const INTRO_MAX = 100;
 const TAG_MAX_LEN = 20;
@@ -151,6 +152,9 @@ export function CharacterShareModal({
   const [intro, setIntro] = useState("");
   const [tagDraft, setTagDraft] = useState("");
   const [tags, setTags] = useState<string[]>([]);
+  const [allTags, setAllTags] = useState<string[]>([]);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const tagWrapRef = useRef<HTMLDivElement>(null);
 
   const [useTier, setUseTier] = useState(0); // index into USE_TIERS
   const [useCustom, setUseCustom] = useState("");
@@ -181,7 +185,7 @@ export function CharacterShareModal({
       setSource("original");
       setIntro("");
       setTagDraft("");
-      setTags([]);
+      setTags(character?.tags ?? []);
       setUseTier(0);
       setUseCustom("");
       setBuyoutTier(0);
@@ -193,6 +197,22 @@ export function CharacterShareModal({
     // different card / a fresh prefill re-seeds, but typing doesn't reset.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, character?.id, mode]);
+
+  // Fetch server tag list once per modal open.
+  useEffect(() => {
+    if (!isOpen) return;
+    fetchTags().then((r) => { if (r.kind === "ok") setAllTags(r.data.tags); });
+  }, [isOpen]);
+
+  // Close dropdown on outside click.
+  useEffect(() => {
+    if (!dropdownOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (!tagWrapRef.current?.contains(e.target as Node)) setDropdownOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [dropdownOpen]);
 
   // Cover preview: render the same re-encoded WebP we will upload, so the user
   // sees exactly what becomes the shared cover (their own cover, or placeholder).
@@ -234,15 +254,15 @@ export function CharacterShareModal({
 
   const introLen = useMemo(() => [...intro].length, [intro]);
 
-  const addTag = () => {
-    const t = tagDraft.trim();
+  const addTag = (direct?: string) => {
+    const t = (direct ?? tagDraft).trim();
     if (!t) return;
     if ([...t].length > TAG_MAX_LEN) {
       setError(`单个标签最多 ${TAG_MAX_LEN} 字`);
       return;
     }
     if (tags.includes(t)) {
-      setTagDraft("");
+      if (!direct) setTagDraft("");
       return;
     }
     if (tags.length >= TAGS_MAX) {
@@ -250,7 +270,7 @@ export function CharacterShareModal({
       return;
     }
     setTags([...tags, t]);
-    setTagDraft("");
+    if (!direct) setTagDraft("");
     setError(null);
   };
 
@@ -449,28 +469,47 @@ export function CharacterShareModal({
 
         {/* tags */}
         <Field label="标签">
-          <div className="flex gap-2">
-            <input
-              value={tagDraft}
-              onChange={(e) => setTagDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  addTag();
-                }
-              }}
-              maxLength={TAG_MAX_LEN}
-              className="flex-1 px-3 py-2 text-sm bg-transparent border border-gray-200 dark:border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-shadow"
-              placeholder="输入一个标签"
-            />
-            <button
-              onClick={addTag}
-              className="px-3 py-2 bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 hover:bg-gray-50 dark:hover:bg-white/10 text-gray-700 dark:text-gray-300 text-sm font-medium rounded-xl transition-all flex items-center gap-1"
-            >
-              <Plus size={14} /> 添加
-            </button>
+          <div className="relative" ref={tagWrapRef}>
+            <div className="flex gap-2">
+              <input
+                value={tagDraft}
+                onChange={(e) => setTagDraft(e.target.value)}
+                onFocus={() => setDropdownOpen(true)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") { e.preventDefault(); addTag(); }
+                  if (e.key === "Escape") setDropdownOpen(false);
+                }}
+                maxLength={TAG_MAX_LEN}
+                className="flex-1 px-3 py-2 text-sm bg-transparent border border-gray-200 dark:border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-shadow"
+                placeholder="输入或从列表选择标签"
+              />
+              <button
+                onClick={() => addTag()}
+                className="px-3 py-2 bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 hover:bg-gray-50 dark:hover:bg-white/10 text-gray-700 dark:text-gray-300 text-sm font-medium rounded-xl transition-all flex items-center gap-1"
+              >
+                <Plus size={14} /> 添加
+              </button>
+            </div>
+            {(() => {
+              const items = allTags.filter(
+                (t) => !tags.includes(t) && (tagDraft ? t.includes(tagDraft) : true),
+              );
+              return dropdownOpen && items.length > 0 ? (
+                <ul className="absolute z-50 left-0 right-10 mt-1 max-h-44 overflow-y-auto bg-white dark:bg-gray-800 border border-gray-200 dark:border-white/10 rounded-xl shadow-lg py-1">
+                  {items.map((t) => (
+                    <li
+                      key={t}
+                      onMouseDown={(e) => { e.preventDefault(); addTag(t); }}
+                      className="px-3 py-1.5 text-sm cursor-pointer select-none text-gray-700 dark:text-gray-200 hover:bg-blue-50 dark:hover:bg-blue-500/10 hover:text-blue-700 dark:hover:text-blue-300"
+                    >
+                      {t}
+                    </li>
+                  ))}
+                </ul>
+              ) : null;
+            })()}
           </div>
-          <Hint>每次输入只添加一个标签文本，不支持同时输入多个标签。</Hint>
+          <Hint>点击输入框展开标签列表快速选择，或手动输入后按 Enter / 点添加。</Hint>
           {tags.length > 0 && (
             <div className="flex flex-wrap gap-1.5 pt-1">
               {tags.map((t) => (

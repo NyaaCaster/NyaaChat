@@ -157,6 +157,10 @@ export interface CharacterSettings {
    *  recognised (account === owner) and offered 编辑/发布更新 — display-name
    *  comparison would be unreliable across renames/duplicates. */
   owner?: string;
+  /** Classification tags for the character. Matches `data.tags` in ST v3 card
+   *  format and the shared library tag system — same `string[]` shape so they
+   *  round-trip without conversion. */
+  tags?: string[];
 }
 
 /**

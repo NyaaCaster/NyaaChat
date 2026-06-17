@@ -203,6 +203,7 @@ export function convertSillyTavernCharacter(parsed: any): CharacterSettings {
     firstMes: data.first_mes || undefined,
     worldInfo,
     ...(regexScripts.length ? { regexScripts } : {}),
+    ...(data.tags?.length ? { tags: data.tags as string[] } : {}),
   };
 }
 

@@ -290,6 +290,7 @@ export function SharedLibraryModal({
       local.intro = card.intro;
       local.version = card.updatedAt; // server revision, for phase-5 update detection
     }
+    if (card.tags?.length) local.tags = card.tags;
     try {
       const blob = await fetchCoverBlob(card.globalId);
       if (blob) {
