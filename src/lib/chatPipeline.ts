@@ -345,11 +345,50 @@ export function buildRequestMessages(args: BuildRequestArgs): ApiMessage[] {
   }
   history.push({ role: "user", content: latestUserContent });
 
-  const activeRules = (currentCharacter?.worldInfo || []).filter((rule) => {
-    if (!rule.enabled) return false;
-    if (rule.triggerType === "permanent") return true;
-    return checkKeywords(processedInput, rule.keywords);
-  });
+  // World-info activation, with optional recursive activation (SillyTavern's
+  // "recursion": an activated entry's content is fed back as scan text so it can
+  // trigger further entries). Permanent entries are ALWAYS active and never
+  // participate in recursion — keeping them out of the candidate pool is what
+  // protects the static-prefix cache (they must not vary with chat content).
+  // Only keyword entries recurse, and only when their `allowRecursion` flag is
+  // on (single switch collapsing ST's exclude_recursion + prevent_recursion).
+  const MAX_RECURSION_STEPS = 10; // ST slider max; fixed, not user-tunable
+  const enabledRules = (currentCharacter?.worldInfo || []).filter((r) => r.enabled);
+  const candidates = enabledRules.filter((r) => r.triggerType === "keywords");
+  const activated = new Set<(typeof candidates)[number]>();
+
+  // Round 0: the user's original input triggers every matching keyword entry,
+  // regardless of its allowRecursion flag.
+  let scanText = processedInput;
+  let isRecursion = false;
+  let steps = 0;
+  while (true) {
+    const fresh = candidates.filter(
+      (r) =>
+        !activated.has(r) &&
+        // In recursion rounds, only entries opted into the chain may be activated
+        // by other entries' content.
+        !(isRecursion && !r.allowRecursion) &&
+        checkKeywords(scanText, r.keywords),
+    );
+    if (fresh.length === 0) break;
+    fresh.forEach((r) => activated.add(r));
+    if (++steps >= MAX_RECURSION_STEPS) break;
+    // Next recursion source: only opted-in entries propagate the chain downstream.
+    const next = fresh
+      .filter((r) => r.allowRecursion)
+      .map((r) => r.content)
+      .join("\n");
+    if (!next) break;
+    scanText = next;
+    isRecursion = true;
+  }
+
+  // Emit in the user's saved array order (NOT activation order) so the injection
+  // text stays reproducible per the prompt-architecture standard (§7 #6).
+  const activeRules = enabledRules.filter(
+    (r) => r.triggerType === "permanent" || activated.has(r),
+  );
 
   // World info text: apply {{user}}/{{char}} plus the WORLD_INFO regex pass
   // (placement 5). No depth gating applies to world info.

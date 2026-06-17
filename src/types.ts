@@ -101,6 +101,14 @@ export interface WorldInfoRule {
   /** Hard constraint: wins over the user's latest message when they directly
    *  conflict. Default (false/undefined) = soft lore that yields to the user. */
   hard?: boolean;
+  /** Participates in the recursive activation chain. ON = this keyword entry can
+   *  be activated by another entry's content AND its own content can in turn
+   *  trigger downstream entries. OFF (default) = only the user's original input
+   *  can trigger it, and it never feeds the recursion source. Meaningful only for
+   *  keyword entries — permanent entries are always active and never recurse.
+   *  Collapses SillyTavern's exclude_recursion + prevent_recursion into one flag
+   *  (delay_until_recursion is dropped). */
+  allowRecursion?: boolean;
   content: string;
   enabled: boolean;
 }

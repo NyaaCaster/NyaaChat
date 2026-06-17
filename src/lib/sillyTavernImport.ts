@@ -182,6 +182,14 @@ export function convertSillyTavernCharacter(parsed: any): CharacterSettings {
       // standard (§6.1 / §7.8) imported lore defaults to soft — the user
       // manually promotes the few true rules (e.g. TRPG check mechanics) after.
       hard: false,
+      // Collapse ST's two recursion limiters into one switch: an entry only
+      // participates in NyaaChat's recursion chain if ST left it fully open
+      // (neither exclude_recursion nor prevent_recursion set). delay_until_recursion
+      // has no equivalent and is dropped.
+      allowRecursion: !(
+        (e.extensions?.exclude_recursion ?? false) ||
+        (e.extensions?.prevent_recursion ?? false)
+      ),
       content: e.content ?? "",
       enabled: e.enabled ?? true,
     }));

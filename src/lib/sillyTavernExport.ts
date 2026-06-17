@@ -22,12 +22,22 @@ const ST_ROLE_SYSTEM = 0;
 const ST_ROLE_ASSISTANT = 2;
 
 /** Full ST entry.extensions block. Mirrors the field set a current SillyTavern
- *  build writes so strict importers find every key they expect; only `role` and
- *  `display_index` vary per entry. */
-function buildEntryExtensions(role: number, index: number): Record<string, unknown> {
+ *  build writes so strict importers find every key they expect; only `role`,
+ *  `display_index`, and the recursion limiters vary per entry. */
+function buildEntryExtensions(
+  rule: WorldInfoRule,
+  role: number,
+  index: number,
+): Record<string, unknown> {
+  // NyaaChat's single `allowRecursion` switch maps back asymmetrically: an entry
+  // that does NOT participate in the chain is exported as exclude_recursion=true.
+  // prevent_recursion is forced ON for every entry (deliberate, per spec) — any
+  // card processed by NyaaChat stops propagating the recursion chain downstream
+  // once back in ST.
+  const allowRecursion = rule.allowRecursion === true;
   return {
     position: ST_POS_AT_DEPTH,
-    exclude_recursion: false,
+    exclude_recursion: !allowRecursion,
     display_index: index,
     probability: 100,
     useProbability: true,
@@ -36,7 +46,7 @@ function buildEntryExtensions(role: number, index: number): Record<string, unkno
     group: "",
     group_override: false,
     group_weight: 100,
-    prevent_recursion: false,
+    prevent_recursion: true,
     delay_until_recursion: false,
     scan_depth: null,
     match_whole_words: null,
@@ -82,7 +92,7 @@ function toStEntry(rule: WorldInfoRule, index: number): Record<string, unknown> 
     enabled: rule.enabled !== false,
     position: "after_char",
     use_regex: true,
-    extensions: buildEntryExtensions(role, index),
+    extensions: buildEntryExtensions(rule, role, index),
   };
 }
 

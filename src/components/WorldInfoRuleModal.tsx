@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Globe, Key, Clock, Shield, User } from "lucide-react";
+import { Globe, Key, Clock, Shield, User, Repeat } from "lucide-react";
 import { WorldInfoRule } from "../types";
 import { motion } from "motion/react";
 import { BaseModal } from "./BaseModal";
@@ -22,6 +22,7 @@ export function WorldInfoRuleModal({
   const [keywords, setKeywords] = useState("");
   const [position, setPosition] = useState<"system" | "assistant">("system");
   const [hard, setHard] = useState(false);
+  const [allowRecursion, setAllowRecursion] = useState(false);
   const [content, setContent] = useState("");
 
   useEffect(() => {
@@ -31,6 +32,7 @@ export function WorldInfoRuleModal({
       setKeywords(initialRule.keywords || "");
       setPosition(initialRule.position);
       setHard(initialRule.hard === true);
+      setAllowRecursion(initialRule.allowRecursion === true);
       setContent(initialRule.content);
     } else {
       setName("");
@@ -38,6 +40,7 @@ export function WorldInfoRuleModal({
       setKeywords("");
       setPosition("system");
       setHard(false);
+      setAllowRecursion(false);
       setContent("");
     }
   }, [initialRule, isOpen]);
@@ -52,6 +55,9 @@ export function WorldInfoRuleModal({
       keywords: triggerType === "keywords" ? keywords.trim() : undefined,
       position,
       hard,
+      // Recursion is meaningful only for keyword entries; permanent entries are
+      // always active and never participate in the chain.
+      allowRecursion: triggerType === "keywords" ? allowRecursion : undefined,
       content: content.trim(),
       enabled: initialRule ? initialRule.enabled : true,
     });
@@ -141,6 +147,33 @@ export function WorldInfoRuleModal({
               />
               <p className="text-[10px] text-gray-500 mt-1.5 px-1 italic">
                 用英文逗号分割关键字，如：猫娘, catgirl, 猫猫......
+              </p>
+              <button
+                type="button"
+                onClick={() => setAllowRecursion((v) => !v)}
+                className={`mt-3 w-full flex items-center justify-between gap-3 px-4 py-3 rounded-2xl border text-sm font-medium transition-all ${
+                  allowRecursion
+                    ? "border-green-500 bg-green-50 dark:bg-green-500/10 text-green-600 dark:text-green-400 ring-1 ring-green-500"
+                    : "border-gray-200 dark:border-white/10 bg-white dark:bg-white/5 text-gray-600 dark:text-gray-400 hover:border-gray-300"
+                }`}
+              >
+                <span className="flex items-center gap-2">
+                  <Repeat size={16} /> 允许其他条目激活
+                </span>
+                <span
+                  className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${
+                    allowRecursion ? "bg-green-500" : "bg-gray-300 dark:bg-white/20"
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                      allowRecursion ? "translate-x-4" : "translate-x-0.5"
+                    }`}
+                  />
+                </span>
+              </button>
+              <p className="text-[10px] text-gray-500 mt-1.5 px-1 italic">
+                开启后，本条目可被其他已激活条目的内容触发，其内容也会参与触发下游条目（递归激活）。默认关闭，仅响应用户输入。
               </p>
             </motion.div>
           )}
