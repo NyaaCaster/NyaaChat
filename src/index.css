@@ -172,3 +172,21 @@
   }
 }
 .meta-row > div { white-space: nowrap; }
+
+/* Shared library responsive layout (phase 3).
+   Same extension-pollution defense as the cover strip above: the hosted
+   JS-Slash-Runner extension ships its own Tailwind build whose
+   `.hidden{display:none}` / `.flex` leak into the main document and clobber the
+   app's `hidden md:flex` / `md:hidden` utilities — so the PC sidebar stayed
+   hidden and the mobile bar stayed visible at every width. Drive show/hide
+   through app-private classes (which no extension targets) instead. Breakpoint
+   mirrors Tailwind `md` (48rem): sidebar on desktop, top bar on mobile. */
+.lib-sidebar { display: none !important; }
+.lib-topbar { display: block !important; }
+.lib-layout { display: flex !important; flex-direction: column !important; }
+@media (min-width: 48rem) {
+  .lib-sidebar { display: flex !important; }
+  .lib-topbar { display: none !important; }
+  .lib-layout { flex-direction: row !important; align-items: stretch !important; }
+}
+

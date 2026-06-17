@@ -1,5 +1,5 @@
 import React, { useState, useRef } from "react";
-import { Sparkles, Plus, Upload, Check, Edit2, Trash2, CloudUpload } from "lucide-react";
+import { Sparkles, Plus, Upload, Check, Edit2, Trash2, CloudUpload, Library } from "lucide-react";
 import { AppState, CharacterSettings } from "../types";
 import {
   isSillyTavernFormat,
@@ -15,6 +15,7 @@ import { BaseModal } from "./BaseModal";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { CharacterEditModal } from "./CharacterEditModal";
 import { CharacterShareModal } from "./CharacterShareModal";
+import { SharedLibraryModal } from "./SharedLibraryModal";
 import { UserAccountModal } from "./UserAccountModal";
 
 interface CharacterSelectionModalProps {
@@ -40,6 +41,7 @@ export function CharacterSelectionModal({
   const [sharingCharacter, setSharingCharacter] = useState<CharacterSettings | null>(null);
   const [shareSession, setShareSession] = useState<{ token: string; username: string } | null>(null);
   const [isAccountOpen, setIsAccountOpen] = useState(false);
+  const [isLibraryOpen, setIsLibraryOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleSelectCharacter = (id: string) => {
@@ -181,6 +183,15 @@ export function CharacterSelectionModal({
         onClose={onClose}
         title="角色选择"
         titleIcon={<Sparkles size={16} className="text-blue-600 dark:text-blue-400" />}
+        titleAction={
+          <button
+            onClick={() => setIsLibraryOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-500/10 rounded-xl transition-all"
+            title="共享角色库"
+          >
+            <Library size={15} /> 共享角色库
+          </button>
+        }
         maxWidth="max-w-lg"
         footer={
           <>
@@ -327,6 +338,8 @@ export function CharacterSelectionModal({
       />
 
       <UserAccountModal isOpen={isAccountOpen} onClose={() => setIsAccountOpen(false)} />
+
+      <SharedLibraryModal isOpen={isLibraryOpen} onClose={() => setIsLibraryOpen(false)} />
     </>
   );
 }

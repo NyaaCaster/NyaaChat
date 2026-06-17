@@ -37,6 +37,13 @@ function cpLen(str) {
   return [...str].length;
 }
 
+/** Escape LIKE wildcards so a user's literal % or _ doesn't act as a pattern.
+ *  Used together with `ESCAPE '\'` on the LIKE clause, so a search for "50%"
+ *  matches the literal text rather than everything. */
+function escapeLike(str) {
+  return str.replace(/[\\%_]/g, "\\$&");
+}
+
 /** A non-negative integer price (free / not-for-sale is 0). */
 function isPrice(n) {
   return Number.isInteger(n) && n >= 0;
@@ -65,6 +72,60 @@ const insertCharacter = db.prepare(`
 const getCover = db.prepare(
   "SELECT cover_ext FROM shared_characters WHERE global_id = ?",
 );
+
+// Browse listing (phase 3). card_json is deliberately omitted: the library view
+// only needs summary fields, and withholding the full card keeps payloads small
+// and avoids handing out the design before a use/buyout (covers stay json-free).
+const LIST_COLUMNS = `
+  global_id, owner, author, name, source, intro, tags,
+  use_price, buyout_price, downloads, likes, dislikes,
+  created_at, updated_at
+`;
+const LIST_LIMIT = 200; // small library for now; a hard ceiling, not pagination
+
+// Whitelisted sort keys → real columns (never interpolate user input as SQL).
+const SORT_COLUMNS = {
+  updated: "updated_at",
+  downloads: "downloads",
+  likes: "likes",
+  dislikes: "dislikes",
+};
+
+// Distinct tag list across the whole library (json_each explodes each row's
+// JSON tags array; DISTINCT de-dupes). Drives the library's tag filter.
+const listTags = db.prepare(`
+  SELECT DISTINCT je.value AS tag
+  FROM shared_characters, json_each(shared_characters.tags) AS je
+  WHERE je.value IS NOT NULL AND je.value <> ''
+  ORDER BY je.value COLLATE NOCASE ASC
+`);
+
+/** Shape a DB row into the browse summary (parse tags JSON, drop nothing else). */
+function summaryOf(row) {
+  let tags = [];
+  try {
+    const parsed = JSON.parse(row.tags ?? "[]");
+    if (Array.isArray(parsed)) tags = parsed;
+  } catch {
+    tags = [];
+  }
+  return {
+    globalId: row.global_id,
+    owner: row.owner,
+    author: row.author,
+    name: row.name,
+    source: row.source,
+    intro: row.intro,
+    tags,
+    usePrice: row.use_price,
+    buyoutPrice: row.buyout_price,
+    downloads: row.downloads,
+    likes: row.likes,
+    dislikes: row.dislikes,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
 
 /** Mint a fresh global id. Never reused/changed after delete (SSOT #182), so a
  *  random 16-byte hex is fine — collisions are astronomically unlikely and the
@@ -181,6 +242,76 @@ charactersRouter.post("/", requireAuth, (req, res) => {
   }
 
   return res.json({ ok: true, globalId });
+});
+
+// GET /characters/tags — public. Distinct tag list across the whole library,
+// driving the browse filter. Kept beside the list route so both browse
+// endpoints live together.
+charactersRouter.get("/tags", (_req, res) => {
+  try {
+    const rows = listTags.all();
+    return res.json({ ok: true, tags: rows.map((r) => r.tag) });
+  } catch {
+    return res.status(500).json({ ok: false, error: "db_read_failed" });
+  }
+});
+
+// GET /characters — public browse listing (phase 3).
+// query: q?, tag?, author?, sort? (updated|downloads|likes|dislikes), order? (desc|asc)
+//   q      — free text matched against name / author / intro / tags (LIKE)
+//   tag    — exact tag filter (a row must carry this tag)
+//   author — exact author filter (the clickable author-name filter)
+charactersRouter.get("/", (req, res) => {
+  const q = String(req.query.q ?? "").trim();
+  const tag = String(req.query.tag ?? "").trim();
+  const author = String(req.query.author ?? "").trim();
+
+  const sortKey = String(req.query.sort ?? "updated");
+  const sortCol = SORT_COLUMNS[sortKey] || SORT_COLUMNS.updated;
+  const order = String(req.query.order ?? "desc").toLowerCase() === "asc" ? "ASC" : "DESC";
+
+  const where = [];
+  const params = {};
+
+  if (author) {
+    where.push("author = @author");
+    params.author = author;
+  }
+
+  if (tag) {
+    // Row must contain the exact tag. EXISTS over json_each keeps it indexable-ish
+    // and avoids LIKE false positives (e.g. "cat" matching "category").
+    where.push(
+      "EXISTS (SELECT 1 FROM json_each(shared_characters.tags) je WHERE je.value = @tag)",
+    );
+    params.tag = tag;
+  }
+
+  if (q) {
+    // Free-text search over name/author/intro and the raw tags JSON text. The
+    // tags column is a JSON string, so a LIKE on it matches any contained tag.
+    where.push(
+      "(name LIKE @like ESCAPE '\\' OR author LIKE @like ESCAPE '\\' OR intro LIKE @like ESCAPE '\\' OR tags LIKE @like ESCAPE '\\')",
+    );
+    params.like = `%${escapeLike(q)}%`;
+  }
+
+  const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+  // Stable secondary sort by global_id so equal sort keys don't reorder between calls.
+  const sql = `
+    SELECT ${LIST_COLUMNS}
+    FROM shared_characters
+    ${whereSql}
+    ORDER BY ${sortCol} ${order}, global_id ASC
+    LIMIT ${LIST_LIMIT}
+  `;
+
+  try {
+    const rows = db.prepare(sql).all(params);
+    return res.json({ ok: true, characters: rows.map(summaryOf) });
+  } catch {
+    return res.status(500).json({ ok: false, error: "db_read_failed" });
+  }
 });
 
 // --- /covers --------------------------------------------------------------

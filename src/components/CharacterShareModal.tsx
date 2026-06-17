@@ -189,8 +189,10 @@ export function CharacterShareModal({
   ): number | null => {
     const tier = tiers[tierIdx];
     if (tier.value !== CUSTOM) return tier.value;
+    // A custom amount must be an integer of at least 1 — the 免费 / 不卖 case is
+    // a preset tier (value 0), not something the custom field expresses.
     const n = Number(customRaw);
-    if (!Number.isInteger(n) || n < 0) return null;
+    if (!Number.isInteger(n) || n < 1) return null;
     return n;
   };
 
@@ -204,12 +206,12 @@ export function CharacterShareModal({
     }
     const usePrice = resolvePrice(USE_TIERS, useTier, useCustom);
     if (usePrice === null) {
-      setError("请填写有效的使用权自定价（非负整数）");
+      setError("使用权自定价不能低于 1");
       return;
     }
     const buyoutPrice = resolvePrice(BUYOUT_TIERS, buyoutTier, buyoutCustom);
     if (buyoutPrice === null) {
-      setError("请填写有效的买断自定价（非负整数）");
+      setError("买断自定价不能低于 1");
       return;
     }
 
@@ -483,7 +485,7 @@ function PriceTiers({
           <CatCanIcon size={15} />
           <input
             type="number"
-            min={0}
+            min={1}
             step={1}
             value={custom}
             onChange={(e) => onCustom(e.target.value)}

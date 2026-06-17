@@ -5,7 +5,7 @@
 >
 > 来源设计：`.ref/我想在本项目中建立一个共享角色系统.md`
 > 创建：2026-06-17
-> 状态：阶段 0、阶段 1、阶段 2 完成；阶段 3（共享库浏览）待实施
+> 状态：阶段 0、阶段 1、阶段 2、阶段 3 完成；阶段 4（使用 / 买断）待实施
 
 ---
 
@@ -197,9 +197,69 @@ NyaaChat 现有角色体系全部为**私有角色**：角色数据存 localStor
 > 封面二进制搜不到角色 description/chara_card/first_mes（无内嵌 json）；card_json 为
 > `chara_card_v3 3.0` 含 character_book。整轮 console 零 error。demo 数据已清
 > （character/user/session/cover 全删，localStorage 登录态已清）。
+>
+> 阶段 2 修订（2026-06-17，自定价下限）：使用权 / 买断的**自定价档**最低为 **1**——
+> `CharacterShareModal.resolvePrice` 自定价校验由 `n < 0` 改为 `n < 1`（返回 null 即拦截、
+> 不提交、不关弹窗），提交错误文案 `使用权自定价不能低于 1` / `买断自定价不能低于 1`，
+> 自定金额 `<input min={1}>`。**预设档不受影响**（使用权「免费」=0、买断「不卖」=0 仍合法）；
+> 后端 `isPrice`（≥0）保持不变——自定价 ≥1 由前端保证，后端只需接受预设档的 0。真机
+> Playwright 验证：自定价 0→拦截+对应提示+不提交，1→放行（边界正确），DB 无误发布数据。
 
-### 阶段 3 — 共享角色库浏览
+### 阶段 3 — 共享角色库浏览　【已完成】
 `SharedLibraryModal`（PC 三列+左栏 / 手机单列+标签弹窗）、搜索、排序（更新/下载/好评/差评）、标签筛选、作者名可点筛选。
+
+- [x] 后端 `src/routes/characters.js`：`GET /characters`（q/tag/author/sort/order，**不返回 card_json**）+ `GET /characters/tags`（去重标签清单）
+- [x] 前端 `lib/sharedLibraryApi.ts`（只读列表/标签客户端 + coverUrl helper）
+- [x] `SharedLibraryModal.tsx`（响应式布局、搜索防抖、排序升降、标签/作者筛选、空结果文案）
+- [x] `CharacterSelectionModal` 标题栏 `titleAction` 加「共享角色库」入口
+
+> 阶段 3 边界（已与用户拍板）：**纯浏览**。条目完整展示公开信息但**不渲染任何动作按钮**——
+> 使用 / 买断留阶段 4，编辑 / 删除留阶段 5，评价随阶段 4。
+>
+> 阶段 3 落地（2026-06-17）：
+> **后端** `src/routes/characters.js` 在既有 `POST /` + `GET /covers/:id` 上新增两个
+> **公开（无鉴权）只读**端点：`GET /characters`（query `q`/`tag`/`author`/`sort`/`order`）
+> 与 `GET /characters/tags`。`GET /characters`：`sort` 经**白名单映射**
+> `{updated→updated_at, downloads, likes, dislikes}`（绝不把用户输入拼进 SQL），
+> `order` 仅取 asc/desc，二级排序 `global_id ASC` 保证等值稳定；`author` 精确等值；
+> `tag` 用 `EXISTS(SELECT 1 FROM json_each(tags) WHERE value=@tag)` 精确匹配（避免
+> LIKE 把 "cat" 误命中 "category"）；`q` 对 `name/author/intro/tags` 四列 `LIKE @like
+> ESCAPE '\'`，配 `escapeLike()` 转义 `% _ \` 防用户输入当通配；返回字段
+> **刻意不含 `card_json`**（浏览只需摘要，省流量且不在使用/买断前交出设计），封面仍走既有
+> `/api/shared/covers/<id>`；`LIMIT 200` 硬兜底（非分页）。`GET /characters/tags`：
+> `SELECT DISTINCT je.value FROM shared_characters, json_each(tags) je`，`COLLATE NOCASE`
+> 排序去重。两端点均 GET、与 `POST /` 方法不冲突，server.js 既有 `/characters` 挂载
+> 与 nginx `/api/shared/` 通配已覆盖，**无需改 server.js / nginx**。
+> **前端**：`lib/sharedLibraryApi.ts`（与 account/publish 同构 `request`，复用 `ApiResult`
+> 判别式 union；`SharedCharacterSummary` 接口、`fetchLibrary(query)` 用 URLSearchParams
+> 拼 query、`fetchTags()`、`coverUrl(globalId)` helper；**不动**已验证的两个 api 文件）、
+> `components/SharedLibraryModal.tsx`（BaseModal+createPortal，`max-w-4xl`；搜索 400ms 防抖
+> `q→debouncedQ`、排序点击同键切升降·异键切键并重置 desc·激活键带方向箭头、标签默认「全部」
+> 单选、作者名按钮可点筛选 + 「取消」清搜索/作者保留标签、条目卡=封面(lazy,onError 占位)/
+> 来源 tag(原创蓝·转载琥珀)/角色名/`@作者`(可点)/更新时间 YY-MM-DD hh:mm/简介 line-clamp-2/
+> 标签 chip(最多4)/使用价(0=免费绿色·否则 CatCanIcon+值)/买断价(>0 才显示)/下载·好评·差评
+> 计数；空结果「没有符合条件的共享角色」；手机版「标签」按钮开二级 BaseModal 单选弹窗选后关闭）、
+> `CharacterSelectionModal` 标题栏用 BaseModal `titleAction` slot 加「共享角色库」(Library 图标)
+> 入口，自管 `isLibraryOpen` state。
+> **坑（已解决）**：响应式显隐 `hidden md:flex` / `md:hidden` / `flex-col md:flex-row`
+> **全部失效**——根因同 SSOT 既有的封面条问题：宿主第三方扩展 **JS-Slash-Runner 自带完整
+> Tailwind 构建**，其 `.hidden{display:none}` / `.flex` 泄漏进主文档且**压过** app 的
+> Tailwind 工具类（实测新建 `.md:flex` 元素正常、但带 `hidden` 的 aside 仍 none）。
+> 遵循项目既有惯例（index.css `.cover-side`/`.cover-avatar`）：改用 **app 私有类 +
+> `!important` + 48rem 媒体查询**驱动显隐——`index.css` 加 `.lib-sidebar`/`.lib-topbar`/
+> `.lib-layout`（unlayered，扩展不会 target），组件 aside/topbar/外层容器换用这些类。
+> 注：`grid-cols` 响应式未受影响（grid-template-columns 非 display/flex，扩展未覆盖），保留
+> Tailwind `sm:grid-cols-2 lg:grid-cols-3`。
+> 真机验证（rebuild-shared + rebuild 双重启后，:3095 同源 Playwright，1280px PC / 420px 手机）：
+> 用后端 API 注册临时 demo_p3 发布 4 张差异化测试卡（原创/转载·不同标签·使用价 0/6/36·买断价
+> 0/60/100/350）→ 开库：4 卡全渲染（封面 img 加载/来源 tag/作者/时间/简介/标签/价格档·侦探阿杰
+> 买断价 0 正确隐藏买断/计数）；搜索「猫娘」防抖只剩魔法猫娘；标签「原创」筛出 2 张；作者
+> 「@测试发布者」叠加筛选 + 「取消」清作者保留标签；排序点击切键/方向无错；搜不存在词→空结果文案；
+> 手机版「标签」二级弹窗 全部+9 标签 NOCASE 排序、选后关窗筛选；resize 验证 PC 侧栏 flex/手机
+> 顶栏 block/layout row↔column/grid 3 列正确切换。console 仅 JS-Slash-Runner 扩展自身
+> `parentNode` error（第三方既有，与本功能无关），本功能代码零 error。tsc+eslint 干净。
+> demo 数据已清（demo_p3 账号 CASCADE 删 4 卡+session、4 封面文件删尽，covers 目录空），
+> **保留 nyaa 真实账号**（无共享卡的干净态）。截图临时文件已删。
 
 ### 阶段 4 — 使用 / 买断
 免费直接获得（绿色按钮）、付费支付占位、买断→按导入逻辑转私有卡；使用占卡槽+1，买断不占。
