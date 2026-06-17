@@ -80,6 +80,16 @@ interface MyRatingsPayload {
   ok: true;
   ratings: Record<string, number>; // globalId -> 1 | -1
 }
+interface VersionsPayload {
+  ok: true;
+  /** globalId -> server updated_at (ms). A held card ABSENT from this map has
+   *  been deleted from the library. */
+  versions: Record<string, number>;
+}
+interface CardPayload {
+  ok: true;
+  card: AcquiredCard;
+}
 
 async function request<T>(
   path: string,
@@ -194,4 +204,21 @@ export function rateCharacter(
 /** This account's { globalId: value } rating map, for rendering active states. */
 export function fetchMyRatings(token: string): Promise<ApiResult<MyRatingsPayload>> {
   return request<MyRatingsPayload>("/characters/mine/ratings", { token });
+}
+
+/** Batch update-check for locally-held shared cards (phase 5). Returns the
+ *  server updated_at for each id that still exists; an id absent from the result
+ *  has been deleted from the library. One round-trip for the whole held list. */
+export function fetchVersions(ids: string[]): Promise<ApiResult<VersionsPayload>> {
+  return request<VersionsPayload>("/characters/versions", {
+    method: "POST",
+    body: { ids },
+  });
+}
+
+/** Read-only fetch of a shared card's latest full json (phase 5 更新). Does NOT
+ *  bump downloads or settle anything. A 404 (kind:"error", status:404) means the
+ *  card was deleted from the library and can no longer be updated. */
+export function fetchCharacterCard(globalId: string): Promise<ApiResult<CardPayload>> {
+  return request<CardPayload>(`/characters/${globalId}`);
 }

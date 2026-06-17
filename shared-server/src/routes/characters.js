@@ -364,6 +364,46 @@ charactersRouter.get("/", (req, res) => {
 // literal /tags or /mine routes by accident).
 const HEX_ID = /^[a-f0-9]{1,64}$/;
 
+// --- update detection / read-only fetch (phase 5) -------------------------
+// Locally-held shared cards check the server for updates: the private list,
+// on open, asks for the current server updated_at of each held shared card so
+// it can show an "update available" badge, and "更新" then pulls the latest
+// card json. Both are public reads and deliberately do NOT bump downloads
+// (only a real use/buyout does, per the design's author-economy model).
+const VERSIONS_MAX_IDS = 200; // matches the browse LIST_LIMIT ceiling
+
+// POST /characters/versions — body { ids: [globalId,...] }
+// Returns { versions: { <globalId>: updatedAt } } for the ids that still exist.
+// A held card whose id is ABSENT from the map has been deleted from the library
+// (the client surfaces that only when 更新 is clicked, never as a badge). One
+// round-trip for the whole list instead of N per-card requests.
+charactersRouter.post("/versions", (req, res) => {
+  const rawIds = Array.isArray(req.body?.ids) ? req.body.ids : [];
+  // Keep only well-formed, de-duped hex ids, bounded.
+  const seen = new Set();
+  for (const raw of rawIds) {
+    const id = String(raw ?? "");
+    if (HEX_ID.test(id)) seen.add(id);
+    if (seen.size >= VERSIONS_MAX_IDS) break;
+  }
+  const ids = [...seen];
+  if (!ids.length) return res.json({ ok: true, versions: {} });
+
+  const placeholders = ids.map(() => "?").join(",");
+  try {
+    const rows = db
+      .prepare(
+        `SELECT global_id, updated_at FROM shared_characters WHERE global_id IN (${placeholders})`,
+      )
+      .all(...ids);
+    const versions = {};
+    for (const r of rows) versions[r.global_id] = r.updated_at;
+    return res.json({ ok: true, versions });
+  } catch {
+    return res.status(500).json({ ok: false, error: "db_read_failed" });
+  }
+});
+
 // POST /characters/:id/acquire — use or buyout. body: { mode: "use" | "buyout" }
 // Hands out the full card json (only here, never in the browse listing) and
 // bumps downloads. Free use (use_price 0) needs no login, per the design; any
@@ -469,6 +509,34 @@ charactersRouter.get("/mine/ratings", requireAuth, (req, res) => {
   } catch {
     return res.status(500).json({ ok: false, error: "db_read_failed" });
   }
+});
+
+// GET /characters/:id — public read-only full card (phase 5 update pull).
+// Returns the same card shape as acquire BUT does NOT bump downloads or settle
+// anything: it's only for refreshing a locally-held shared card to the latest
+// server json. 404 means the card was deleted from the library (the client then
+// tells the user it can no longer be updated). Registered AFTER the literal
+// /tags and /mine/ratings routes so it never captures them; the hex guard is a
+// second line of defence.
+charactersRouter.get("/:id", (req, res) => {
+  const id = String(req.params.id ?? "");
+  if (!HEX_ID.test(id)) return res.status(404).json({ ok: false, error: "not_found" });
+
+  const row = getFullCharacter.get(id);
+  if (!row) return res.status(404).json({ ok: false, error: "not_found" });
+
+  return res.json({
+    ok: true,
+    card: {
+      globalId: row.global_id,
+      name: row.name,
+      author: row.author,
+      source: row.source,
+      intro: row.intro,
+      cardJson: row.card_json,
+      updatedAt: row.updated_at,
+    },
+  });
 });
 
 // --- /covers --------------------------------------------------------------

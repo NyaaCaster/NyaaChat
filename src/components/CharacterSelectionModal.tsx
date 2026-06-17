@@ -1,5 +1,5 @@
-import React, { useState, useRef } from "react";
-import { Sparkles, Plus, Upload, Check, Edit2, Trash2, CloudUpload, Library } from "lucide-react";
+import React, { useState, useRef, useEffect } from "react";
+import { Sparkles, Plus, Upload, Check, Edit2, Trash2, CloudUpload, Library, RefreshCw } from "lucide-react";
 import { AppState, CharacterSettings } from "../types";
 import {
   isSillyTavernFormat,
@@ -10,6 +10,7 @@ import {
 import { imageBlobToCoverWebp } from "../lib/pngCard";
 import { saveCover, deleteCover, COVER_MARKER } from "../lib/coverStorage";
 import { loadStoredAccount } from "../lib/sharedAccountApi";
+import { fetchVersions, fetchCharacterCard, fetchCoverBlob } from "../lib/sharedLibraryApi";
 import { useCoverObjectUrl } from "../hooks/useCoverObjectUrl";
 import { BaseModal } from "./BaseModal";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -43,6 +44,45 @@ export function CharacterSelectionModal({
   const [isAccountOpen, setIsAccountOpen] = useState(false);
   const [isLibraryOpen, setIsLibraryOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // --- phase 5: shared-card update detection -------------------------------
+  // For locally-held shared cards, on open we ask the server (one batch call)
+  // for each card's current updated_at. A card whose server version is newer
+  // than the local `version` gets an "update available" badge; a card absent
+  // from the response has been deleted (no badge — surfaced only on 更新 click).
+  const [updateStatus, setUpdateStatus] = useState<Record<string, "update">>({});
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+  const flash = (kind: "ok" | "err", text: string) => {
+    setNotice({ kind, text });
+    setTimeout(() => setNotice(null), 3000);
+  };
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setNotice(null);
+    const sharedCards = (settings.characters || []).filter((c) => c.shared && c.globalId);
+    if (!sharedCards.length) {
+      setUpdateStatus({});
+      return;
+    }
+    let cancelled = false;
+    void fetchVersions(sharedCards.map((c) => c.globalId as string)).then((res) => {
+      if (cancelled || res.kind !== "ok") return;
+      const status: Record<string, "update"> = {};
+      for (const c of sharedCards) {
+        const serverVersion = res.data.versions[c.globalId as string];
+        // Absent = deleted (no badge); present & newer = update available.
+        if (serverVersion != null && serverVersion > (c.version ?? 0)) {
+          status[c.globalId as string] = "update";
+        }
+      }
+      setUpdateStatus(status);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, settings.characters]);
 
   const handleSelectCharacter = (id: string) => {
     onSave({
@@ -195,6 +235,64 @@ export function CharacterSelectionModal({
     });
   };
 
+  // --- phase 5: update a held shared card to the server's latest json ------
+  // Pull the freshest card (read-only, no download count). Preserve the LOCAL id
+  // (conversations bind to it — changing it would orphan the chat) and the cover
+  // slot, re-stamp the shared metadata + version, and refresh the cover blob.
+  const handleUpdateShared = async (e: React.MouseEvent, character: CharacterSettings) => {
+    e.stopPropagation();
+    if (!character.globalId || updatingId) return;
+    setUpdatingId(character.id);
+    try {
+      const res = await fetchCharacterCard(character.globalId);
+      if (res.kind !== "ok") {
+        if (res.kind === "error" && res.status === 404) {
+          flash("err", "该角色已从共享角色库删除，无法更新。");
+        } else {
+          flash("err", "更新失败，请稍后再试。");
+        }
+        return;
+      }
+      const card = res.data.card;
+      const parsed = JSON.parse(card.cardJson);
+      const fresh = convertSillyTavernCharacter(parsed);
+      // Keep the same local id so the bound conversation survives the update.
+      fresh.id = character.id;
+      fresh.shared = true;
+      fresh.globalId = card.globalId;
+      fresh.author = card.author;
+      fresh.source = card.source;
+      fresh.intro = card.intro;
+      fresh.version = card.updatedAt;
+      // Refresh the cover into the SAME IndexedDB id; on failure leave it coverless.
+      try {
+        const blob = await fetchCoverBlob(card.globalId);
+        if (blob) {
+          await saveCover(fresh.id, blob);
+          fresh.coverImage = COVER_MARKER;
+        } else {
+          fresh.coverImage = undefined;
+        }
+      } catch {
+        fresh.coverImage = undefined;
+      }
+      onSave({
+        ...settings,
+        characters: settings.characters.map((c) => (c.id === character.id ? fresh : c)),
+      });
+      setUpdateStatus((prev) => {
+        const next = { ...prev };
+        delete next[card.globalId];
+        return next;
+      });
+      flash("ok", `「${fresh.name}」已更新到最新版本。`);
+    } catch (err: any) {
+      flash("err", "更新失败：" + (err?.message || String(err)));
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
   const sharedCount = (settings.characters || []).filter((c) => c.shared).length;
 
   const pendingDeleteCharacter = pendingDeleteId
@@ -248,6 +346,17 @@ export function CharacterSelectionModal({
         }
       >
         <div className="p-4 sm:p-5 min-h-[200px]">
+          {notice && (
+            <div
+              className={`mb-3 px-3 py-2 text-sm rounded-lg ${
+                notice.kind === "ok"
+                  ? "bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-400"
+                  : "bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-400"
+              }`}
+            >
+              {notice.text}
+            </div>
+          )}
           <div className="grid grid-cols-1 gap-3">
             {(settings.characters || []).map((character) => (
               <div
@@ -262,15 +371,22 @@ export function CharacterSelectionModal({
                 <div className="flex-1 min-w-0 pr-16 flex items-start gap-3">
                   <CharacterThumb character={character} />
                   <div className="min-w-0">
-                    <h4
-                      className={`text-base font-medium mb-1 truncate ${
-                        settings.currentCharacterId === character.id
-                          ? "text-blue-700 dark:text-blue-400"
-                          : "text-gray-900 dark:text-gray-100"
-                      }`}
-                    >
-                      {character.name}
-                    </h4>
+                    <div className="flex items-center gap-2 mb-1">
+                      <h4
+                        className={`text-base font-medium truncate ${
+                          settings.currentCharacterId === character.id
+                            ? "text-blue-700 dark:text-blue-400"
+                            : "text-gray-900 dark:text-gray-100"
+                        }`}
+                      >
+                        {character.name}
+                      </h4>
+                      {character.shared && (
+                        <span className="flex-shrink-0 px-1.5 py-0.5 text-[10px] font-semibold rounded-md bg-purple-600/90 text-white">
+                          共享
+                        </span>
+                      )}
+                    </div>
                     <p className="text-sm text-gray-500 dark:text-gray-400 line-clamp-2">
                       {character.description}
                     </p>
@@ -278,28 +394,57 @@ export function CharacterSelectionModal({
                 </div>
 
                 <div className="absolute right-4 top-4 flex items-center gap-1">
-                  <button
-                    onClick={(e) => handleShareRequest(e, character)}
-                    className="p-1.5 text-gray-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-500/20 rounded-md transition-colors"
-                    title="分享角色"
-                  >
-                    <CloudUpload size={14} />
-                  </button>
-                  <button
-                    onClick={(e) => handleOpenEdit(e, character)}
-                    className="p-1.5 text-gray-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-500/20 rounded-md transition-colors"
-                    title="编辑角色"
-                  >
-                    <Edit2 size={14} />
-                  </button>
-                  {settings.currentCharacterId !== character.id && settings.characters.length > 1 && (
-                    <button
-                      onClick={(e) => handleDeleteRequest(e, character.id)}
-                      className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/20 rounded-md transition-colors"
-                      title="删除角色"
-                    >
-                      <Trash2 size={14} />
-                    </button>
+                  {character.shared ? (
+                    <>
+                      {/* Shared card: update (replaces edit) + delete. No share,
+                          no edit, no export — the author's design is read-only. */}
+                      <button
+                        onClick={(e) => handleUpdateShared(e, character)}
+                        disabled={updatingId === character.id}
+                        className="relative p-1.5 text-gray-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-500/20 rounded-md transition-colors disabled:opacity-50"
+                        title="更新到服务器最新版本"
+                      >
+                        <RefreshCw size={14} className={updatingId === character.id ? "animate-spin" : ""} />
+                        {character.globalId && updateStatus[character.globalId] === "update" && (
+                          <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-amber-500 ring-1 ring-white dark:ring-gray-900" />
+                        )}
+                      </button>
+                      {settings.currentCharacterId !== character.id && settings.characters.length > 1 && (
+                        <button
+                          onClick={(e) => handleDeleteRequest(e, character.id)}
+                          className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/20 rounded-md transition-colors"
+                          title="从本地删除（共享卡槽占用 -1）"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        onClick={(e) => handleShareRequest(e, character)}
+                        className="p-1.5 text-gray-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-500/20 rounded-md transition-colors"
+                        title="分享角色"
+                      >
+                        <CloudUpload size={14} />
+                      </button>
+                      <button
+                        onClick={(e) => handleOpenEdit(e, character)}
+                        className="p-1.5 text-gray-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-500/20 rounded-md transition-colors"
+                        title="编辑角色"
+                      >
+                        <Edit2 size={14} />
+                      </button>
+                      {settings.currentCharacterId !== character.id && settings.characters.length > 1 && (
+                        <button
+                          onClick={(e) => handleDeleteRequest(e, character.id)}
+                          className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/20 rounded-md transition-colors"
+                          title="删除角色"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      )}
+                    </>
                   )}
                 </div>
 
@@ -321,7 +466,9 @@ export function CharacterSelectionModal({
         title="删除角色"
         message={
           pendingDeleteCharacter
-            ? `确定要删除角色「${pendingDeleteCharacter.name}」吗？此操作不可撤销。`
+            ? pendingDeleteCharacter.shared
+              ? `确定要从本地删除共享角色「${pendingDeleteCharacter.name}」吗？删除后账号共享卡槽占用 -1，此操作不可撤销。`
+              : `确定要删除角色「${pendingDeleteCharacter.name}」吗？此操作不可撤销。`
             : "确定要删除该角色吗？此操作不可撤销。"
         }
         destructive

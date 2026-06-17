@@ -5,7 +5,7 @@
 >
 > 来源设计：`.ref/我想在本项目中建立一个共享角色系统.md`
 > 创建：2026-06-17
-> 状态：阶段 0、阶段 1、阶段 2、阶段 3、阶段 4 完成；阶段 5（私有列表中的共享卡）待实施
+> 状态：阶段 0、阶段 1、阶段 2、阶段 3、阶段 4、阶段 5（5a）完成；阶段 5b（作者本人编辑/发布更新）、阶段 6（支付真实业务）待实施
 
 ---
 
@@ -333,8 +333,62 @@ NyaaChat 现有角色体系全部为**私有角色**：角色数据存 localStor
 > 既有 error，均无关）。tsc+eslint 干净。demo 数据已清（demo_p4 账号 CASCADE 删卡/评价/会话、
 > 测试浏览器 localStorage 仅留猫娘），**保留 nyaa 真实账号**。
 
-### 阶段 5 — 私有列表中的共享卡
+### 阶段 5 — 私有列表中的共享卡　【已完成（5a；作者编辑/发布更新拆 5b）】
 `共享` tag、无编辑/导出、`更新`按钮+版本角标提示、已删除提示、删除-卡槽-1；作者本人可见编辑/删除。
+
+- [x] 后端 `src/routes/characters.js`：`POST /characters/versions`（批量版本，不计 downloads）+ `GET /characters/:id`（只读完整卡，404=已删除，不计 downloads）
+- [x] 前端 `lib/sharedLibraryApi.ts`：`fetchVersions(ids)` + `fetchCharacterCard(gid)`
+- [x] `CharacterSelectionModal`：共享卡分流渲染（共享 tag / 更新+角标 / 删除，无编辑·分享·导出）+ 打开列表批量更新检测 + 更新流程（保留本地 id）+ 已删除提示 + 删除-槽
+
+> 阶段 5 边界（已与用户拍板）：
+> 1. **作者本人编辑/发布更新拆到阶段 5b**（设计 150-152：进编辑界面、保存改"发布更新"写回服务器、
+>    导出改导入）。本期对**所有** `shared` 卡统一按"使用态共享卡"治理，不做作者本人判别——
+>    因使用态本地只存 `author`（显示名）+`globalId`，**未存 `owner` 账号**，显示名比对不可靠
+>    （改名/重名失真）；5b 需后端在更新检查响应回带 `owner` 供与登录账号比对。
+> 2. **更新端点用批量版本 + 只读取卡两���点**（不复用 acquire——acquire 会 `downloads+1`，
+>    更新/角标检查不应计下载）。
+>
+> 阶段 5（5a）落地（2026-06-17）：
+> **后端** `src/routes/characters.js` 在既有端点上新增两个**公开只读**端点：
+> - `POST /characters/versions`（body `{ids:[...]}`，hex 过滤+去重+≤200 兜底）→
+>   `{versions:{<gid>:updated_at}}`，只回存在的 id；**absent=已删除**（客户端据此判删除）。
+>   一次请求拿全部持有共享卡的服务器版本（不逐卡打 N 次）。**不计 downloads**。
+> - `GET /characters/:id`（hex 校验）→ `{card:{globalId,name,author,source,intro,cardJson,updatedAt}}`，
+>   `404 not_found`=已删除。与 acquire 返回同形 card **但不 bump downloads、不结算**，仅供"更新"取最新卡。
+>   注册在 `GET /tags`、`GET /mine/ratings` **之后**（Express 顺序匹配，避免 `/:id` 吞字面路由），
+>   handler 内 hex guard 二保险。`POST /versions`（单段）与 `POST /:id/acquire`（双段）不冲突。
+>   **无需改 server.js / nginx / db schema**。
+> **前端**：`lib/sharedLibraryApi.ts` 加 `fetchVersions(ids)`（POST）+ `fetchCharacterCard(gid)`
+>   （GET，复用 `AcquiredCard` 类型，`kind:"error"`+`status 404`=已删除）；**不动** account / share 两 api。
+>   `components/CharacterSelectionModal.tsx`（核心改造）：
+> - **条目按 `character.shared` 分流**：共享卡=角色名后紫色「**共享**」tag + 动作区「更新」
+>   (`RefreshCw`=arrows-rotate，替代原编辑位)+「删除」，**无分享·无编辑**（杜绝进编辑界面/导出 json，
+>   落实作者权益）；私有卡=分享+编辑+删除（保持原状，零回归）。
+> - **打开列表批量更新检测**：`useEffect([isOpen, settings.characters])` → 取所有
+>   `shared && globalId` 卡 → 一次 `fetchVersions` → `serverVersion > (local.version ?? 0)` 标记
+>   `updateStatus[gid]="update"`（更新按钮右上角**橙色亮点角标**，绝对定位不靠 display/flex 切换，
+>   不触 JS-Slash-Runner Tailwind 覆盖）；**absent=已删除→不显角标**（符合设计：留着能用、点更新才告知）。
+> - **更新流程**：点更新 → `fetchCharacterCard(gid)` → 404 toast「该角色已从共享角色库删除，无法更新。」；
+>   成功 → `convertSillyTavernCharacter` 重转卡，**保留原 local id**（对话绑定 id，绝不换）、重设
+>   `shared/globalId/author/source/intro/version(=新 updatedAt)`、重拉 `/covers` 存回**同一 IndexedDB id**、
+>   写回 `settings.characters`、清角标、成功 toast。
+> - **删除共享卡**：复用既有删除流程（`deleteCover`+filter+`ConfirmDialog`）；卡槽占用是客户端
+>   `filter(shared).length`，删后自然 -1，无额外逻辑。确认文案为共享卡补「删除后账号共享卡槽占用 -1」。
+>   保留 `length>1` 与"非当前选中"既有 guard。
+> - 新增轻量内联 `notice`（绿/红 banner，3s 自动消失）承载更新成功/失败/已删除提示（本组件原无 toast）。
+> 真机验证（rebuild-shared + rebuild 双重启后，:3095 同源 Playwright，登录态 demo_p5 使用免费测试卡入私有列表）：
+> 私有卡「猫娘」分享+编辑+删除·无 tag（零回归）；共享卡紫色「共享」tag·封面从 IndexedDB·仅更新+删除·
+> 无编辑分享；服务器 bump v2 后重开列表→更新按钮橙色角标；点更新→描述变 v2·角标消失·**local id 保持
+> 不变**(b921615b…)·version=服务器 updatedAt·封面重入库；服务器删卡后点更新→红色 toast「该角色已从
+> 共享角色库删除，无法更新。」(50ms 内出现)·本地卡保留可用；删除共享卡→确认文案含"卡槽占用 -1"→
+> 确认后卡清除·sharedCount 1→0。console 仅 JS-Slash-Runner 既有 `parentNode` error + 预期的
+> `GET /characters/:id` 404（删除检测命中，浏览器记为 resource 404，非 JS 异常），本功能零 error。
+> tsc+eslint 干净。demo 数据已清（demo_p5 账号 CASCADE 删 session、卡/封面早已删尽、浏览器登录态+测试
+> 卡清除），**保留 nyaa 真实账号**，临时文件/截图删尽。
+
+### 阶段 5b —（后续）作者本人编辑 / 发布更新
+作者对自己上传的共享卡可见「编辑」「删除」：编辑=进编辑界面、保存改"发布更新"写回服务器、导出改导入。
+需后端新增鉴权更新端点（`PUT /characters/:id` owner 校验）、更新检查响应回带 `owner`、使用态本地存 `owner` 账号供判别、编辑界面分流 + 分享界面预填复用。
 
 ### 阶段 6 —（后续）支付真实业务逻辑
 兑换码 / 猫粮结算；本期全部占位并备忘。
