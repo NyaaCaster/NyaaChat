@@ -173,6 +173,11 @@ function AuthForm({
       setError("请填写账号和密码");
       return;
     }
+    // 禁止用邮箱注册/登录：账号不得包含 @ 符号（后端 ACCOUNT_RE 也已限制）。
+    if (account.includes("@")) {
+      setError("账号不能使用邮箱地址（不能包含 @ 符号）");
+      return;
+    }
     setBusy(true);
     const result =
       view === "login"

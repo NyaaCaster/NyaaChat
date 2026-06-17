@@ -93,6 +93,12 @@ accountRouter.post("/register", (req, res) => {
   if (!ACCOUNT_RE.test(account)) {
     return badRequest(res, "invalid_account");
   }
+  // Reject email addresses as accounts: an account must never contain '@'.
+  // (ACCOUNT_RE already excludes it, but keep this explicit so loosening the
+  // regex later can't silently re-admit emails.)
+  if (account.includes("@")) {
+    return badRequest(res, "invalid_account");
+  }
   if (password.length < PASSWORD_MIN || password.length > PASSWORD_MAX) {
     return badRequest(res, "invalid_password");
   }
