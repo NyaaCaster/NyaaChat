@@ -2,9 +2,10 @@
 //
 // Mounted at /account by server.js; reached from the browser same-origin via
 // the main nginx as /api/shared/account/*. Passwords are PLAINTEXT by product
-// decision (manual maintenance through Navicat) — see db.js. catfood redemption
-// and shared-slot expansion are intentionally 501 placeholders this phase
-// (real payment/redeem logic is phase 6; see SSOT §6).
+// decision (manual maintenance through Navicat) — see db.js. Shared-slot
+// expansion (POST /expand-slot) is real this phase; catfood redemption
+// (POST /redeem) stays a 501 because it is fulfilled by a third-party top-up
+// service that hasn't shipped its API yet (see that handler + SSOT §6).
 
 import { Router } from "express";
 import { db } from "../db.js";
@@ -23,6 +24,14 @@ function badRequest(res, error) {
   return res.status(400).json({ ok: false, error });
 }
 
+// --- shared-slot expansion limits ----------------------------------------
+// Expanding the shared-slot ceiling costs catfood, in fixed steps. These are
+// product constants (no per-call configuration): one expansion adds SLOT_STEP
+// to slot_max for SLOT_COST catfood, capped at SLOT_MAX_CEILING.
+const SLOT_STEP = 5; // slots added per expansion
+const SLOT_COST = 5; // catfood charged per expansion
+const SLOT_MAX_CEILING = 200; // hard ceiling on slot_max
+
 // --- statements -----------------------------------------------------------
 const getUser = db.prepare("SELECT * FROM users WHERE account = ?");
 const insertUser = db.prepare(`
@@ -34,6 +43,12 @@ const updateUsername = db.prepare(
 );
 const updatePassword = db.prepare(
   "UPDATE users SET password = ? WHERE account = ?",
+);
+// Expand the shared-slot ceiling: charge catfood (counted as spend, matching
+// the phase-4 acquisition model where every catfood debit lands in spent_total)
+// and raise slot_max, in one transaction. Caller verifies balance + ceiling.
+const expandSlot = db.prepare(
+  "UPDATE users SET catfood = catfood - @cost, spent_total = spent_total + @cost, slot_max = slot_max + @step WHERE account = @account",
 );
 const aggStats = db.prepare(`
   SELECT
@@ -152,13 +167,44 @@ accountRouter.post("/password", requireAuth, (req, res) => {
   return res.json({ ok: true });
 });
 
-// --- placeholders (phase 6) ----------------------------------------------
-// Catfood redemption and shared-slot expansion are deferred to the payment
-// phase. Surface a clear 501 so the frontend can show a "not implemented yet"
-// notice while still exercising the auth path.
+// --- catfood redemption (NOT implemented this phase) ----------------------
+// Redeeming a code for catfood is fulfilled by a THIRD-PARTY service (the code
+// is issued and validated by qyapi.qinyan.xyz, not by us). This backend will
+// only own two pieces once that service ships its API: forwarding the redeem
+// request and accepting the top-up callback. Until then this stays a 501 so the
+// frontend can keep its redeem UI wired (behind a feature flag) without faking
+// a balance change. When implemented, redemption MUST only add catfood — it is
+// a top-up, not earnings, so it never touches earned_total / spent_total and
+// keeps no ledger row (per product decision; SSOT §6).
 accountRouter.post("/redeem", requireAuth, (_req, res) => {
   return res.status(501).json({ ok: false, error: "not_implemented" });
 });
-accountRouter.post("/expand-slot", requireAuth, (_req, res) => {
-  return res.status(501).json({ ok: false, error: "not_implemented" });
+
+// --- expand shared-slot ceiling -------------------------------------------
+// POST /account/expand-slot (auth) — spend SLOT_COST catfood to raise slot_max
+// by SLOT_STEP, capped at SLOT_MAX_CEILING. Balance + ceiling are checked
+// inside the transaction so concurrent calls can't overshoot. Returns the fresh
+// profile so the client can reflect the new balance and ceiling immediately.
+accountRouter.post("/expand-slot", requireAuth, (req, res) => {
+  const account = req.user.account;
+  try {
+    const apply = db.transaction(() => {
+      const user = getUser.get(account);
+      if (user.slot_max + SLOT_STEP > SLOT_MAX_CEILING) {
+        return { error: "slot_max_reached", status: 409 };
+      }
+      if (user.catfood < SLOT_COST) {
+        return { error: "insufficient", status: 402 };
+      }
+      expandSlot.run({ account, cost: SLOT_COST, step: SLOT_STEP });
+      return { ok: true };
+    });
+    const result = apply();
+    if (result.error) {
+      return res.status(result.status).json({ ok: false, error: result.error });
+    }
+  } catch {
+    return res.status(500).json({ ok: false, error: "db_write_failed" });
+  }
+  return res.json({ ok: true, profile: profileOf(getUser.get(account)) });
 });

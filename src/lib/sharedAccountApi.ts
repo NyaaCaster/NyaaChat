@@ -192,3 +192,26 @@ export function changePassword(
     body: { oldPassword, newPassword },
   });
 }
+
+// Spend catfood to raise the shared-slot ceiling (+5 slots for 5 catfood,
+// capped server-side at 200). Returns the fresh profile so the UI can reflect
+// the new balance + ceiling. Business errors: "insufficient" (not enough
+// catfood) / "slot_max_reached" (already at the 200 ceiling).
+export function expandSlot(token: string): Promise<ApiResult<ProfilePayload>> {
+  return request<ProfilePayload>("/expand-slot", { method: "POST", token });
+}
+
+// Redeem a code for catfood. The code is issued/validated by a third-party
+// top-up service (not implemented yet), so this currently resolves to a
+// business error "not_implemented" (HTTP 501). Wired now so the redeem UI is
+// ready to flip on once that service ships its API.
+export function redeem(
+  token: string,
+  code: string,
+): Promise<ApiResult<ProfilePayload>> {
+  return request<ProfilePayload>("/redeem", {
+    method: "POST",
+    token,
+    body: { code },
+  });
+}

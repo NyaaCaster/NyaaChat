@@ -17,6 +17,7 @@ import {
   Download,
   ThumbsUp,
   ThumbsDown,
+  ExternalLink,
 } from "lucide-react";
 import { BaseModal } from "./BaseModal";
 import { CatCanIcon } from "./icons/CatCanIcon";
@@ -26,14 +27,27 @@ import {
   type StoredAccount,
   changePassword,
   clearStoredAccount,
+  expandSlot as apiExpandSlot,
   fetchProfile,
   loadStoredAccount,
   login as apiLogin,
   logout as apiLogout,
+  redeem as apiRedeem,
   register as apiRegister,
   rename as apiRename,
   saveStoredAccount,
 } from "../lib/sharedAccountApi";
+
+// Redeem UI feature flag. The redeem panel (catfood top-up via code) and its
+// explanatory notices were built this phase, but catfood redemption is fulfilled
+// by a third-party service whose API hasn't shipped — so the panel stays HIDDEN
+// until that integration lands. Flip to true to re-expose it (the backend
+// /redeem still 501s until then). The 兑换 button falls back to a "not open yet"
+// notice while this is false, matching the original placeholder. (SSOT §6.)
+const REDEEM_UI_ENABLED = false;
+// Third-party site that issues redemption codes; opened in a new tab from the
+// redeem panel's 获取兑换码 button.
+const REDEEM_CODE_URL = "https://qyapi.qinyan.xyz/";
 
 interface UserAccountModalProps {
   isOpen: boolean;
@@ -59,6 +73,10 @@ function messageFor(result: Extract<ApiResult<unknown>, { ok: false }>): string 
       return "用户名不合法（最多 24 字）";
     case "wrong_password":
       return "当前密码不正确";
+    case "insufficient":
+      return "猫粮余额不足";
+    case "slot_max_reached":
+      return "共享卡槽已达上限（200）";
     case "not_implemented":
       return "该功能尚未开放";
     default:
@@ -285,6 +303,8 @@ function AccountPanel({
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
   const [pwOpen, setPwOpen] = useState(false);
+  const [redeemOpen, setRedeemOpen] = useState(false);
+  const [expanding, setExpanding] = useState(false);
 
   const flash = (kind: "ok" | "err", text: string) => {
     setNotice({ kind, text });
@@ -310,8 +330,42 @@ function AccountPanel({
     }
   };
 
-  const placeholder = (label: string) =>
-    flash("err", `${label}功能尚未开放`);
+  // Expand the shared-slot ceiling: +5 slots for 5 catfood, capped at 200.
+  // The server settles atomically and returns the fresh profile.
+  const SLOT_COST = 5;
+  const SLOT_CEILING = 200;
+  const atSlotCeiling = profile.slotMax >= SLOT_CEILING;
+
+  const expand = async () => {
+    if (expanding) return;
+    if (atSlotCeiling) {
+      flash("err", "共享卡槽已达上限（200）");
+      return;
+    }
+    if (profile.catfood < SLOT_COST) {
+      flash("err", "猫粮余额不足");
+      return;
+    }
+    setExpanding(true);
+    const r = await apiExpandSlot(token);
+    setExpanding(false);
+    if (r.kind === "ok") {
+      onProfile(r.data.profile);
+      flash("ok", "已扩容 +5，扣除 5 猫粮");
+    } else {
+      flash("err", messageFor(r));
+    }
+  };
+
+  // 兑换 entry: open the redeem panel when the feature is enabled, otherwise
+  // fall back to the original "not open yet" notice.
+  const onRedeemClick = () => {
+    if (REDEEM_UI_ENABLED) {
+      setRedeemOpen((v) => !v);
+    } else {
+      flash("err", "兑换功能尚未开放");
+    }
+  };
 
   return (
     <div className="p-4 sm:p-5 space-y-4">
@@ -403,13 +457,23 @@ function AccountPanel({
               <CatCanIcon size={16} /> {profile.catfood}
             </span>
             <button
-              onClick={() => placeholder("兑换")}
+              onClick={onRedeemClick}
               className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-orange-600 dark:text-orange-400 border border-orange-500/30 hover:bg-orange-500/10 rounded-lg transition-colors"
             >
               <Gift size={13} /> 兑换
             </button>
           </div>
         </Row>
+
+        {REDEEM_UI_ENABLED && redeemOpen && (
+          <RedeemPanel
+            token={token}
+            onProfile={onProfile}
+            onNotice={flash}
+            onClose={() => setRedeemOpen(false)}
+          />
+        )}
+
         <Row label="历史消耗">
           <span className="inline-flex items-center gap-1 text-sm text-gray-600 dark:text-gray-400">
             <TrendingDown size={14} className="text-red-400" /> {profile.spentTotal}
@@ -426,10 +490,13 @@ function AccountPanel({
               <Wallet size={14} /> 上限 {profile.slotMax}
             </span>
             <button
-              onClick={() => placeholder("扩容")}
-              className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-blue-600 dark:text-blue-400 border border-blue-500/30 hover:bg-blue-500/10 rounded-lg transition-colors"
+              onClick={expand}
+              disabled={expanding || atSlotCeiling}
+              title={atSlotCeiling ? "已达上限 200" : "花费 5 猫粮 +5 卡槽"}
+              className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-blue-600 dark:text-blue-400 border border-blue-500/30 hover:bg-blue-500/10 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              <PackagePlus size={13} /> 扩容
+              {expanding ? <Loader2 size={13} className="animate-spin" /> : <PackagePlus size={13} />}{" "}
+              扩容
             </button>
           </div>
         </Row>
@@ -549,6 +616,88 @@ function ChangePasswordForm({
           取消
         </button>
       </div>
+    </motion.div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Redeem panel (catfood top-up via code) — behind REDEEM_UI_ENABLED.
+// Catfood redemption is fulfilled by a third-party service (REDEEM_CODE_URL)
+// that hasn't shipped its API, so submitting a code currently surfaces the
+// backend's 501 ("尚未开放"). The panel + notices are built and verifiable now;
+// the feature flag keeps it hidden until the integration lands. (SSOT §6.)
+function RedeemPanel({
+  token,
+  onProfile,
+  onNotice,
+  onClose,
+}: {
+  token: string;
+  onProfile: (p: AccountProfile) => void;
+  onNotice: (kind: "ok" | "err", text: string) => void;
+  onClose: () => void;
+}) {
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  const inputCls =
+    "flex-1 px-3 py-2 text-sm bg-transparent border border-gray-200 dark:border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500 transition-shadow";
+
+  const submit = async () => {
+    if (busy) return;
+    const v = code.trim();
+    if (!v) {
+      onNotice("err", "请输入兑换码");
+      return;
+    }
+    setBusy(true);
+    const r = await apiRedeem(token, v);
+    setBusy(false);
+    if (r.kind === "ok") {
+      onProfile(r.data.profile);
+      setCode("");
+      onNotice("ok", "兑换成功，猫粮已到账");
+      onClose();
+    } else {
+      onNotice("err", messageFor(r));
+    }
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, height: 0 }}
+      animate={{ opacity: 1, height: "auto" }}
+      className="space-y-2.5 border border-orange-500/20 bg-orange-500/5 rounded-xl p-3"
+    >
+      <div className="flex items-center gap-2">
+        <input
+          value={code}
+          onChange={(e) => setCode(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && submit()}
+          placeholder="请输入兑换码"
+          className={inputCls}
+        />
+        <button
+          onClick={submit}
+          disabled={busy}
+          className="px-4 py-2 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white text-sm font-medium rounded-xl transition-all flex items-center justify-center gap-1.5"
+        >
+          {busy && <Loader2 size={15} className="animate-spin" />}
+          兑换
+        </button>
+      </div>
+      <div className="text-[11px] leading-relaxed text-gray-500 dark:text-gray-400 space-y-1">
+        <p>· 1 猫粮 = 1 icu 刀</p>
+        <p>· 猫粮仅用于平台内角色共享，不可提现、不可转让。</p>
+        <p>· NyaaChat 为非盈利平台，所有API额度收入均用于VibeCoding开发维护。</p>
+      </div>
+      <a
+        href={REDEEM_CODE_URL}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex items-center gap-1 text-xs font-medium text-orange-600 dark:text-orange-400 hover:underline"
+      >
+        <ExternalLink size={13} /> 获取兑换码
+      </a>
     </motion.div>
   );
 }

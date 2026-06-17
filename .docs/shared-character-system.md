@@ -5,7 +5,7 @@
 >
 > 来源设计：`.ref/我想在本项目中建立一个共享角色系统.md`
 > 创建：2026-06-17
-> 状态：阶段 0、阶段 1、阶段 2、阶段 3、阶段 4、阶段 5（5a + 5b）完成；阶段 6（支付真实业务）待实施
+> 状态：阶段 0、阶段 1、阶段 2、阶段 3、阶段 4、阶段 5（5a + 5b）、阶段 6 完成；共享角色系统大版本收口（兑换码充值待第三方 API 接入）
 
 ---
 
@@ -408,8 +408,28 @@ NyaaChat 现有角色体系全部为**私有角色**：角色数据存 localStor
 > **真机验证**（rebuild-shared + rebuild 双重启后，:3095 同源 Playwright，登录 demo_5b_author 用免费测试卡入私有列表）：use 态本地落 owner=demo_5b_author；作者态共享卡显示「编辑并发布更新（作者本人）」按钮（私有卡保持分享+编辑+删除零回归）；点编辑→编辑界面标题「编辑共享角色」+底部「角色导入/发布更新」+字段预填初版；改描述→发布更新→分享界面 update 模式预填（来源原创/简介/标签 测试+猫娘/使用免费/买断 60/确认更新）；改简介→确认更新→`PUT` 200→服务器卡 desc/intro/updatedAt 全更新+封面真 RIFF/WebP 无内嵌 json；本地卡同步刷新（id 保持 af3f4eb9/desc/intro/version=新 updatedAt/owner 保持）；二次发布验证 prefill 取服务器最新值；切换非作者 demo_5b_other→共享卡仅「更新」无编辑按钮；非作者 token 直打 `PUT`→**403 forbidden**（后端 owner 硬隔离防绕过）。console 零 error。tsc+eslint 干净。**坑（已修）**：① intro 同步缺口——`buildCurrentCharacter` 的 intro 是编辑前本地值，用户在分享界面改的 intro 没回本地；修法=`onUpdated` 回带分享界面最终 `{source,intro}`，本地以之为准。② 测试封面用 node 手拼极简 VP8L WebP，canvas 解码失败致「图片解码失败」——非代码 bug，真实 canvas 生成的 WebP 正常（用浏览器 canvas.toBlob 生成真 WebP 写入 IndexedDB 后通过）。demo 数据已清（demo_5b_* 账号/卡/封面/会话删尽，**保留 nyaa 真账号**），临时文件/截图/浏览器登录态清。
 > **rebuild 坑**：`rebuild-shared -NoCache` 撞 alpine CDN `apk add` TLS 抖动致 builder 阶段失败、不产生新镜像、容器静默跑旧码（显示 Running 非 Recreated）；解法=不带 -NoCache 重试用缓存跳过 apk 出网（见 memory `project_rebuild_apk_tls_pitfall`）。
 
-### 阶段 6 —（后续）支付真实业务逻辑
-兑换码 / 猫粮结算；本期全部占位并备忘。
+### 阶段 6 — 支付真实业务逻辑　【已完成（充值侧待第三方 API）】
+扩容共享卡槽真实落地；兑换码充值不在本项目实现（第三方充值服务）；三条提示开发并验证后以开关隐藏。
+
+- [x] 后端 `src/routes/account.js`：`POST /expand-slot` 真实结算（扣 5 猫粮 + slot_max +5，事务内校验余额/上限 200）；`POST /redeem` 保持 501（更新注释=第三方充值 API）
+- [x] 前端 `lib/sharedAccountApi.ts`：`expandSlot(token)` + `redeem(token,code)`
+- [x] `UserAccountModal.tsx`：扩容真实调用 + 兑换内联面板（两条提示 + 获取兑换码跳转）+ `REDEEM_UI_ENABLED` 开关（验证后置 false 隐藏）
+
+> 阶段 6 边界（已与用户拍板）：
+> 1. **兑换码充值不在本项目实现**：兑换码的生成、来源、验证全部由第三方站点（`https://qyapi.qinyan.xyz/`）提供。本项目只负责将来「发起兑换请求 + 接收充值回调」两段，等业务承担方给出 API 后再开发。后端 `POST /redeem` 保持 **501** 占位。将来的结算语义=**只加 catfood**（充值非收益，不动 earned_total/spent_total，不留流水记录）。
+> 2. **扩容真实落地**（本期唯一真实新逻辑）：固定一次 +5 卡槽、扣 **5 猫粮**、`slot_max` 硬上限 **200**、无步长配置。扣的 5 猫粮**计入 `spent_total`**（与阶段 4 「凡扣猫粮即记历史消耗」对齐，历史消耗只是数值不需消耗条目）。
+> 3. **三条提示本期开发并验证后隐藏**：兑换面板含「1 猫粮 = 1 icu 刀」「猫粮仅用于平台内角色共享，不可提现、不可转让」「NyaaChat 为非盈利平台，所有 API 额度收入均用于 VibeCoding 开发维护」三条说明 + 「获取兑换码」跳转。用 `REDEEM_UI_ENABLED` 常量开关控制——开发期 true 真机验证、验证后置 **false 隐藏**，回退到原占位 toast。等兑换码充值 API 接入后翻 true 即显示。
+> 4. **使用权/买断付费**在阶段 4 已是真实结算（买家 catfood↓/spent↑、对手方 catfood↑/earned↑、买家==owner 跳过），阶段 6 无改动，仅确认语义正确。
+>
+> 阶段 6 落地（2026-06-17）：
+> **后端** `src/routes/account.js`：新增常量 `SLOT_STEP=5 / SLOT_COST=5 / SLOT_MAX_CEILING=200` 与 `expandSlot` 语句（`catfood-cost, spent_total+cost, slot_max+step`）。`POST /expand-slot`（`requireAuth`）在 `db.transaction` 内**先校验后扣费**：`slot_max+5>200`→**409 `slot_max_reached`**（不扣费）、`catfood<5`→**402 `insufficient`**（不扣费）、通过则扣 5 猫粮+计 spent+slot_max+5，返回 `profileOf` 新资料。`POST /redeem` 仍 501，注释改为说明「第三方充值服务（qyapi.qinyan.xyz）未出 API；实现时只加 catfood、不记流水」。文件头注释同步更新（不再是两个占位）。
+> **前端** `lib/sharedAccountApi.ts`：`expandSlot(token)→ProfilePayload`、`redeem(token,code)→ProfilePayload`（后端 501 时落 `kind:"error"`）。`UserAccountModal.tsx`：常量 `REDEEM_UI_ENABLED`（**当前 false**，验证后置回）+ `REDEEM_CODE_URL`；`messageFor` 加 `insufficient`/`slot_max_reached` 文案；`AccountPanel` 扩容按钮真实调用 `apiExpandSlot`（前置校验余额<5/已达 200 即 flash 拦截、按钮 `disabled` at 200、loading 态）、成功 `onProfile` 刷新本地+flash；兑换按钮 `onRedeemClick`（开关开=展开内联 `RedeemPanel`，关=占位 toast「兑换功能尚未开放」）；新增 `RedeemPanel` 组件（兑换码输入+提交走 `apiRedeem`、两条提示、`获取兑换码` 外链 `target=_blank`）。
+> **真机验证**（rebuild-shared + rebuild 双重启，:3095 同源 Playwright，临时 demo_p6）：
+> - 后端 API 直测：余额 0 扩容→402 insufficient；充值 100 后扩容→catfood 100→95、spent 0→5、slot 20→25（成功）；slot 196 扩容→409 slot_max_reached（不扣费）、slot 195→200 放行（恰好到顶）；redeem→501 not_implemented。DB 与返回值逐一核对一致。
+> - 前端（开关 true）：账号面板正常；兑换面板渲染完整（输入框+橙色兑换按钮+两条提示+获取兑换码外链 `qyapi.qinyan.xyz`）；提交兑换码→501→console 记 resource error（预期，非 JS 异常）；点扩容→余额 30→25、历史消耗 0→5、卡槽 20→25 UI 实时刷新、累积收益保持 0（扩容不计收益）、DB 一致；余额 3<5 时点扩容→前置校验拦截「猫粮余额不足」（未扣费）；slot 200 时扩容按钮 `disabled`、title「已达上限 200」。
+> - 前端（开关 false，再 rebuild）：兑换面板不在 DOM（猫粮行后直接历史消耗），点兑换回退占位 toast；扩容仍真实。
+> console 仅 JS-Slash-Runner 既有 `parentNode` error + 预期 redeem 501 resource error，本功能零 error。tsc+eslint 干净（shared-server 的 process/Buffer/console no-undef 是既有、非本次引入）。demo_p6 已删（CASCADE 清会话），**保留 nyaa 真实账号**（catfood 0/slot 20 干净态），截图/临时文件/浏览器登录态清尽。
+> **开关位置备忘**：`src/components/UserAccountModal.tsx` 顶部 `const REDEEM_UI_ENABLED = false`。兑换码充值 API 接入后翻 `true` 即显示兑换面板；后端 `POST /redeem` 同步从 501 改真实充值逻辑（只加 catfood）。
 
 ---
 
@@ -421,14 +441,16 @@ NyaaChat 现有角色体系全部为**私有角色**：角色数据存 localStor
 
 ---
 
-## 6. 占位 / 备忘清单（待阶段 6 实现）
+## 6. 占位 / 备忘清单
 
-- 兑换码兑换猫粮（成功/失败弹窗）— 仅 UI 占位
-- 「1 猫粮 = 1 icu 刀」提示 — 暂隐藏，兑换功能完成后开放
-- 「NyaaChat 为非盈利平台…」提示 — 暂隐藏，兑换功能完成后开放
-- 「获取兑换码」跳转 `https://qyapi.qinyan.xyz/` — 暂禁用
-- 扩容共享卡槽（猫粮 5 → +5）— UI 占位，余额校验先行
-- 兑换码充值猫粮 — 仅 UI 占位（阶段 4 起这是唯一未真实结算的环节）
+已落地（阶段 6）：
+- ✅ 扩容共享卡槽（5 猫粮 → +5，上限 200）— 真实结算，计入历史消耗
+- ✅ 「1 猫粮 = 1 icu 刀」「NyaaChat 为非盈利平台…」两条提示 — 已开发并验证，当前以开关隐藏
+- ✅ 「获取兑换码」跳转 `https://qyapi.qinyan.xyz/` — 已开发（外链新标签页），随兑换面板开关隐藏
 
-> 注：使用权 / 买断付费在**阶段 4 已改为真实结算**（余额够即扣费、作者收款），不再占位；
-> 仅猫粮**充值**（兑换码）侧仍占位待阶段 6。
+待第三方充值 API 接入后开发：
+- ⏳ 兑换码充值猫粮 — **不在本项目实现兑换码生成/验证**（由第三方站点 `qyapi.qinyan.xyz` 承担）。本项目只负责「发起兑换请求 + 接收充值回调」两段，业务承担方给出 API 后再做。
+  - 当前：后端 `POST /account/redeem` 返回 501；前端兑换面板由 `UserAccountModal.tsx` 的 `REDEEM_UI_ENABLED` 开关（**当前 false**）隐藏。
+  - 接入步骤：① 后端 `/redeem` 改真实逻辑（向第三方校验兑换码 + 接收回调，成功**只加 catfood**、不记流水、不动 earned/spent）；② 前端 `REDEEM_UI_ENABLED` 翻 `true` 显示兑换面板。
+
+> 注：使用权 / 买断付费在**阶段 4 已是真实结算**（买家 catfood↓/spent↑、对手方 catfood↑/earned↑、买家==owner 跳过）；扩容在**阶段 6 真实落地**（扣 5 计 spent + slot+5）。唯一未真实化的环节是**兑换码充值**，待第三方 API。
