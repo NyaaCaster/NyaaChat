@@ -492,7 +492,7 @@ export function CharacterShareModal({
           )}
         </Field>
 
-        {/* use price */}
+        {/* use price / buyout price — hidden until redeem API is live; defaults: usePrice=0 (free), buyoutPrice=0 (no sale)
         <Field label="使用权定价">
           <PriceTiers
             tiers={USE_TIERS}
@@ -503,7 +503,6 @@ export function CharacterShareModal({
           />
         </Field>
 
-        {/* buyout price */}
         <Field label="买断定价">
           <PriceTiers
             tiers={BUYOUT_TIERS}
@@ -513,6 +512,7 @@ export function CharacterShareModal({
             onCustom={setBuyoutCustom}
           />
         </Field>
+        */}
       </div>
     </BaseModal>
   );
