@@ -13,7 +13,7 @@
 
 import { Router } from "express";
 import { randomBytes } from "node:crypto";
-import { mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync, existsSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { db } from "../db.js";
 import { requireAuth, resolveUser } from "../auth.js";
@@ -81,6 +81,13 @@ const updateCharacter = db.prepare(`
 `);
 const getCover = db.prepare(
   "SELECT cover_ext FROM shared_characters WHERE global_id = ?",
+);
+// Delete a published card (phase 5b, author-only). The ratings rows reference
+// it with ON DELETE CASCADE, so they go too; the cover file is removed
+// separately (it lives on the filesystem, not in the DB). The global_id is
+// never reused after this (SSOT #182).
+const deleteCharacter = db.prepare(
+  "DELETE FROM shared_characters WHERE global_id = ?",
 );
 
 // Acquire (use / buyout). The full card row including card_json — only handed
@@ -588,7 +595,38 @@ charactersRouter.put("/:id", requireAuth, (req, res) => {
   return res.json({ ok: true, globalId: id, updatedAt: now });
 });
 
-// GET /characters/:id — public read-only full card (phase 5 update pull).
+// DELETE /characters/:id (auth) — remove a published card (phase 5b, author-only).
+// Only the owner may delete. The DB row goes (cascading its ratings); the cover
+// file on disk is then unlinked. global_id is never reused afterwards (SSOT #182),
+// so any holder of this card who later clicks 更新 gets a clean 404 ("deleted").
+// Registered alongside PUT /:id (different method, no conflict); hex guard first.
+charactersRouter.delete("/:id", requireAuth, (req, res) => {
+  const id = String(req.params.id ?? "");
+  if (!HEX_ID.test(id)) return res.status(404).json({ ok: false, error: "not_found" });
+
+  const row = getFullCharacter.get(id);
+  if (!row) return res.status(404).json({ ok: false, error: "not_found" });
+  // Owner-only: a card can only be deleted by the account that uploaded it.
+  if (row.owner !== req.user.account) {
+    return res.status(403).json({ ok: false, error: "forbidden" });
+  }
+
+  try {
+    deleteCharacter.run(id); // cascades ratings via the FK
+  } catch {
+    return res.status(500).json({ ok: false, error: "db_write_failed" });
+  }
+  // Best-effort cover cleanup: the row is already gone, so a leftover file is
+  // harmless (it can no longer be served — /covers looks the row up first).
+  try {
+    const coverPath = join(COVERS_DIR, `${id}.${row.cover_ext || "webp"}`);
+    if (existsSync(coverPath)) unlinkSync(coverPath);
+  } catch {
+    // non-fatal
+  }
+
+  return res.json({ ok: true, globalId: id });
+});
 // Returns the same card shape as acquire BUT does NOT bump downloads or settle
 // anything: it's only for refreshing a locally-held shared card to the latest
 // server json. 404 means the card was deleted from the library (the client then

@@ -5,9 +5,12 @@
 // likes / dislikes, toggling asc/desc), an exact tag filter, and a clickable
 // author-name filter — per the design's library spec.
 //
-// Deliberately browse-only this phase: the entries render their full public
-// info (cover, name, author, source, update time, intro, prices, counts) but
-// carry NO action buttons. 使用 / 买断 land in phase 4, 编辑 / 删除 in phase 5.
+// Deliberately browse-first: entries render their full public info (cover,
+// name, author, source, update time, intro, prices, counts) plus use / buyout /
+// rate actions. A logged-in user additionally sees 编辑 / 删除 buttons on the
+// cover top-right of cards they authored (owner === their account) — edit reuses
+// the share 界面 (update mode) to revise source / intro / tags; delete removes
+// the card from the server after a confirm.
 //
 // Layout: PC = left sidebar (search + sort + tag list) + a 3-up grid; mobile =
 // a top bar (search + sort + a 标签 button opening a secondary single-select
@@ -30,10 +33,14 @@ import {
   AlertTriangle,
   CloudDownload,
   ShoppingCart,
+  Pencil,
+  Trash2,
 } from "lucide-react";
 import { BaseModal } from "./BaseModal";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { CatCanIcon } from "./icons/CatCanIcon";
 import { SharedPaymentModal, type PaymentMode } from "./SharedPaymentModal";
+import { CharacterShareModal, type SharePrefill } from "./CharacterShareModal";
 import { UserAccountModal } from "./UserAccountModal";
 import type { CharacterSettings } from "../types";
 import { convertSillyTavernCharacter } from "../lib/sillyTavernImport";
@@ -49,7 +56,9 @@ import {
   rateCharacter,
   fetchMyRatings,
   fetchCoverBlob,
+  fetchCharacterCard,
 } from "../lib/sharedLibraryApi";
+import { deleteSharedCharacter } from "../lib/sharedCharacterApi";
 import {
   type AccountProfile,
   loadStoredAccount,
@@ -119,6 +128,20 @@ export function SharedLibraryModal({
   // parent (rendered inline in the app tree) would be stuck underneath.
   const [loginOpen, setLoginOpen] = useState(false);
 
+  // --- phase 5b (in library): author editing / deleting own cards ------------
+  // The logged-in account; a card whose owner === this may show 编辑 / 删除.
+  const [account, setAccount] = useState<string | null>(null);
+  // Edit: the share 界面 (update mode) seeded with the fetched card + metadata.
+  const [edit, setEdit] = useState<{
+    character: CharacterSettings;
+    globalId: string;
+    prefill: SharePrefill;
+    coverBlob: Blob | null;
+  } | null>(null);
+  // Delete: the card pending a confirm, and whether a delete request is in flight.
+  const [pendingDelete, setPendingDelete] = useState<SharedCharacterSummary | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+
   const slotMax = profile?.slotMax ?? DEFAULT_SLOT_MAX;
 
   // Ratings load is async; a stale response (e.g. issued on open) must not
@@ -152,6 +175,9 @@ export function SharedLibraryModal({
     setNotice(null);
     setPayment(null);
     setActingId(null);
+    setEdit(null);
+    setPendingDelete(null);
+    setDeleteBusy(false);
   }, [isOpen]);
 
   // Re-read the stored session for profile/balance. Does NOT load ratings (that
@@ -160,18 +186,21 @@ export function SharedLibraryModal({
   const syncSession = () => {
     const stored = loadStoredAccount();
     setProfile(stored?.profile ?? null);
+    setAccount(stored?.profile?.account ?? null);
     return stored;
   };
 
   useEffect(() => {
     if (!isOpen) {
       setProfile(null);
+      setAccount(null);
       setMyRatings({});
       ratingSeq.current++; // drop any in-flight ratings load
       return;
     }
     const stored = loadStoredAccount();
     setProfile(stored?.profile ?? null);
+    setAccount(stored?.profile?.account ?? null);
     if (stored) {
       loadMyRatings(stored.token);
     } else {
@@ -276,7 +305,7 @@ export function SharedLibraryModal({
    *  cover (fetched from the server) into IndexedDB. `shared` marks a use card;
    *  buyout passes false to produce a fully-private card. */
   const buildLocalCharacter = async (
-    card: { globalId: string; owner: string; name: string; author: string; source: "original" | "reposted"; intro: string; cardJson: string; updatedAt: number },
+    card: { globalId: string; owner: string; name: string; author: string; source: "original" | "reposted"; intro: string; tags?: string[]; cardJson: string; updatedAt: number },
     shared: boolean,
   ): Promise<CharacterSettings> => {
     const parsed = JSON.parse(card.cardJson);
@@ -449,6 +478,118 @@ export function SharedLibraryModal({
     );
   };
 
+  // --- phase 5b (in library): author edit / delete ---------------------------
+
+  /** Click 编辑 on an owned card: pull the latest full card (for its card json +
+   *  the share metadata that the listing doesn't carry — tags aren't in summary
+   *  but actually are; prices are) and open the share 界面 in update mode. The
+   *  user revises source / intro / tags there; the card data + cover are carried
+   *  through unchanged. */
+  const startEdit = async (item: SharedCharacterSummary) => {
+    const stored = syncSession();
+    if (!stored) {
+      setLoginOpen(true);
+      return;
+    }
+    setActingId(item.globalId);
+    try {
+      const res = await fetchCharacterCard(item.globalId);
+      if (res.kind !== "ok") {
+        if (res.kind === "error" && res.status === 404) {
+          flash("err", "该角色已从共享角色库删除");
+          setItems((prev) => prev.filter((it) => it.globalId !== item.globalId));
+        } else {
+          flash("err", res.kind === "network" ? "服务器无法连接，请稍后再试" : "无法加载角色信息，请重试");
+        }
+        return;
+      }
+      const card = res.data.card;
+      // Build a local character from the card json (only for re-uploading the
+      // same card data); the editor here only revises publish metadata.
+      const character = convertSillyTavernCharacter(JSON.parse(card.cardJson));
+      const coverBlob = await fetchCoverBlob(item.globalId);
+      setEdit({
+        character,
+        globalId: item.globalId,
+        prefill: {
+          source: card.source,
+          intro: card.intro,
+          tags: card.tags,
+          usePrice: card.usePrice,
+          buyoutPrice: card.buyoutPrice,
+        },
+        coverBlob,
+      });
+    } catch (e: any) {
+      flash("err", "无法加载角色信息：" + (e?.message || String(e)));
+    } finally {
+      setActingId(null);
+    }
+  };
+
+  /** A successful PUT from the edit share界面: re-sync the listing row to the new
+   *  metadata + updatedAt so the card reflects the edit without a full reload. */
+  const onEditPublished = (
+    globalId: string,
+    updatedAt: number,
+    published: { source: "original" | "reposted"; intro: string },
+  ) => {
+    setItems((prev) =>
+      prev.map((it) =>
+        it.globalId === globalId
+          ? { ...it, source: published.source, intro: published.intro, updatedAt }
+          : it,
+      ),
+    );
+    setEdit(null);
+    flash("ok", "发布信息已更新");
+  };
+
+  /** Confirm delete: remove the card from the server, then drop it from the list. */
+  const confirmDelete = async () => {
+    if (!pendingDelete || deleteBusy) return;
+    const stored = loadStoredAccount();
+    if (!stored) {
+      setPendingDelete(null);
+      setLoginOpen(true);
+      return;
+    }
+    setDeleteBusy(true);
+    const gid = pendingDelete.globalId;
+    const name = pendingDelete.name;
+    const result = await deleteSharedCharacter(stored.token, gid);
+    setDeleteBusy(false);
+    if (result.kind !== "ok") {
+      if (result.kind === "error" && result.status === 404) {
+        // Already gone — treat as success: drop it from the list.
+        setItems((prev) => prev.filter((it) => it.globalId !== gid));
+        setPendingDelete(null);
+        flash("ok", `「${name}」已删除`);
+        return;
+      }
+      if (result.kind === "error" && result.error === "unauthorized") {
+        clearStoredAccount();
+        setProfile(null);
+        setAccount(null);
+        setPendingDelete(null);
+        setLoginOpen(true);
+        return;
+      }
+      flash(
+        "err",
+        result.kind === "network"
+          ? "服务器无法连接，请稍后再试"
+          : result.kind === "error" && result.error === "forbidden"
+            ? "只有作者本人可以删除此角色"
+            : "删除失败，请重试",
+      );
+      return;
+    }
+    setItems((prev) => prev.filter((it) => it.globalId !== gid));
+    setPendingDelete(null);
+    flash("ok", `「${name}」已从共享角色库删除`);
+  };
+
   if (!isOpen) return null;
 
   const searchBox = (
@@ -607,9 +748,12 @@ export function SharedLibraryModal({
                   onAuthorClick={clickAuthor}
                   myValue={myRatings[item.globalId] ?? 0}
                   acting={actingId === item.globalId}
+                  isOwner={!!account && item.owner === account}
                   onUse={() => startUse(item)}
                   onBuyout={() => startBuyout(item)}
                   onRate={(v) => void rate(item, v)}
+                  onEdit={() => void startEdit(item)}
+                  onDelete={() => setPendingDelete(item)}
                 />
               ))}
             </div>
@@ -657,6 +801,43 @@ export function SharedLibraryModal({
           const stored = syncSession();
           if (stored) loadMyRatings(stored.token);
         }}
+      />
+
+      {/* Author edit (own card): share 界面 in update mode, pre-filled. Carries the
+          fetched card data + cover unchanged; the author revises source/intro/tags. */}
+      {edit && (
+        <CharacterShareModal
+          isOpen={!!edit}
+          onClose={() => setEdit(null)}
+          character={edit.character}
+          token={loadStoredAccount()?.token ?? ""}
+          authorName={profile?.username ?? edit.character.author ?? ""}
+          mode="update"
+          globalId={edit.globalId}
+          prefill={edit.prefill}
+          coverBlob={edit.coverBlob}
+          onUpdated={onEditPublished}
+        />
+      )}
+
+      {/* Delete confirm (own card). Destructive; second confirmation per design. */}
+      <ConfirmDialog
+        isOpen={!!pendingDelete}
+        title="删除共享角色"
+        destructive
+        confirmText={deleteBusy ? "删除中…" : "确认删除"}
+        message={
+          <>
+            确定要从共享角色库中删除
+            <span className="font-medium text-gray-900 dark:text-gray-100">
+              「{pendingDelete?.name}」
+            </span>
+            吗？删除后该角色将无法被浏览或使用，且<span className="font-medium">无法恢复</span>。
+            已持有此角色的用户将无法再获取更新。
+          </>
+        }
+        onConfirm={() => void confirmDelete()}
+        onCancel={() => { if (!deleteBusy) setPendingDelete(null); }}
       />
     </BaseModal>
   );
@@ -709,17 +890,23 @@ function LibraryCard({
   onAuthorClick,
   myValue,
   acting,
+  isOwner,
   onUse,
   onBuyout,
   onRate,
+  onEdit,
+  onDelete,
 }: {
   item: SharedCharacterSummary;
   onAuthorClick: (author: string) => void;
   myValue: number; // 1 | -1 | 0
   acting: boolean;
+  isOwner: boolean;
   onUse: () => void;
   onBuyout: () => void;
   onRate: (value: 1 | -1) => void;
+  onEdit: () => void;
+  onDelete: () => void;
 }) {
   const [coverError, setCoverError] = useState(false);
   const free = item.usePrice === 0;
@@ -750,6 +937,28 @@ function LibraryCard({
         >
           {item.source === "original" ? "原创" : "转载"}
         </span>
+        {/* Author-only edit / delete, top-right of the cover. Edit revises the
+            publish info (source/intro/tags); delete removes the card (confirmed). */}
+        {isOwner && (
+          <div className="absolute top-2 right-2 flex items-center gap-1">
+            <button
+              onClick={onEdit}
+              disabled={acting}
+              title="编辑发布信息"
+              className="p-1.5 rounded-md bg-black/45 text-white hover:bg-black/65 backdrop-blur-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {acting ? <Loader2 size={13} className="animate-spin" /> : <Pencil size={13} />}
+            </button>
+            <button
+              onClick={onDelete}
+              disabled={acting}
+              title="删除共享角色"
+              className="p-1.5 rounded-md bg-black/45 text-white hover:bg-red-600/90 backdrop-blur-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Trash2 size={13} />
+            </button>
+          </div>
+        )}
       </div>
 
       {/* body */}

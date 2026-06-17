@@ -78,6 +78,11 @@ interface UpdatePublishResult {
   updatedAt: number;
 }
 
+interface DeleteResult {
+  ok: true;
+  globalId: string;
+}
+
 /** Publish a private character to the shared library. */
 export function shareCharacter(
   token: string,
@@ -102,6 +107,19 @@ export function publishUpdate(
     method: "PUT",
     token,
     body: payload,
+  });
+}
+
+/** Delete a shared card from the library (phase 5b). Owner-only on the server
+ *  (403 forbidden otherwise; 404 if it was already gone). global_id is never
+ *  reused afterwards, so holders who later 更新 get a clean "deleted" 404. */
+export function deleteSharedCharacter(
+  token: string,
+  globalId: string,
+): Promise<ApiResult<DeleteResult>> {
+  return request<DeleteResult>(`/characters/${globalId}`, {
+    method: "DELETE",
+    token,
   });
 }
 
