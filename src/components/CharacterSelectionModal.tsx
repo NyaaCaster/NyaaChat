@@ -1,5 +1,5 @@
 import React, { useState, useRef } from "react";
-import { Sparkles, Plus, Upload, Check, Edit2, Trash2 } from "lucide-react";
+import { Sparkles, Plus, Upload, Check, Edit2, Trash2, CloudUpload } from "lucide-react";
 import { AppState, CharacterSettings } from "../types";
 import {
   isSillyTavernFormat,
@@ -9,10 +9,13 @@ import {
 } from "../lib/sillyTavernImport";
 import { imageBlobToCoverWebp } from "../lib/pngCard";
 import { saveCover, deleteCover, COVER_MARKER } from "../lib/coverStorage";
+import { loadStoredAccount } from "../lib/sharedAccountApi";
 import { useCoverObjectUrl } from "../hooks/useCoverObjectUrl";
 import { BaseModal } from "./BaseModal";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { CharacterEditModal } from "./CharacterEditModal";
+import { CharacterShareModal } from "./CharacterShareModal";
+import { UserAccountModal } from "./UserAccountModal";
 
 interface CharacterSelectionModalProps {
   isOpen: boolean;
@@ -31,6 +34,12 @@ export function CharacterSelectionModal({
   const [editingCharacter, setEditingCharacter] = useState<CharacterSettings | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  // Share flow: a character awaiting the warning dialog, the one being shared,
+  // and a flag to surface the account modal when sharing while logged out.
+  const [pendingShare, setPendingShare] = useState<CharacterSettings | null>(null);
+  const [sharingCharacter, setSharingCharacter] = useState<CharacterSettings | null>(null);
+  const [shareSession, setShareSession] = useState<{ token: string; username: string } | null>(null);
+  const [isAccountOpen, setIsAccountOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleSelectCharacter = (id: string) => {
@@ -139,6 +148,28 @@ export function CharacterSelectionModal({
     setIsEditModalOpen(true);
   };
 
+  // --- share flow ----------------------------------------------------------
+  // Step 1: clicking 分享 opens a warning dialog (responsibility notice).
+  const handleShareRequest = (e: React.MouseEvent, character: CharacterSettings) => {
+    e.stopPropagation();
+    setPendingShare(character);
+  };
+
+  // Step 2: accepting the warning. If logged out, open the account modal to
+  // guide login; only a live session proceeds to the share界面.
+  const handleShareConfirm = () => {
+    const character = pendingShare;
+    setPendingShare(null);
+    if (!character) return;
+    const stored = loadStoredAccount();
+    if (!stored) {
+      setIsAccountOpen(true);
+      return;
+    }
+    setShareSession({ token: stored.token, username: stored.profile.username });
+    setSharingCharacter(character);
+  };
+
   const pendingDeleteCharacter = pendingDeleteId
     ? settings.characters.find((c) => c.id === pendingDeleteId)
     : null;
@@ -212,6 +243,13 @@ export function CharacterSelectionModal({
 
                 <div className="absolute right-4 top-4 flex items-center gap-1">
                   <button
+                    onClick={(e) => handleShareRequest(e, character)}
+                    className="p-1.5 text-gray-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-500/20 rounded-md transition-colors"
+                    title="分享角色"
+                  >
+                    <CloudUpload size={14} />
+                  </button>
+                  <button
                     onClick={(e) => handleOpenEdit(e, character)}
                     className="p-1.5 text-gray-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-500/20 rounded-md transition-colors"
                     title="编辑角色"
@@ -262,6 +300,33 @@ export function CharacterSelectionModal({
         onSave={handleCreateCharacter}
         initialCharacter={editingCharacter}
       />
+
+      {/* Share: warning dialog -> (login guide if logged out) -> share界面 */}
+      <ConfirmDialog
+        isOpen={pendingShare !== null}
+        title="分享角色"
+        message={
+          <>
+            您将为自己公开分享的角色承担所有责任，请三思而后行。
+            <br />
+            ⚠请勿转载分享「类脑」和「旅途」作者发布的角色卡。
+          </>
+        }
+        confirmText="同意"
+        cancelText="拒绝"
+        onConfirm={handleShareConfirm}
+        onCancel={() => setPendingShare(null)}
+      />
+
+      <CharacterShareModal
+        isOpen={sharingCharacter !== null && shareSession !== null}
+        onClose={() => setSharingCharacter(null)}
+        character={sharingCharacter}
+        token={shareSession?.token ?? ""}
+        authorName={shareSession?.username ?? ""}
+      />
+
+      <UserAccountModal isOpen={isAccountOpen} onClose={() => setIsAccountOpen(false)} />
     </>
   );
 }

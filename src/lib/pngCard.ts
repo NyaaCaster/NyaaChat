@@ -173,3 +173,22 @@ export async function imageBlobToCoverWebp(blob: Blob): Promise<Blob> {
 }
 
 export { PNG_SIGNATURE, COVER_W, COVER_H };
+
+/**
+ * Render the built-in placeholder cover to a standalone 512×768 WebP blob. Used
+ * by the share flow when a character has no cover of its own — the shared
+ * backend requires a cover, and a json-free re-encoded WebP is exactly what the
+ * design's anti-theft rule wants (no embedded card data). Mirrors the pixels
+ * `exportCharacterPng` would draw for a coverless card.
+ */
+export async function makePlaceholderCoverWebp(name: string): Promise<Blob> {
+  const canvas = document.createElement("canvas");
+  canvas.width = COVER_W;
+  canvas.height = COVER_H;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("无法创建画布");
+  drawPlaceholder(ctx, name ?? "");
+  return await new Promise((resolve, reject) =>
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("WebP 编码失败"))), "image/webp", 0.9),
+  );
+}

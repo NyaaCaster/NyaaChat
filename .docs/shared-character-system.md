@@ -5,7 +5,7 @@
 >
 > 来源设计：`.ref/我想在本项目中建立一个共享角色系统.md`
 > 创建：2026-06-17
-> 状态：阶段 0、阶段 1 完成；阶段 2（分享管线）待实施
+> 状态：阶段 0、阶段 1、阶段 2 完成；阶段 3（共享库浏览）待实施
 
 ---
 
@@ -154,8 +154,49 @@ NyaaChat 现有角色体系全部为**私有角色**：角色数据存 localStor
 > 停后端 502→「服务器无法连接」、兑换/扩容→「尚未开放」占位 toast，全部通过。
 > 验证用 demo 账号已从 DB 清除（users/sessions 归零）。
 
-### 阶段 2 — 分享管线
+### 阶段 2 — 分享管线　【已完成】
 私有卡条目加「分享」按钮 → 警示对话框 → 登录校验 → 角色分享界面（来源 / 简介 100 字 / 标签 / 使用权定价 / 买断定价）→ 上传 ST json + 封面。
+
+- [x] 后端 `src/routes/characters.js`：`POST /characters`（鉴权）+ `GET /covers/:id`，server.js 挂载
+- [x] 前端 `lib/sharedCharacterApi.ts`（同构 request）+ `CharacterShareModal.tsx` + `pngCard.makePlaceholderCoverWebp`
+- [x] `CharacterSelectionModal` 每条目加 `分享`(CloudUpload) 按钮 → 警示 → 登录校验 → 分享界面
+
+> 阶段 2 落地（2026-06-17）：
+> **后端** `src/routes/characters.js`：`POST /characters`（`requireAuth`）接收
+> `{ source, intro?, tags?, usePrice, buyoutPrice, cardJson, coverBase64 }`。校验：
+> `source∈{original,reposted}`；`intro` 按**码点** `[...s].length≤100`（与前端计数一致）；
+> `tags` trim/去空/去重，单个≤20 码点、总数≤20；价格非负整数；`cardJson` 可 parse
+> 且能取出 `name`（取 `parsed.name ?? parsed.data.name`，**角色名从卡数据取**不单独传）；
+> `coverBase64` 解码后校验 RIFF/WEBP magic bytes（≤4MB）。`global_id` 后端
+> `randomBytes(16).hex` 生成（删除不复用）；`owner=req.user.account`、
+> **`author=req.user.username`**（分享界面无 author 框，自动取登录用户名）。落盘顺序：
+> 先写封面文件 `COVERS_DIR/<global_id>.webp` 成功再 insert DB 行（避免引用缺失封面）。
+> `GET /covers/:id`：hex 白名单防路径穿越→查 `cover_ext`→读盘返回 `image/webp`
+> （`Cache-Control: public,max-age=86400`），缺失 404。covers 路由独立挂载（不用裸
+> `express.static` 暴露目录）。nginx 既有 `/api/shared/` 前缀通配已覆盖
+> `/characters`、`/covers`，`client_max_body_size 8m` 够用，**无需改 nginx**。
+> **前端**：`lib/sharedCharacterApi.ts`（与 `sharedAccountApi` 同构的 `request`，
+> `BASE=/api/shared`，复用其 `ApiResult` 判别式 union；超时放宽到 30s 容纳封面上传；
+> `blobToBase64` 去 data: 前缀；**不动**已验证的 `sharedAccountApi.ts`）、
+> `pngCard.makePlaceholderCoverWebp(name)`（复用 `drawPlaceholder` 生成 512×768 占位
+> WebP，供无封面卡分享）、`CharacterShareModal.tsx`（BaseModal+createPortal；来源单选+
+> 提示、简介 textarea 实时 `码点/100` 计数、标签输入+chip 删除、使用权档
+> 免费/3/6/36/60/200/自定价、买断档 不卖/5/8/60/100/350/自定价、封面预览=与上传同样
+> 经 `imageBlobToCoverWebp` 再过一遍 canvas 确保无内嵌 json；提交用
+> `convertToSillyTavernCharacter` 生成纯 ST json）、`CharacterSelectionModal` 每条目加
+> `分享`(CloudUpload) 按钮 → `ConfirmDialog` 警示（设计原文「您将为自己公开分享的
+> 角色承担所有责任…⚠请勿转载分享类脑和旅途作者发布的角色卡。」拒绝/同意）→ 同意时
+> `loadStoredAccount()`：已登录开 `CharacterShareModal`、未登录开 `UserAccountModal`
+> 引导登录。
+> 真机验证（rebuild-shared + rebuild 双重启后，:3095 同源 Playwright）：未登录分享→
+> 警示→同意→引导登录弹窗；注册 demo→关闭→再分享→警示→同意→分享界面（封面预览/
+> 角色名/作者=用户名/来源/简介计数/标签/价格档全渲染）；填表确认发布→`POST
+> /api/shared/characters` 200，弹窗关闭。后端核对：DB 行字段全对
+> （owner/author/name/source/intro/tags/价格/cover_ext），封面落盘 `<global_id>.webp`，
+> 同源 `/api/shared/covers/<id>` 返回 200 image/webp（真 RIFF/WebP）；防窃取核验=
+> 封面二进制搜不到角色 description/chara_card/first_mes（无内嵌 json）；card_json 为
+> `chara_card_v3 3.0` 含 character_book。整轮 console 零 error。demo 数据已清
+> （character/user/session/cover 全删，localStorage 登录态已清）。
 
 ### 阶段 3 — 共享角色库浏览
 `SharedLibraryModal`（PC 三列+左栏 / 手机单列+标签弹窗）、搜索、排序（更新/下载/好评/差评）、标签筛选、作者名可点筛选。

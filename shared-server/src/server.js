@@ -9,6 +9,7 @@
 import express from "express";
 import { db } from "./db.js";
 import { accountRouter } from "./routes/account.js";
+import { charactersRouter, coversRouter } from "./routes/characters.js";
 
 const PORT = Number(process.env.PORT) || 5107;
 
@@ -29,9 +30,12 @@ app.get("/health", (_req, res) => {
 // password, plus 501 placeholders for catfood redeem and slot expansion.
 app.use("/account", accountRouter);
 
-// Routes for later phases mount here, e.g.:
-//   app.use("/characters", charactersRouter);
-//   app.use("/covers", express.static(process.env.COVERS_DIR));
+// Character publish + cover serving (phase 2): POST /characters writes a
+// shared_characters row and drops the re-encoded pure WebP cover; GET
+// /covers/:id serves it. Same-origin as /api/shared/characters and
+// /api/shared/covers.
+app.use("/characters", charactersRouter);
+app.use("/covers", coversRouter);
 
 app.listen(PORT, () => {
   console.log(`[nyaachat-shared] listening on :${PORT}`);
