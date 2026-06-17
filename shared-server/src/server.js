@@ -8,6 +8,7 @@
 
 import express from "express";
 import { db } from "./db.js";
+import { accountRouter } from "./routes/account.js";
 
 const PORT = Number(process.env.PORT) || 5107;
 
@@ -24,8 +25,11 @@ app.get("/health", (_req, res) => {
   }
 });
 
+// Account system (phase 1): register / login / logout / profile / rename /
+// password, plus 501 placeholders for catfood redeem and slot expansion.
+app.use("/account", accountRouter);
+
 // Routes for later phases mount here, e.g.:
-//   app.use("/account", accountRouter);
 //   app.use("/characters", charactersRouter);
 //   app.use("/covers", express.static(process.env.COVERS_DIR));
 

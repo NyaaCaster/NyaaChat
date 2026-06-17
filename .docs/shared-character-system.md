@@ -5,7 +5,7 @@
 >
 > 来源设计：`.ref/我想在本项目中建立一个共享角色系统.md`
 > 创建：2026-06-17
-> 状态：阶段 0 完成；阶段 1（账号系统）待实施
+> 状态：阶段 0、阶段 1 完成；阶段 2（分享管线）待实施
 
 ---
 
@@ -121,14 +121,38 @@ NyaaChat 现有角色体系全部为**私有角色**：角色数据存 localStor
 > shared_characters/ratings 创建成功。封面 `/api/shared/covers/` 静态路由待阶段 2 接入。
 
 ### 阶段 1 — 账号系统　【首交付】
-- [ ] schema users + sessions；token 鉴权
-- [ ] 后端：注册 / 登录 / 改密 / 改名 / 取资料；兑换、扩容卡槽为占位（写 memo）
-- [ ] 前端：彩色猫罐头 SVG 图标（256 / 25 两尺寸）
-- [ ] ChatHeader 在「用户角色」左侧加 id-card 按钮
-- [ ] `UserAccountModal`：
+- [x] schema users + sessions；token 鉴权
+- [x] 后端：注册 / 登录 / 改密 / 改名 / 取资料；兑换、扩容卡槽为占位（写 memo）
+- [x] 前端：彩色猫罐头 SVG 图标（256 / 25 两尺寸）
+- [x] ChatHeader 在「用户角色」左侧加 id-card 按钮
+- [x] `UserAccountModal`：
   - 未登录=账号/密码 + 登录(主)/注册(次)；登录失败区分「账号密码错误」与「服务器无法连接」；注册三条免责提醒
   - 已登录=账号 / 用户名+改名 / 注册时间 / 余额+兑换占位 / 历史消耗 / 累积收益 / 共享卡槽+扩容占位 / 统计（共享角色数/下载/好评/差评）
-- [ ] 登录态存 localStorage 维持
+- [x] 登录态存 localStorage 维持
+
+> 阶段 1 落地（2026-06-17）：
+> **后端** `shared-server/src/`：`auth.js`（`randomBytes(32)` 不透明 token，写
+> sessions 表；`requireAuth` 读 `Authorization: Bearer`→sessions→users 挂 req.user；
+> 孤儿 token 自动清理）、`routes/account.js`（`POST /register`|`/login`|`/logout`|
+> `/rename`|`/password`、`GET /profile`；`/redeem`、`/expand-slot` 返回 501 占位）。
+> server.js `app.use("/account", accountRouter)`。校验：account `^[A-Za-z0-9._-]{3,32}$`、
+> 密码 6-64、username ≤24（注册留空则默认=account）。`profile` 返回派生统计（聚合
+> shared_characters）。登录失败统一 401 `bad_credentials`（不区分账号不存在/密码错），
+> 让前端只需区分「凭据错」与「连不上」。
+> **前端**：`lib/sharedAccountApi.ts`（同源 `/api/shared/account/*`，
+> 判别式 union 以 **`kind` 字符串**为判别字段——本项目 `strictNullChecks` 关闭，
+> boolean 字面量 `ok` 无法收窄；网络/超时/502-503-504 无 JSON ok → `kind:"network"`，
+> 业务错误 → `kind:"error"`+status；登录态读写 localStorage `nyaachat_account`）、
+> `components/icons/CatCanIcon.tsx`（彩色猫罐头，`size` prop 同时服务 25 与 256，
+> useId 隔离渐变）、`components/UserAccountModal.tsx`（BaseModal；未登录登录/注册双态、
+> 已登录资料面板含内联改名+改密折叠+兑换/扩容占位 toast）、ChatHeader
+> 「用户角色」左侧新增 `IdCard` 按钮，自管 state + portal 打开（与 Version/Extensions/
+> Regex 同模式）。
+> 真机验证（rebuild-shared + rebuild 双重启后，:3095 同源 Playwright）：注册→已登录
+> 面板（用户名中文 UTF-8 正常、注册时间 YY-MM-DD hh:mm）、改名、改密+新密码登录、
+> profile、登录态跨刷新保持（后台 token 复验通过）、退出登录、账号密码错误提示、
+> 停后端 502→「服务器无法连接」、兑换/扩容→「尚未开放」占位 toast，全部通过。
+> 验证用 demo 账号已从 DB 清除（users/sessions 归零）。
 
 ### 阶段 2 — 分享管线
 私有卡条目加「分享」按钮 → 警示对话框 → 登录校验 → 角色分享界面（来源 / 简介 100 字 / 标签 / 使用权定价 / 买断定价）→ 上传 ST json + 封面。

@@ -1,0 +1,63 @@
+// Session-token auth for the shared-character backend.
+//
+// Tokens are opaque random strings persisted in the `sessions` table (one row
+// per active login). There is no expiry sweep yet — sessions live until logout
+// or until the user (cascade) is deleted; the frontend simply keeps the token
+// in localStorage. Passwords are plaintext by deliberate product decision (see
+// db.js), so the token is the only thing that travels on each authed request.
+
+import { randomBytes } from "node:crypto";
+import { db } from "./db.js";
+
+const insertSession = db.prepare(
+  "INSERT INTO sessions (token, account, created_at) VALUES (?, ?, ?)",
+);
+const deleteSession = db.prepare("DELETE FROM sessions WHERE token = ?");
+const findSession = db.prepare(
+  "SELECT account FROM sessions WHERE token = ?",
+);
+const findUser = db.prepare("SELECT * FROM users WHERE account = ?");
+
+/** Mint a new session token for an account and persist it. */
+export function createSession(account) {
+  const token = randomBytes(32).toString("hex");
+  insertSession.run(token, account, Date.now());
+  return token;
+}
+
+/** Drop a session (logout). Idempotent. */
+export function destroySession(token) {
+  if (!token) return;
+  deleteSession.run(token);
+}
+
+/** Pull the bearer token from an Authorization header, or null. */
+export function tokenFromHeader(req) {
+  const raw = req.get("authorization") || "";
+  const m = /^Bearer\s+(.+)$/i.exec(raw.trim());
+  return m ? m[1].trim() : null;
+}
+
+/**
+ * Express middleware: resolves the bearer token to a live user row and hangs
+ * it on req.user, or 401s. Use on every account route that needs identity.
+ */
+export function requireAuth(req, res, next) {
+  const token = tokenFromHeader(req);
+  if (!token) {
+    return res.status(401).json({ ok: false, error: "unauthorized" });
+  }
+  const session = findSession.get(token);
+  if (!session) {
+    return res.status(401).json({ ok: false, error: "unauthorized" });
+  }
+  const user = findUser.get(session.account);
+  if (!user) {
+    // Orphaned token (user gone) — treat as logged out.
+    destroySession(token);
+    return res.status(401).json({ ok: false, error: "unauthorized" });
+  }
+  req.user = user;
+  req.token = token;
+  next();
+}
