@@ -53,11 +53,51 @@ interface TagsPayload {
   tags: string[];
 }
 
-async function request<T>(path: string): Promise<ApiResult<T>> {
+/** Full card handed out at acquisition (use / buyout) — carries card_json, which
+ *  the browse listing deliberately withholds. */
+export interface AcquiredCard {
+  globalId: string;
+  name: string;
+  author: string;
+  source: "original" | "reposted";
+  intro: string;
+  cardJson: string;
+  updatedAt: number;
+}
+interface AcquirePayload {
+  ok: true;
+  card: AcquiredCard;
+  /** Updated buyer economy after a priced settlement (absent for anonymous free use). */
+  profile?: { catfood: number; spentTotal: number };
+}
+interface RatingPayload {
+  ok: true;
+  likes: number;
+  dislikes: number;
+  myValue: number; // 1 | -1 | 0
+}
+interface MyRatingsPayload {
+  ok: true;
+  ratings: Record<string, number>; // globalId -> 1 | -1
+}
+
+async function request<T>(
+  path: string,
+  options: { method?: string; body?: unknown; token?: string } = {},
+): Promise<ApiResult<T>> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
-    const res = await fetch(`${BASE}${path}`, { signal: controller.signal });
+    const headers: Record<string, string> = {};
+    if (options.body !== undefined) headers["Content-Type"] = "application/json";
+    if (options.token) headers["Authorization"] = `Bearer ${options.token}`;
+
+    const res = await fetch(`${BASE}${path}`, {
+      method: options.method ?? "GET",
+      headers,
+      body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+      signal: controller.signal,
+    });
 
     let payload: any = null;
     try {
@@ -108,4 +148,50 @@ export function fetchTags(): Promise<ApiResult<TagsPayload>> {
 /** Same-origin URL of a shared character's cover (served json-free by the backend). */
 export function coverUrl(globalId: string): string {
   return `${BASE}/covers/${globalId}`;
+}
+
+/** Fetch a shared character's cover as a Blob, to stash in local IndexedDB for
+ *  an acquired card. Returns null on any failure (the card still works coverless). */
+export async function fetchCoverBlob(globalId: string): Promise<Blob | null> {
+  try {
+    const res = await fetch(coverUrl(globalId));
+    if (!res.ok) return null;
+    return await res.blob();
+  } catch {
+    return null;
+  }
+}
+
+/** Acquire a shared character (use / buyout). Returns the full card json plus,
+ *  for a priced settlement, the buyer's updated economy. `token` may be omitted
+ *  for free use (anonymous-friendly per the design). */
+export function acquireCharacter(
+  token: string | null,
+  globalId: string,
+  mode: "use" | "buyout",
+): Promise<ApiResult<AcquirePayload>> {
+  return request<AcquirePayload>(`/characters/${globalId}/acquire`, {
+    method: "POST",
+    token: token || undefined,
+    body: { mode },
+  });
+}
+
+/** Set / clear this account's rating on a character. value: 1=like, -1=dislike,
+ *  0=clear. Returns the recomputed totals + the active value. */
+export function rateCharacter(
+  token: string,
+  globalId: string,
+  value: 1 | -1 | 0,
+): Promise<ApiResult<RatingPayload>> {
+  return request<RatingPayload>(`/characters/${globalId}/rating`, {
+    method: "POST",
+    token,
+    body: { value },
+  });
+}
+
+/** This account's { globalId: value } rating map, for rendering active states. */
+export function fetchMyRatings(token: string): Promise<ApiResult<MyRatingsPayload>> {
+  return request<MyRatingsPayload>("/characters/mine/ratings", { token });
 }

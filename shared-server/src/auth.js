@@ -39,6 +39,26 @@ export function tokenFromHeader(req) {
 }
 
 /**
+ * Soft auth: resolve the bearer token to a live user row and return
+ * { token, user }, or null when there is no token / it doesn't resolve. Unlike
+ * requireAuth this never responds — callers decide what an anonymous request
+ * means (e.g. free use needs no login, paid acquisition does). Orphaned tokens
+ * are swept, same as requireAuth.
+ */
+export function resolveUser(req) {
+  const token = tokenFromHeader(req);
+  if (!token) return null;
+  const session = findSession.get(token);
+  if (!session) return null;
+  const user = findUser.get(session.account);
+  if (!user) {
+    destroySession(token);
+    return null;
+  }
+  return { token, user };
+}
+
+/**
  * Express middleware: resolves the bearer token to a live user row and hangs
  * it on req.user, or 401s. Use on every account route that needs identity.
  */

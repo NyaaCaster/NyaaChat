@@ -16,7 +16,7 @@ import { randomBytes } from "node:crypto";
 import { mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { db } from "../db.js";
-import { requireAuth } from "../auth.js";
+import { requireAuth, resolveUser } from "../auth.js";
 
 const COVERS_DIR = process.env.COVERS_DIR || "./data/covers";
 mkdirSync(COVERS_DIR, { recursive: true });
@@ -71,6 +71,51 @@ const insertCharacter = db.prepare(`
 `);
 const getCover = db.prepare(
   "SELECT cover_ext FROM shared_characters WHERE global_id = ?",
+);
+
+// Acquire (use / buyout). The full card row including card_json — only handed
+// out at acquisition time, never in the browse listing (phase 3 withholds the
+// design until a real use/buyout).
+const getFullCharacter = db.prepare(
+  "SELECT * FROM shared_characters WHERE global_id = ?",
+);
+const bumpDownloads = db.prepare(
+  "UPDATE shared_characters SET downloads = downloads + 1 WHERE global_id = ?",
+);
+const getUserByAccount = db.prepare("SELECT * FROM users WHERE account = ?");
+// Settlement halves: the buyer pays (catfood down, spent up), the author earns
+// (catfood up, earned up). Run together in one transaction.
+const debitBuyer = db.prepare(
+  "UPDATE users SET catfood = catfood - @amount, spent_total = spent_total + @amount WHERE account = @account",
+);
+const creditAuthor = db.prepare(
+  "UPDATE users SET catfood = catfood + @amount, earned_total = earned_total + @amount WHERE account = @account",
+);
+
+// Ratings (phase 4). One row per (account, global_id); like/dislike are mutually
+// exclusive via the PK, and value 0 means "cleared" (the row is deleted).
+const upsertRating = db.prepare(
+  "INSERT OR REPLACE INTO ratings (account, global_id, value) VALUES (@account, @global_id, @value)",
+);
+const deleteRating = db.prepare(
+  "DELETE FROM ratings WHERE account = @account AND global_id = @global_id",
+);
+// Recompute the cached like/dislike counters on the character row from the
+// authoritative ratings table (cheap: tiny table, indexed by PK).
+const recountRatings = db.prepare(`
+  UPDATE shared_characters SET
+    likes    = (SELECT COUNT(*) FROM ratings WHERE global_id = @global_id AND value = 1),
+    dislikes = (SELECT COUNT(*) FROM ratings WHERE global_id = @global_id AND value = -1)
+  WHERE global_id = @global_id
+`);
+const getCounts = db.prepare(
+  "SELECT likes, dislikes FROM shared_characters WHERE global_id = ?",
+);
+const characterExists = db.prepare(
+  "SELECT 1 FROM shared_characters WHERE global_id = ?",
+);
+const listMyRatings = db.prepare(
+  "SELECT global_id, value FROM ratings WHERE account = ?",
 );
 
 // Browse listing (phase 3). card_json is deliberately omitted: the library view
@@ -309,6 +354,118 @@ charactersRouter.get("/", (req, res) => {
   try {
     const rows = db.prepare(sql).all(params);
     return res.json({ ok: true, characters: rows.map(summaryOf) });
+  } catch {
+    return res.status(500).json({ ok: false, error: "db_read_failed" });
+  }
+});
+
+// --- acquire / rating (phase 4) -------------------------------------------
+// global_id is hex; reject anything else (also stops a param from matching the
+// literal /tags or /mine routes by accident).
+const HEX_ID = /^[a-f0-9]{1,64}$/;
+
+// POST /characters/:id/acquire — use or buyout. body: { mode: "use" | "buyout" }
+// Hands out the full card json (only here, never in the browse listing) and
+// bumps downloads. Free use (use_price 0) needs no login, per the design; any
+// priced acquisition requires auth and settles catfood — the buyer pays and the
+// author earns, in one transaction. Buying your own card never charges.
+charactersRouter.post("/:id/acquire", (req, res) => {
+  const id = String(req.params.id ?? "");
+  if (!HEX_ID.test(id)) return res.status(404).json({ ok: false, error: "not_found" });
+
+  const mode = String(req.body?.mode ?? "");
+  if (mode !== "use" && mode !== "buyout") return badRequest(res, "invalid_mode");
+
+  const row = getFullCharacter.get(id);
+  if (!row) return res.status(404).json({ ok: false, error: "not_found" });
+
+  if (mode === "buyout" && row.buyout_price <= 0) {
+    return badRequest(res, "not_for_sale");
+  }
+  const price = mode === "buyout" ? row.buyout_price : row.use_price;
+
+  const auth = resolveUser(req);
+  let profile = null;
+
+  if (price > 0) {
+    // Priced acquisition: must be logged in, and (unless it's your own card)
+    // must afford it. Settle buyer↓ / author↑ atomically, then count the download.
+    if (!auth) return res.status(401).json({ ok: false, error: "unauthorized" });
+    const buyer = auth.user;
+    if (buyer.account !== row.owner) {
+      if (buyer.catfood < price) {
+        return res.status(402).json({ ok: false, error: "insufficient", catfood: buyer.catfood });
+      }
+      const settle = db.transaction(() => {
+        debitBuyer.run({ account: buyer.account, amount: price });
+        creditAuthor.run({ account: row.owner, amount: price });
+        bumpDownloads.run(id);
+      });
+      settle();
+    } else {
+      bumpDownloads.run(id);
+    }
+    const fresh = getUserByAccount.get(buyer.account);
+    profile = { catfood: fresh.catfood, spentTotal: fresh.spent_total };
+  } else {
+    // Free use: anonymous-friendly; just count the download.
+    bumpDownloads.run(id);
+    if (auth) profile = { catfood: auth.user.catfood, spentTotal: auth.user.spent_total };
+  }
+
+  return res.json({
+    ok: true,
+    card: {
+      globalId: row.global_id,
+      name: row.name,
+      author: row.author,
+      source: row.source,
+      intro: row.intro,
+      cardJson: row.card_json,
+      updatedAt: row.updated_at,
+    },
+    ...(profile ? { profile } : {}),
+  });
+});
+
+// POST /characters/:id/rating (auth) — body { value: 1 | -1 | 0 }
+// 1=like, -1=dislike (mutually exclusive via the ratings PK), 0=clear. Recounts
+// the cached like/dislike totals from the authoritative ratings table.
+charactersRouter.post("/:id/rating", requireAuth, (req, res) => {
+  const id = String(req.params.id ?? "");
+  if (!HEX_ID.test(id)) return res.status(404).json({ ok: false, error: "not_found" });
+
+  const value = Number(req.body?.value);
+  if (value !== 1 && value !== -1 && value !== 0) return badRequest(res, "invalid_value");
+
+  if (!characterExists.get(id)) {
+    return res.status(404).json({ ok: false, error: "not_found" });
+  }
+
+  const account = req.user.account;
+  const apply = db.transaction(() => {
+    if (value === 0) {
+      deleteRating.run({ account, global_id: id });
+    } else {
+      upsertRating.run({ account, global_id: id, value });
+    }
+    recountRatings.run({ global_id: id });
+  });
+  apply();
+
+  const counts = getCounts.get(id);
+  return res.json({ ok: true, likes: counts.likes, dislikes: counts.dislikes, myValue: value });
+});
+
+// GET /characters/mine/ratings (auth) — this account's { globalId: value } map.
+// The public browse listing can't carry it (it's per-user); the library loads
+// this once on open while logged in to render active like/dislike states.
+charactersRouter.get("/mine/ratings", requireAuth, (req, res) => {
+  try {
+    const rows = listMyRatings.all(req.user.account);
+    const ratings = {};
+    for (const r of rows) ratings[r.global_id] = r.value;
+    return res.json({ ok: true, ratings });
   } catch {
     return res.status(500).json({ ok: false, error: "db_read_failed" });
   }

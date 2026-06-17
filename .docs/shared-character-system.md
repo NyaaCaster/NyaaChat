@@ -5,7 +5,7 @@
 >
 > 来源设计：`.ref/我想在本项目中建立一个共享角色系统.md`
 > 创建：2026-06-17
-> 状态：阶段 0、阶段 1、阶段 2、阶段 3 完成；阶段 4（使用 / 买断）待实施
+> 状态：阶段 0、阶段 1、阶段 2、阶段 3、阶段 4 完成；阶段 5（私有列表中的共享卡）待实施
 
 ---
 
@@ -261,8 +261,77 @@ NyaaChat 现有角色体系全部为**私有角色**：角色数据存 localStor
 > demo 数据已清（demo_p3 账号 CASCADE 删 4 卡+session、4 封面文件删尽，covers 目录空），
 > **保留 nyaa 真实账号**（无共享卡的干净态）。截图临时文件已删。
 
-### 阶段 4 — 使用 / 买断
+### 阶段 4 — 使用 / 买断　【已完成】
 免费直接获得（绿色按钮）、付费支付占位、买断→按导入逻辑转私有卡；使用占卡槽+1，买断不占。
+
+- [x] 后端 `src/routes/characters.js`：`POST /characters/:id/acquire`（可选鉴权·结算·downloads+1·返回 card_json）+ `POST /characters/:id/rating`（1/-1/0 互斥·重算计数）+ `GET /characters/mine/ratings`（鉴权返回评价映射）；`auth.js` 加软鉴权 `resolveUser`
+- [x] 前端 `lib/sharedLibraryApi.ts` 扩展（acquire/rate/fetchMyRatings/fetchCoverBlob）+ `SharedPaymentModal.tsx`（支付界面）+ `SharedLibraryModal.tsx` 加使用/买断/好评/差评
+- [x] `CharacterSelectionModal` 接线（onUse 加 shared 卡+开新对话；onBuyout 加私有卡）
+
+> 阶段 4 边界（已与用户拍板）：
+> 1. **付费真实结算**——「余额够就真实结算」：付费使用 / 买断在余额充足时**真实扣费**
+>    （买家 `catfood↓ / spent_total↑`，作者 `catfood↑ / earned_total↑`，买家==作者跳过），
+>    仅**兑换码充值**仍占位（阶段 6）。免费使用（价 0）一律真实获得，无需登录。
+> 2. **评价可取消可切换**：好评/差评互斥，再点同项取消（value 0 删行），点对项切换。
+> 3. **显示治理留阶段 5**：使用态共享卡落入本地私有列表后，本阶段**只加卡**，
+>    其「共享」tag / 无编辑导出 / 更新按钮 / 删除-槽-1 等显示治理全部留阶段 5。
+> 4. **卡槽上限强制**：使用前校验本地 `shared` 卡数 < `slotMax`（登录态读 profile，
+>    未登录默认 20），满则拦截「共享卡槽已满，请先清理或扩容」；买断不占槽、不校验。
+>
+> 阶段 4 落地（2026-06-17）：
+> **后端**：`auth.js` 新增 `resolveUser(req)`（软鉴权：解析 Bearer→session→user，
+> 无/失效返回 null 而不响应，扫孤儿 token；与 `requireAuth` 并存）。
+> `routes/characters.js` 三个新端点：
+> - `POST /:id/acquire`（**可选鉴权**，body `{mode:"use"|"buyout"}`）：:id 校验 hex；
+>   buyout 价 0→`not_for_sale`；价>0 时无 token→401、`catfood<价`→402 `insufficient`、
+>   否则 `db.transaction` 内 `debitBuyer`(catfood-/spent+) + `creditAuthor`(catfood+/earned+)
+>   + `bumpDownloads`，买家==owner 跳过结算只计下载；价 0（免费）匿名可用仅 `bumpDownloads`。
+>   返回 `{card:{globalId,name,author,source,intro,cardJson,updatedAt}, profile?:{catfood,spentTotal}}`
+>   （card_json 只在此交出，浏览列表仍不含）。
+> - `POST /:id/rating`（`requireAuth`，`{value:1|-1|0}`）：事务内 value 0 删 rating 行 /
+>   否则 `INSERT OR REPLACE`，`recountRatings` 从 ratings 表重算 likes/dislikes 写回该行；
+>   返回 `{likes,dislikes,myValue}`。
+> - `GET /mine/ratings`（`requireAuth`）：返回 `{ratings:{[globalId]:value}}`，库打开时
+>   登录态预载激活态。路由 `/:id/...` 与 `/`、`/tags`、`/covers` 不冲突，**无需改 server.js/
+>   nginx/db schema**（ratings 表阶段 0 已建）。
+> **前端**：`lib/sharedLibraryApi.ts` 把内部 `request` 扩展支持 method/body/token（GET 不变），
+> 新增 `acquireCharacter(token|null,gid,mode)` / `rateCharacter(token,gid,value)` /
+> `fetchMyRatings(token)` / `fetchCoverBlob(gid)`（封面失败返 null，卡仍可无封面入库）；
+> **不动** sharedAccountApi / sharedCharacterApi。`SharedPaymentModal.tsx`（BaseModal+portal，
+> mode 决定两段文案=设计 129-130 使用 / 143-144 买断，余额 `<价`红字、购买 `余额<价||busy`
+> 禁用）。`SharedLibraryModal.tsx`：LibraryCard 加动作区（**使用** 免费=绿直接获得·付费→
+> 登录校验→支付界面；**买断** `buyoutPrice>0` 才显示→登录→支付；**好评/差评** 激活绿/红·
+> 可取消可切换·未登录引导登录）；使用流程=卡槽校验→`acquireCharacter`→`convertSillyTavernCharacter`
+> 转卡+设 `shared/globalId/author/source/intro/version`+拉 `/covers` 存 `saveCover`→`onUse`；
+> 买断流程=`acquireCharacter`→`convertSillyTavernCharacter` 转**完全私有卡**(无 shared)→`onBuyout`；
+> 付费成功 `saveStoredAccount` 更新本地余额；评价乐观更新 + 401 清登录态引导重登。
+> `CharacterSelectionModal`：`onUse` 加卡+设 currentCharacterId+关栈（=开新对话）、`onBuyout`
+> 仅加私有卡留列表；私有列表条目按钮显示**不动**（治理留阶段 5）。
+> **两个硬骨头（已解决）**：
+> 1. **登录引导层叠**：父级 `UserAccountModal` 内联渲染在 app 树，而 `SharedLibraryModal`
+>    用 `createPortal(document.body)` 挂 body 根、永远在其之上→登录弹窗被库盖住不可点。
+>    JSX 顺序调整无效（库经 portal 逃逸）。改为**库自管登录**：库内嵌一个 `UserAccountModal`
+>    作为其 portal 子树最后兄弟，自然在顶层；关闭时 `syncSession` 刷新会话+评价激活态。
+> 2. **评价激活态被迟到响应覆盖**：打开时 `fetchMyRatings` 异步响应可能在评价点击之后
+>    才落地，覆盖乐观更新（计数对但按钮激活态错）。加**单调序列号** `ratingSeq`：每次
+>    评价乐观更新 / 库开关都 `++`，`loadMyRatings` 回调只在 seq 未变时应用，否则丢弃。
+>    （`rate` 只读 token 不再触发 ratings 重拉。）
+> **坑（测试方法）**：`INSERT OR REPLACE INTO users` 会触发 sessions 表 `ON DELETE CASCADE`
+> 删掉该账号会话→localStorage token 失效→评价 401。重置 demo 须用 `UPDATE users`，勿
+> `INSERT OR REPLACE`。
+> 真机验证（rebuild-shared + rebuild 双重启后，:3095 同源 Playwright，登录买家 demo_p4_buyer
+> 余额 200）：三卡动作按钮全渲染（免费卡绿色使用·无买断；付费卡使用36+买断100；高价卡使用500）；
+> 未登录点评价→登录引导（库内顶层可点）→登录→关闭刷新会话；登录后好评激活（计数1·绿）；
+> 买断付费猫娘(100)→支付界面(买断文案/余额)→购买→结算 200→100、私有卡入列(shared:false·无
+> globalId)、下载+1；余额不足高价(500)→红字余额+购买禁用；付费使用付费猫娘(36)→支付→购买→
+> 结算 100→64→shared 卡入列(shared:true·globalId·version)+设 currentCharacterId+关栈→新对话
+> first_mes；评价差评→好评切换→取消（DB value -1→1→删·likes/dislikes 精确·UI 激活态
+> bg-green/red-500/15 准确）；免费使用→直接获得(无支付)+shared 卡+新对话+下载+1；卡槽满
+> (slotMax 改 1<shared 2)→拦截「共享卡槽已满」无 acquire 请求；stale token 点评价→401→清
+> 登录态弹登录引导。后端 DB 核对：买家 catfood 64/spent 136、作者 catfood 136/earned 136、
+> 下载/好评/差评/ratings 全精确。本功能代码零 error（仅 demo 卡无封面 404 占位兜底 + JS-Slash-Runner
+> 既有 error，均无关）。tsc+eslint 干净。demo 数据已清（demo_p4 账号 CASCADE 删卡/评价/会话、
+> 测试浏览器 localStorage 仅留猫娘），**保留 nyaa 真实账号**。
 
 ### 阶段 5 — 私有列表中的共享卡
 `共享` tag、无编辑/导出、`更新`按钮+版本角标提示、已删除提示、删除-卡槽-1；作者本人可见编辑/删除。
@@ -287,4 +356,7 @@ NyaaChat 现有角色体系全部为**私有角色**：角色数据存 localStor
 - 「NyaaChat 为非盈利平台…」提示 — 暂隐藏，兑换功能完成后开放
 - 「获取兑换码」跳转 `https://qyapi.qinyan.xyz/` — 暂禁用
 - 扩容共享卡槽（猫粮 5 → +5）— UI 占位，余额校验先行
-- 使用权 / 买断付费 — 支付界面占位，余额校验先行
+- 兑换码充值猫粮 — 仅 UI 占位（阶段 4 起这是唯一未真实结算的环节）
+
+> 注：使用权 / 买断付费在**阶段 4 已改为真实结算**（余额够即扣费、作者收款），不再占位；
+> 仅猫粮**充值**（兑换码）侧仍占位待阶段 6。

@@ -172,6 +172,31 @@ export function CharacterSelectionModal({
     setSharingCharacter(character);
   };
 
+  // --- shared-library acquisition (phase 4) --------------------------------
+  // Use: the acquired card is added as a shared-type character AND becomes the
+  // active one, which starts a fresh conversation (ChatInterface resets messages
+  // on currentCharacterId change). Close the whole stack so the user lands in it.
+  const handleUseShared = (localChar: CharacterSettings) => {
+    onSave({
+      ...settings,
+      characters: [...(settings.characters || []), localChar],
+      currentCharacterId: localChar.id,
+    });
+    setIsLibraryOpen(false);
+    onClose();
+  };
+
+  // Buyout: the card was converted to a fully-private character; just add it to
+  // the list (no conversation switch, no slot occupation). Keep the library open.
+  const handleBuyoutShared = (localChar: CharacterSettings) => {
+    onSave({
+      ...settings,
+      characters: [...(settings.characters || []), localChar],
+    });
+  };
+
+  const sharedCount = (settings.characters || []).filter((c) => c.shared).length;
+
   const pendingDeleteCharacter = pendingDeleteId
     ? settings.characters.find((c) => c.id === pendingDeleteId)
     : null;
@@ -337,9 +362,15 @@ export function CharacterSelectionModal({
         authorName={shareSession?.username ?? ""}
       />
 
-      <UserAccountModal isOpen={isAccountOpen} onClose={() => setIsAccountOpen(false)} />
+      <SharedLibraryModal
+        isOpen={isLibraryOpen}
+        onClose={() => setIsLibraryOpen(false)}
+        sharedCount={sharedCount}
+        onUse={handleUseShared}
+        onBuyout={handleBuyoutShared}
+      />
 
-      <SharedLibraryModal isOpen={isLibraryOpen} onClose={() => setIsLibraryOpen(false)} />
+      <UserAccountModal isOpen={isAccountOpen} onClose={() => setIsAccountOpen(false)} />
     </>
   );
 }
