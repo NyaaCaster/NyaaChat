@@ -15,7 +15,7 @@ import { useCoverObjectUrl } from "../hooks/useCoverObjectUrl";
 import { BaseModal } from "./BaseModal";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { CharacterEditModal } from "./CharacterEditModal";
-import { CharacterShareModal } from "./CharacterShareModal";
+import { CharacterShareModal, type SharePrefill } from "./CharacterShareModal";
 import { SharedLibraryModal } from "./SharedLibraryModal";
 import { UserAccountModal } from "./UserAccountModal";
 
@@ -43,6 +43,19 @@ export function CharacterSelectionModal({
   const [shareSession, setShareSession] = useState<{ token: string; username: string } | null>(null);
   const [isAccountOpen, setIsAccountOpen] = useState(false);
   const [isLibraryOpen, setIsLibraryOpen] = useState(false);
+  // phase 5b: account whose login decides which shared cards show 编辑 (account
+  // === card.owner). Refreshed on open so logging in/out is reflected.
+  const [account, setAccount] = useState<string | null>(null);
+  // phase 5b: editing one's own shared card. editMode flags the editor into
+  // shared-author mode; the publish-update flow then carries the edited card +
+  // cover blob into the share 界面 pre-filled with the server's share metadata.
+  const [editMode, setEditMode] = useState<"local" | "shared-author">("local");
+  const [updatePublish, setUpdatePublish] = useState<{
+    character: CharacterSettings;
+    coverBlob: Blob | null;
+    globalId: string;
+    prefill: SharePrefill;
+  } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // --- phase 5: shared-card update detection -------------------------------
@@ -61,6 +74,7 @@ export function CharacterSelectionModal({
   useEffect(() => {
     if (!isOpen) return;
     setNotice(null);
+    setAccount(loadStoredAccount()?.profile.account ?? null);
     const sharedCards = (settings.characters || []).filter((c) => c.shared && c.globalId);
     if (!sharedCards.length) {
       setUpdateStatus({});
@@ -71,9 +85,9 @@ export function CharacterSelectionModal({
       if (cancelled || res.kind !== "ok") return;
       const status: Record<string, "update"> = {};
       for (const c of sharedCards) {
-        const serverVersion = res.data.versions[c.globalId as string];
+        const info = res.data.versions[c.globalId as string];
         // Absent = deleted (no badge); present & newer = update available.
-        if (serverVersion != null && serverVersion > (c.version ?? 0)) {
+        if (info != null && info.updatedAt > (c.version ?? 0)) {
           status[c.globalId as string] = "update";
         }
       }
@@ -181,11 +195,13 @@ export function CharacterSelectionModal({
 
   const handleOpenEdit = (e: React.MouseEvent, character: CharacterSettings) => {
     e.stopPropagation();
+    setEditMode("local");
     setEditingCharacter(character);
     setIsEditModalOpen(true);
   };
 
   const handleOpenCreate = () => {
+    setEditMode("local");
     setEditingCharacter(null);
     setIsEditModalOpen(true);
   };
@@ -260,6 +276,7 @@ export function CharacterSelectionModal({
       fresh.id = character.id;
       fresh.shared = true;
       fresh.globalId = card.globalId;
+      fresh.owner = card.owner; // backfill owner for author recognition
       fresh.author = card.author;
       fresh.source = card.source;
       fresh.intro = card.intro;
@@ -293,9 +310,108 @@ export function CharacterSelectionModal({
     }
   };
 
-  const sharedCount = (settings.characters || []).filter((c) => c.shared).length;
+  // --- phase 5b: author editing their own shared card ----------------------
+  // Click 编辑 on an owned shared card: pull the latest server card (for its
+  // share metadata — tags/prices aren't stored locally) and open the editor in
+  // shared-author mode. The prefill is stashed so 发布更新 can pre-fill the share
+  // 界面 with the current published source/intro/tags/prices.
+  const sharePrefillRef = useRef<SharePrefill | null>(null);
 
-  const pendingDeleteCharacter = pendingDeleteId
+  const handleEditShared = async (e: React.MouseEvent, character: CharacterSettings) => {
+    e.stopPropagation();
+    if (!character.globalId || updatingId) return;
+    setUpdatingId(character.id);
+    try {
+      const res = await fetchCharacterCard(character.globalId);
+      if (res.kind !== "ok") {
+        if (res.kind === "error" && res.status === 404) {
+          flash("err", "该角色已从共享角色库删除，无法编辑。");
+        } else if (res.kind === "error" && res.status === 403) {
+          flash("err", "只有作者本人可以编辑此角色。");
+        } else {
+          flash("err", "无法加载角色信息，请稍后再试。");
+        }
+        return;
+      }
+      const card = res.data.card;
+      sharePrefillRef.current = {
+        source: card.source,
+        intro: card.intro,
+        tags: card.tags,
+        usePrice: card.usePrice,
+        buyoutPrice: card.buyoutPrice,
+      };
+      // Edit from the locally-held card (its id binds the conversation); the
+      // editor only revises name/desc/firstMes/worldInfo/cover. Open in
+      // shared-author mode (保存→发布更新, 导出→导入).
+      setEditMode("shared-author");
+      setEditingCharacter(character);
+      setIsEditModalOpen(true);
+    } catch (err: any) {
+      flash("err", "无法加载角色信息：" + (err?.message || String(err)));
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
+  // 发布更新 from the editor: carry the edited character + resolved cover into the
+  // share 界面, pre-filled with the stashed share metadata, to PUT the update.
+  const handlePublishUpdate = (character: CharacterSettings, coverBlob: Blob | null) => {
+    if (!character.globalId || !sharePrefillRef.current) return;
+    setIsEditModalOpen(false);
+    setUpdatePublish({
+      character,
+      coverBlob,
+      globalId: character.globalId,
+      prefill: sharePrefillRef.current,
+    });
+  };
+
+  // Successful PUT: re-sync the local card to exactly what was just published
+  // (the editor already produced the edited character; stamp the new server
+  // version + persist the cover into the SAME IndexedDB id, keeping the local
+  // id so the bound conversation survives). Clear any stale update badge.
+  const handleUpdatePublished = async (
+    globalId: string,
+    updatedAt: number,
+    published: { source: "original" | "reposted"; intro: string },
+  ) => {
+    const pending = updatePublish;
+    setUpdatePublish(null);
+    if (!pending) return;
+    // Re-sync the local card to exactly what was published: the edited card +
+    // the new server version + the share界面's final source/intro (which the
+    // author may have changed there, not in the editor).
+    const fresh: CharacterSettings = {
+      ...pending.character,
+      version: updatedAt,
+      source: published.source,
+      intro: published.intro,
+    };
+    try {
+      if (pending.coverBlob) {
+        await saveCover(fresh.id, pending.coverBlob);
+        fresh.coverImage = COVER_MARKER;
+      } else {
+        await deleteCover(fresh.id);
+        fresh.coverImage = undefined;
+      }
+    } catch {
+      // a cover persistence failure is non-fatal; the card still updates
+    }
+    onSave({
+      ...settings,
+      characters: settings.characters.map((c) => (c.id === fresh.id ? fresh : c)),
+    });
+    setUpdateStatus((prev) => {
+      const next = { ...prev };
+      delete next[globalId];
+      return next;
+    });
+    flash("ok", `「${fresh.name}」的更新已发布。`);
+  };
+
+  const sharedCount = (settings.characters || []).filter((c) => c.shared).length;  const pendingDeleteCharacter = pendingDeleteId
     ? settings.characters.find((c) => c.id === pendingDeleteId)
     : null;
 
@@ -396,8 +512,9 @@ export function CharacterSelectionModal({
                 <div className="absolute right-4 top-4 flex items-center gap-1">
                   {character.shared ? (
                     <>
-                      {/* Shared card: update (replaces edit) + delete. No share,
-                          no edit, no export — the author's design is read-only. */}
+                      {/* Shared card: update + delete (no share/export — the
+                          design is read-only). The original uploader, when logged
+                          in (account === owner), additionally gets 编辑/发布更新. */}
                       <button
                         onClick={(e) => handleUpdateShared(e, character)}
                         disabled={updatingId === character.id}
@@ -409,6 +526,16 @@ export function CharacterSelectionModal({
                           <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-amber-500 ring-1 ring-white dark:ring-gray-900" />
                         )}
                       </button>
+                      {account && character.owner === account && (
+                        <button
+                          onClick={(e) => handleEditShared(e, character)}
+                          disabled={updatingId === character.id}
+                          className="p-1.5 text-gray-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-500/20 rounded-md transition-colors disabled:opacity-50"
+                          title="编辑并发布更新（作者本人）"
+                        >
+                          <Edit2 size={14} />
+                        </button>
+                      )}
                       {settings.currentCharacterId !== character.id && settings.characters.length > 1 && (
                         <button
                           onClick={(e) => handleDeleteRequest(e, character.id)}
@@ -482,6 +609,8 @@ export function CharacterSelectionModal({
         onClose={() => setIsEditModalOpen(false)}
         onSave={handleCreateCharacter}
         initialCharacter={editingCharacter}
+        mode={editMode}
+        onPublishUpdate={handlePublishUpdate}
       />
 
       {/* Share: warning dialog -> (login guide if logged out) -> share界面 */}
@@ -507,6 +636,20 @@ export function CharacterSelectionModal({
         character={sharingCharacter}
         token={shareSession?.token ?? ""}
         authorName={shareSession?.username ?? ""}
+      />
+
+      {/* Publish-update: author's edited card -> share界面 (pre-filled, PUT). */}
+      <CharacterShareModal
+        isOpen={updatePublish !== null}
+        onClose={() => setUpdatePublish(null)}
+        character={updatePublish?.character ?? null}
+        token={loadStoredAccount()?.token ?? ""}
+        authorName={loadStoredAccount()?.profile.username ?? ""}
+        mode="update"
+        globalId={updatePublish?.globalId}
+        prefill={updatePublish?.prefill ?? null}
+        coverBlob={updatePublish?.coverBlob ?? null}
+        onUpdated={handleUpdatePublished}
       />
 
       <SharedLibraryModal

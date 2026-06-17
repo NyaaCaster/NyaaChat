@@ -53,14 +53,21 @@ interface TagsPayload {
   tags: string[];
 }
 
-/** Full card handed out at acquisition (use / buyout) — carries card_json, which
- *  the browse listing deliberately withholds. */
+/** Full card handed out at acquisition (use / buyout) and read-only fetch.
+ *  Carries card_json (which the browse listing withholds) PLUS the public
+ *  metadata an author needs to pre-fill the share 界面 when publishing an update
+ *  (owner / tags / prices). `owner` is the uploader account — the client uses it
+ *  to decide whether the logged-in user may edit (owner === account). */
 export interface AcquiredCard {
   globalId: string;
+  owner: string;
   name: string;
   author: string;
   source: "original" | "reposted";
   intro: string;
+  tags: string[];
+  usePrice: number;
+  buyoutPrice: number;
   cardJson: string;
   updatedAt: number;
 }
@@ -80,11 +87,16 @@ interface MyRatingsPayload {
   ok: true;
   ratings: Record<string, number>; // globalId -> 1 | -1
 }
+/** Server version info for one held card, from POST /characters/versions. */
+export interface VersionInfo {
+  updatedAt: number;
+  owner: string;
+}
 interface VersionsPayload {
   ok: true;
-  /** globalId -> server updated_at (ms). A held card ABSENT from this map has
-   *  been deleted from the library. */
-  versions: Record<string, number>;
+  /** globalId -> { updatedAt, owner }. A held card ABSENT from this map has been
+   *  deleted from the library. */
+  versions: Record<string, VersionInfo>;
 }
 interface CardPayload {
   ok: true;

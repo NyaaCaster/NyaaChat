@@ -1,9 +1,15 @@
 import React, { useState } from "react";
-import { Save, Plus, Download, Edit2, Trash2, FileJson, Cat, ImagePlus, X } from "lucide-react";
+import { Save, Plus, Download, Upload, Edit2, Trash2, FileJson, Cat, ImagePlus, X, CloudUpload } from "lucide-react";
 import { CharacterSettings, WorldInfoRule } from "../types";
 import { newId } from "../lib/id";
 import { convertToSillyTavernCharacter } from "../lib/sillyTavernExport";
-import { exportCharacterPng } from "../lib/pngCard";
+import {
+  isSillyTavernFormat,
+  convertSillyTavernCharacter,
+  convertNativeCard,
+  extractCharaJson,
+} from "../lib/sillyTavernImport";
+import { exportCharacterPng, imageBlobToCoverWebp } from "../lib/pngCard";
 import { loadCover, saveCover, deleteCover, COVER_MARKER } from "../lib/coverStorage";
 import { BaseModal } from "./BaseModal";
 import { WorldInfoRuleModal } from "./WorldInfoRuleModal";
@@ -14,6 +20,16 @@ interface CharacterEditModalProps {
   onClose: () => void;
   onSave: (character: CharacterSettings) => void;
   initialCharacter?: CharacterSettings | null;
+  /** Editing mode. "local" (default) is the normal private-card editor:
+   *  保存角色 writes back to settings, 角色导出 exports a PNG. "shared-author" is
+   *  the author editing their own shared card (phase 5b): 保存角色 becomes
+   *  发布更新 (hands the edited card to the share flow via onPublishUpdate instead
+   *  of writing local), and 角色导出 becomes 角色导入 (edit by importing a PNG). */
+  mode?: "local" | "shared-author";
+  /** shared-author only: called with the edited character + its resolved cover
+   *  blob (pending crop, stored cover, or null if removed) when 发布更新 is
+   *  clicked. The parent opens the share 界面 pre-filled to publish the update. */
+  onPublishUpdate?: (character: CharacterSettings, coverBlob: Blob | null) => void;
 }
 
 export function CharacterEditModal({
@@ -21,6 +37,8 @@ export function CharacterEditModal({
   onClose,
   onSave,
   initialCharacter,
+  mode = "local",
+  onPublishUpdate,
 }: CharacterEditModalProps) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -55,6 +73,7 @@ export function CharacterEditModal({
     // Reset cover working state on every open.
     coverBlobRef.current = null;
     setCoverRemoved(false);
+    setImportError(null);
     setPreview(null);
     if (initialCharacter) {
       setName(initialCharacter.name);
@@ -155,6 +174,7 @@ export function CharacterEditModal({
       ...(initialCharacter?.source ? { source: initialCharacter.source } : {}),
       ...(initialCharacter?.intro ? { intro: initialCharacter.intro } : {}),
       ...(initialCharacter?.shared ? { shared: initialCharacter.shared } : {}),
+      ...(initialCharacter?.owner ? { owner: initialCharacter.owner } : {}),
     });
 
     onClose();
@@ -180,6 +200,7 @@ export function CharacterEditModal({
     ...(initialCharacter?.source ? { source: initialCharacter.source } : {}),
     ...(initialCharacter?.intro ? { intro: initialCharacter.intro } : {}),
     ...(initialCharacter?.shared ? { shared: initialCharacter.shared } : {}),
+    ...(initialCharacter?.owner ? { owner: initialCharacter.owner } : {}),
   });
 
   /** Resolve the cover blob to use as the export PNG's pixel carrier: the
@@ -190,6 +211,57 @@ export function CharacterEditModal({
     if (coverRemoved) return null;
     if (initialCharacter?.coverImage) return await loadCover(id);
     return null;
+  };
+
+  // --- phase 5b: author editing their own shared card ----------------------
+  // 发布更新: hand the edited character + its resolved cover to the parent, which
+  // opens the share 界面 pre-filled to publish the update. We do NOT write to
+  // local settings here — the parent re-syncs the local card after a successful
+  // publish (so a cancelled publish leaves the local card untouched).
+  const handlePublishUpdate = async () => {
+    if (!name.trim()) return;
+    const c = buildCurrentCharacter();
+    const cover = await resolveCoverBlob(c.id);
+    onPublishUpdate?.(c, cover);
+  };
+
+  // 角色导入: edit-by-import. Replace the current editor fields from a PNG card
+  // (same parsing as the selection modal's import), so the author can swap in a
+  // revised card before publishing. The shared metadata + id are preserved (we
+  // only pull name/description/firstMes/worldInfo + cover from the import).
+  const importInputRef = React.useRef<HTMLInputElement>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+
+  const handleImportForEdit = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (importInputRef.current) importInputRef.current.value = "";
+    if (!file) return;
+    setImportError(null);
+    try {
+      if (!file.name.toLowerCase().endsWith(".png")) {
+        throw new Error("仅支持 PNG 角色卡");
+      }
+      const raw = await extractCharaJson(file);
+      const imported: CharacterSettings = isSillyTavernFormat(raw)
+        ? convertSillyTavernCharacter(raw)
+        : convertNativeCard(raw);
+      // Pull the editable fields into the form; keep id + shared metadata as-is.
+      setName(imported.name);
+      setDescription(imported.description);
+      setFirstMes(imported.firstMes || "");
+      setWorldInfo(imported.worldInfo || []);
+      // Use the imported PNG's pixels as the new cover (re-encoded to 512×768).
+      try {
+        const coverWebp = await imageBlobToCoverWebp(file);
+        coverBlobRef.current = coverWebp;
+        setCoverRemoved(false);
+        setPreview(URL.createObjectURL(coverWebp));
+      } catch {
+        // keep the existing cover on decode failure
+      }
+    } catch (err: any) {
+      setImportError("角色卡导入失败：" + (err?.message || String(err)));
+    }
   };
 
   const downloadPng = (blob: Blob, filenamePrefix: string) => {
@@ -277,27 +349,59 @@ export function CharacterEditModal({
       <BaseModal
         isOpen={isOpen}
         onClose={onClose}
-        title={initialCharacter ? "编辑角色" : "创建角色"}
+        title={mode === "shared-author" ? "编辑共享角色" : initialCharacter ? "编辑角色" : "创建角色"}
         maxWidth="max-w-lg"
         footer={
-          <div className="flex gap-3">
-            <button
-              onClick={() => setIsExportChooserOpen(true)}
-              className="flex-shrink-0 px-4 py-2 bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 hover:bg-gray-50 dark:hover:bg-white/10 text-gray-700 dark:text-gray-300 text-sm font-medium rounded-xl transition-all flex items-center justify-center gap-2"
-            >
-              <Download size={16} /> 角色导出
-            </button>
-            <button
-              onClick={handleSave}
-              disabled={!name.trim()}
-              className="flex-1 px-4 py-2 bg-blue-600 border border-transparent disabled:opacity-50 disabled:cursor-not-allowed hover:bg-blue-700 text-white text-sm font-medium rounded-xl transition-all flex items-center justify-center gap-2 hover:shadow-glow"
-            >
-              <Save size={16} /> 保存角色
-            </button>
+          <div className="space-y-2">
+            {mode === "shared-author" && importError && (
+              <p className="text-xs text-red-500 dark:text-red-400 break-all">{importError}</p>
+            )}
+            <div className="flex gap-3">
+              {mode === "shared-author" ? (
+                <button
+                  onClick={() => importInputRef.current?.click()}
+                  className="flex-shrink-0 px-4 py-2 bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 hover:bg-gray-50 dark:hover:bg-white/10 text-gray-700 dark:text-gray-300 text-sm font-medium rounded-xl transition-all flex items-center justify-center gap-2"
+                  title="以导入角色卡的方式替换当前内容"
+                >
+                  <Upload size={16} /> 角色导入
+                </button>
+              ) : (
+                <button
+                  onClick={() => setIsExportChooserOpen(true)}
+                  className="flex-shrink-0 px-4 py-2 bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 hover:bg-gray-50 dark:hover:bg-white/10 text-gray-700 dark:text-gray-300 text-sm font-medium rounded-xl transition-all flex items-center justify-center gap-2"
+                >
+                  <Download size={16} /> 角色导出
+                </button>
+              )}
+              {mode === "shared-author" ? (
+                <button
+                  onClick={handlePublishUpdate}
+                  disabled={!name.trim()}
+                  className="flex-1 px-4 py-2 bg-blue-600 border border-transparent disabled:opacity-50 disabled:cursor-not-allowed hover:bg-blue-700 text-white text-sm font-medium rounded-xl transition-all flex items-center justify-center gap-2 hover:shadow-glow"
+                >
+                  <CloudUpload size={16} /> 发布更新
+                </button>
+              ) : (
+                <button
+                  onClick={handleSave}
+                  disabled={!name.trim()}
+                  className="flex-1 px-4 py-2 bg-blue-600 border border-transparent disabled:opacity-50 disabled:cursor-not-allowed hover:bg-blue-700 text-white text-sm font-medium rounded-xl transition-all flex items-center justify-center gap-2 hover:shadow-glow"
+                >
+                  <Save size={16} /> 保存角色
+                </button>
+              )}
+            </div>
           </div>
         }
       >
         <div className="p-4 sm:p-5">
+          <input
+            type="file"
+            accept=".png"
+            className="hidden"
+            ref={importInputRef}
+            onChange={handleImportForEdit}
+          />
           <div className="space-y-4">
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">

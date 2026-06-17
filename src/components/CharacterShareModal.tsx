@@ -25,6 +25,7 @@ import {
   type SharePayload,
   blobToBase64,
   shareCharacter,
+  publishUpdate,
 } from "../lib/sharedCharacterApi";
 import { type ApiResult } from "../lib/sharedAccountApi";
 
@@ -60,6 +61,8 @@ function messageFor(result: Extract<ApiResult<unknown>, { ok: false }>): string 
   switch (result.error) {
     case "unauthorized":
       return "登录已失效，请重新登录后再分享";
+    case "forbidden":
+      return "只有作者本人可以发布此角色的更新";
     case "invalid_source":
       return "请选择来源";
     case "invalid_intro":
@@ -80,6 +83,15 @@ function messageFor(result: Extract<ApiResult<unknown>, { ok: false }>): string 
   }
 }
 
+/** Pre-fill values for editing an existing share (phase 5b publish update). */
+export interface SharePrefill {
+  source: "original" | "reposted";
+  intro: string;
+  tags: string[];
+  usePrice: number;
+  buyoutPrice: number;
+}
+
 interface CharacterShareModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -88,6 +100,38 @@ interface CharacterShareModalProps {
   /** Display name of the logged-in user; shown as the (auto) author. */
   authorName: string;
   onShared?: (globalId: string) => void;
+  /** "create" (default) publishes a new card via POST. "update" (phase 5b) edits
+   *  an existing card: the form is pre-filled and submit does PUT /characters/:id. */
+  mode?: "create" | "update";
+  /** update mode: the global id being updated, and the original share metadata to
+   *  pre-fill (source / intro / tags / prices). */
+  globalId?: string;
+  prefill?: SharePrefill | null;
+  /** update mode: the cover blob resolved by the editor (pending crop / import /
+   *  stored). Used directly so an unsaved edited cover is uploaded without first
+   *  writing it to local IndexedDB. null means "removed" → placeholder. undefined
+   *  (create mode) falls back to loading the character's stored cover. */
+  coverBlob?: Blob | null;
+  /** update mode: called after a successful PUT with the new server updatedAt and
+   *  the final published source/intro (which the form may have changed), so the
+   *  parent can re-sync the local card to exactly what was published. */
+  onUpdated?: (
+    globalId: string,
+    updatedAt: number,
+    published: { source: "original" | "reposted"; intro: string },
+  ) => void;
+}
+
+/** Map a price back to a (tierIndex, customText) pair: a matching preset tier if
+ *  there is one, else the 自定价 tier (last) with the amount in the custom field. */
+function priceToTier(
+  tiers: Array<{ label: string; value: number }>,
+  price: number,
+): { tier: number; custom: string } {
+  const idx = tiers.findIndex((t) => t.value === price && t.value !== CUSTOM);
+  if (idx >= 0) return { tier: idx, custom: "" };
+  const customIdx = tiers.findIndex((t) => t.value === CUSTOM);
+  return { tier: customIdx, custom: String(price) };
 }
 
 export function CharacterShareModal({
@@ -97,6 +141,11 @@ export function CharacterShareModal({
   token,
   authorName,
   onShared,
+  mode = "create",
+  globalId,
+  prefill,
+  coverBlob,
+  onUpdated,
 }: CharacterShareModalProps) {
   const [source, setSource] = useState<"original" | "reposted">("original");
   const [intro, setIntro] = useState("");
@@ -112,20 +161,38 @@ export function CharacterShareModal({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Reset all fields whenever a fresh share is opened for a character.
+  // Reset all fields whenever a fresh share is opened for a character. In update
+  // mode, seed the form from the original share metadata (prefill) so the author
+  // edits from the current published values rather than from scratch.
   useEffect(() => {
     if (!isOpen) return;
-    setSource("original");
-    setIntro("");
-    setTagDraft("");
-    setTags([]);
-    setUseTier(0);
-    setUseCustom("");
-    setBuyoutTier(0);
-    setBuyoutCustom("");
+    if (mode === "update" && prefill) {
+      setSource(prefill.source);
+      setIntro(prefill.intro);
+      setTagDraft("");
+      setTags(prefill.tags);
+      const u = priceToTier(USE_TIERS, prefill.usePrice);
+      setUseTier(u.tier);
+      setUseCustom(u.custom);
+      const b = priceToTier(BUYOUT_TIERS, prefill.buyoutPrice);
+      setBuyoutTier(b.tier);
+      setBuyoutCustom(b.custom);
+    } else {
+      setSource("original");
+      setIntro("");
+      setTagDraft("");
+      setTags([]);
+      setUseTier(0);
+      setUseCustom("");
+      setBuyoutTier(0);
+      setBuyoutCustom("");
+    }
     setError(null);
     setBusy(false);
-  }, [isOpen, character?.id]);
+    // Keyed on the character id (and mode/prefill identity) so reopening for a
+    // different card / a fresh prefill re-seeds, but typing doesn't reset.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, character?.id, mode]);
 
   // Cover preview: render the same re-encoded WebP we will upload, so the user
   // sees exactly what becomes the shared cover (their own cover, or placeholder).
@@ -138,7 +205,14 @@ export function CharacterShareModal({
     let objectUrl: string | null = null;
     (async () => {
       try {
-        const blob = character.coverImage ? await loadCover(character.id) : null;
+        // update mode: preview the editor-resolved cover (possibly an unsaved
+        // crop/import); create mode: the character's stored cover.
+        const blob =
+          mode === "update"
+            ? coverBlob ?? null
+            : character.coverImage
+              ? await loadCover(character.id)
+              : null;
         const webp = blob
           ? await imageBlobToCoverWebp(blob)
           : await makePlaceholderCoverWebp(character.name);
@@ -156,7 +230,7 @@ export function CharacterShareModal({
     // Keyed on identity fields, not the character object reference, to avoid
     // re-encoding on every unrelated re-render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, character?.id, character?.coverImage]);
+  }, [isOpen, character?.id, character?.coverImage, mode]);
 
   const introLen = useMemo(() => [...intro].length, [intro]);
 
@@ -222,7 +296,14 @@ export function CharacterShareModal({
       const cardJson = JSON.stringify(card);
 
       // Re-encode the cover to a clean WebP (no embedded json), or placeholder.
-      const blob = character.coverImage ? await loadCover(character.id) : null;
+      // update mode uses the editor-resolved blob (which may be an unsaved crop /
+      // import); create mode loads the character's stored cover.
+      const blob =
+        mode === "update"
+          ? coverBlob ?? null
+          : character.coverImage
+            ? await loadCover(character.id)
+            : null;
       const webp = blob
         ? await imageBlobToCoverWebp(blob)
         : await makePlaceholderCoverWebp(character.name);
@@ -237,17 +318,30 @@ export function CharacterShareModal({
         cardJson,
         coverBase64,
       };
-      const result = await shareCharacter(token, payload);
-      setBusy(false);
-      if (result.kind === "ok") {
-        onShared?.(result.data.globalId);
-        onClose();
+      // update mode publishes to the existing card (owner-checked PUT); create
+      // mode posts a new one.
+      if (mode === "update" && globalId) {
+        const result = await publishUpdate(token, globalId, payload);
+        setBusy(false);
+        if (result.kind === "ok") {
+          onUpdated?.(globalId, result.data.updatedAt, { source, intro: intro.trim() });
+          onClose();
+        } else {
+          setError(messageFor(result));
+        }
       } else {
-        setError(messageFor(result));
+        const result = await shareCharacter(token, payload);
+        setBusy(false);
+        if (result.kind === "ok") {
+          onShared?.(result.data.globalId);
+          onClose();
+        } else {
+          setError(messageFor(result));
+        }
       }
     } catch (err: any) {
       setBusy(false);
-      setError("分享失败：" + (err?.message || String(err)));
+      setError((mode === "update" ? "发布更新失败：" : "分享失败：") + (err?.message || String(err)));
     }
   };
 
@@ -257,7 +351,7 @@ export function CharacterShareModal({
     <BaseModal
       isOpen={isOpen}
       onClose={busy ? () => {} : onClose}
-      title="角色分享"
+      title={mode === "update" ? "发布更新" : "角色分享"}
       titleIcon={<CloudUpload size={16} className="text-blue-500" />}
       maxWidth="max-w-lg"
       footer={
@@ -282,7 +376,7 @@ export function CharacterShareModal({
               className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium rounded-xl transition-all flex items-center justify-center gap-2 hover:shadow-glow"
             >
               {busy && <Loader2 size={16} className="animate-spin" />}
-              <CloudUpload size={16} /> 确认发布
+              <CloudUpload size={16} /> {mode === "update" ? "确认更新" : "确认发布"}
             </button>
           </div>
         </div>

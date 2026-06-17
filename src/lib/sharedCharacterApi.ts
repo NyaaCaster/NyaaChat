@@ -72,6 +72,12 @@ interface SharePublishResult {
   globalId: string;
 }
 
+interface UpdatePublishResult {
+  ok: true;
+  globalId: string;
+  updatedAt: number;
+}
+
 /** Publish a private character to the shared library. */
 export function shareCharacter(
   token: string,
@@ -79,6 +85,21 @@ export function shareCharacter(
 ): Promise<ApiResult<SharePublishResult>> {
   return request<SharePublishResult>("/characters", {
     method: "POST",
+    token,
+    body: payload,
+  });
+}
+
+/** Publish an update to an existing shared card (phase 5b). Owner-only on the
+ *  server (403 forbidden otherwise). Same body as a fresh publish; bumps the
+ *  card's updated_at so holders see the update badge next time. */
+export function publishUpdate(
+  token: string,
+  globalId: string,
+  payload: SharePayload,
+): Promise<ApiResult<UpdatePublishResult>> {
+  return request<UpdatePublishResult>(`/characters/${globalId}`, {
+    method: "PUT",
     token,
     body: payload,
   });

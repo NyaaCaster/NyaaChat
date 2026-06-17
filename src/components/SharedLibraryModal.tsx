@@ -276,7 +276,7 @@ export function SharedLibraryModal({
    *  cover (fetched from the server) into IndexedDB. `shared` marks a use card;
    *  buyout passes false to produce a fully-private card. */
   const buildLocalCharacter = async (
-    card: { globalId: string; name: string; author: string; source: "original" | "reposted"; intro: string; cardJson: string; updatedAt: number },
+    card: { globalId: string; owner: string; name: string; author: string; source: "original" | "reposted"; intro: string; cardJson: string; updatedAt: number },
     shared: boolean,
   ): Promise<CharacterSettings> => {
     const parsed = JSON.parse(card.cardJson);
@@ -284,6 +284,7 @@ export function SharedLibraryModal({
     if (shared) {
       local.shared = true;
       local.globalId = card.globalId;
+      local.owner = card.owner; // uploader account, for phase-5b author recognition
       local.author = card.author;
       local.source = card.source;
       local.intro = card.intro;

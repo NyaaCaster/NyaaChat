@@ -5,7 +5,7 @@
 >
 > 来源设计：`.ref/我想在本项目中建立一个共享角色系统.md`
 > 创建：2026-06-17
-> 状态：阶段 0、阶段 1、阶段 2、阶段 3、阶段 4、阶段 5（5a）完成；阶段 5b（作者本人编辑/发布更新）、阶段 6（支付真实业务）待实施
+> 状态：阶段 0、阶段 1、阶段 2、阶段 3、阶段 4、阶段 5（5a + 5b）完成；阶段 6（支付真实业务）待实施
 
 ---
 
@@ -386,9 +386,27 @@ NyaaChat 现有角色体系全部为**私有角色**：角色数据存 localStor
 > tsc+eslint 干净。demo 数据已清（demo_p5 账号 CASCADE 删 session、卡/封面早已删尽、浏览器登录态+测试
 > 卡清除），**保留 nyaa 真实账号**，临时文件/截图删尽。
 
-### 阶段 5b —（后续）作者本人编辑 / 发布更新
+### 阶段 5b —（已完成）作者本人编辑 / 发布更新
 作者对自己上传的共享卡可见「编辑」「删除」：编辑=进编辑界面、保存改"发布更新"写回服务器、导出改导入。
 需后端新增鉴权更新端点（`PUT /characters/:id` owner 校验）、更新检查响应回带 `owner`、使用态本地存 `owner` 账号供判别、编辑界面分流 + 分享界面预填复用。
+
+- [x] 后端 `src/routes/characters.js`：`PUT /characters/:id`（鉴权 + owner 校验）+ acquire/GET `/:id` 的 card 回带 `owner/tags/usePrice/buyoutPrice` + `POST /versions` 回带 `{updatedAt,owner}`
+- [x] 前端 `types.ts` 加 `owner?`；`sharedLibraryApi.ts` AcquiredCard/VersionInfo 扩展；`sharedCharacterApi.ts` 加 `publishUpdate`
+- [x] 本地落 `owner`：`SharedLibraryModal.buildLocalCharacter`（use 态）+ `CharacterEditModal` 透传 + 更新流程回填
+- [x] `CharacterEditModal` 加 `mode="shared-author"`（保存→发布更新、导出→导入）
+- [x] `CharacterShareModal` 加 `mode="update"` + prefill + coverBlob + onUpdated
+- [x] `CharacterSelectionModal`：owner===account 显编辑按钮 + 完整发布更新链 + 本地同步刷新
+
+> 阶段 5b 边界（已与用户拍板）：
+> 1. **owner 三端点回带**：acquire / GET `/:id` 的 card + `POST /versions` 均回带 `owner`（owner=account 本已在公开 listing 暴露，回带无新增泄露）；使用态/更新时本地落 `owner` 字段（`CharacterSettings.owner?`），编辑按钮仅当登录 `account === 本地卡 owner` 显示。存量使用态卡（5a 前入库、本地无 owner）下次「更新」时由 GET `/:id` 回带补全 owner。
+> 2. **PUT 全字段可改**：发布更新允许改 source/intro/tags/价格/卡数据/封面（复用 POST `/` 全套校验），`updated_at=Date.now()`（使持有者下次开列表看到角标）；owner/global_id/created_at/计数不可变。预填数据来源=GET `/:id` 扩展回带的 tags/价格（本地不存这些）。
+> 3. **本地同步刷新为刚发布内容**：发布更新成功后本地卡 = 编辑器产出的卡 + 新 version + **分享界面最终的 source/intro**（用户可能在分享界面又改了），保留 local id（对话绑定）、重存封面，清角标。
+>
+> 阶段 5b 落地（2026-06-17）：
+> **后端** `src/routes/characters.js`：抽出 `validateCharacterInput(body)` 共享校验（POST `/` 与 PUT `/:id` 同套规则）；新增 `cardResponseOf(row)`（acquire/GET `/:id` 统一回带 `owner/tags/usePrice/buyoutPrice/cardJson` 等）+ `parseTags`。`PUT /characters/:id`（`requireAuth`）：hex 校验→取 row→404→`row.owner!==req.user.account`→**403 forbidden**→`validateCharacterInput`→先覆写封面 `<id>.webp` 再 `UPDATE`（author 重盖为当前 username、`updated_at=now`），返回 `{ok,globalId,updatedAt}`；注册在 GET `/:id` 之前（异方法不冲突）。`POST /versions` 由 `{gid:updated_at}` 改 `{gid:{updatedAt,owner}}`。
+> **前端**：`types.ts` `CharacterSettings.owner?`（发布者 account，区别于显示名 author）。`sharedLibraryApi.ts`：`AcquiredCard` 加 `owner/tags/usePrice/buyoutPrice`，`VersionInfo{updatedAt,owner}`，`fetchVersions` 消费点改读 `.updatedAt`。`sharedCharacterApi.ts`：`publishUpdate(token,gid,payload)`→`PUT`。`SharedLibraryModal.buildLocalCharacter` shared 分支 `local.owner=card.owner`。`CharacterEditModal`：`mode`（默认 local 零回归）+`onPublishUpdate`；shared-author 时标题「编辑共享角色」、底部「角色导入」（PNG 导入覆盖当前编辑态 name/desc/firstMes/worldInfo/cover）+「发布更新」（不写本地，回调 `onPublishUpdate(buildCurrentCharacter(), resolveCoverBlob())`）；handleSave/buildCurrentCharacter groundwork 透传加 owner。`CharacterShareModal`：`mode`（create/update）+`prefill`(SharePrefill)+`globalId`+`coverBlob`+`onUpdated`；update 时 reset effect 用 prefill 初始化（`priceToTier` 反查档位，非预设落自定价）、标题「发布更新」、提交走 `publishUpdate`、封面用 `coverBlob`（编辑器未存盘的 crop/import 也能上传）、`onUpdated(gid,updatedAt,{source,intro})`。`CharacterSelectionModal`：开列表刷 `account`；共享卡 `account===owner` 显编辑按钮；点编辑→`fetchCharacterCard` 拿 prefill→编辑器 shared-author→`handlePublishUpdate`→分享界面 update→`handleUpdatePublished` 本地同步刷新（fresh=编辑卡+新 version+分享界面 source/intro，重存封面到同一 IndexedDB id，清角标）。
+> **真机验证**（rebuild-shared + rebuild 双重启后，:3095 同源 Playwright，登录 demo_5b_author 用免费测试卡入私有列表）：use 态本地落 owner=demo_5b_author；作者态共享卡显示「编辑并发布更新（作者本人）」按钮（私有卡保持分享+编辑+删除零回归）；点编辑→编辑界面标题「编辑共享角色」+底部「角色导入/发布更新」+字段预填初版；改描述→发布更新→分享界面 update 模式预填（来源原创/简介/标签 测试+猫娘/使用免费/买断 60/确认更新）；改简介→确认更新→`PUT` 200→服务器卡 desc/intro/updatedAt 全更新+封面真 RIFF/WebP 无内嵌 json；本地卡同步刷新（id 保持 af3f4eb9/desc/intro/version=新 updatedAt/owner 保持）；二次发布验证 prefill 取服务器最新值；切换非作者 demo_5b_other→共享卡仅「更新」无编辑按钮；非作者 token 直打 `PUT`→**403 forbidden**（后端 owner 硬隔离防绕过）。console 零 error。tsc+eslint 干净。**坑（已修）**：① intro 同步缺口——`buildCurrentCharacter` 的 intro 是编辑前本地值，用户在分享界面改的 intro 没回本地；修法=`onUpdated` 回带分享界面最终 `{source,intro}`，本地以之为准。② 测试封面用 node 手拼极简 VP8L WebP，canvas 解码失败致「图片解码失败」——非代码 bug，真实 canvas 生成的 WebP 正常（用浏览器 canvas.toBlob 生成真 WebP 写入 IndexedDB 后通过）。demo 数据已清（demo_5b_* 账号/卡/封面/会话删尽，**保留 nyaa 真账号**），临时文件/截图/浏览器登录态清。
+> **rebuild 坑**：`rebuild-shared -NoCache` 撞 alpine CDN `apk add` TLS 抖动致 builder 阶段失败、不产生新镜像、容器静默跑旧码（显示 Running 非 Recreated）；解法=不带 -NoCache 重试用缓存跳过 apk 出网（见 memory `project_rebuild_apk_tls_pitfall`）。
 
 ### 阶段 6 —（后续）支付真实业务逻辑
 兑换码 / 猫粮结算；本期全部占位并备忘。

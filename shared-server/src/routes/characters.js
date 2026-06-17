@@ -69,6 +69,16 @@ const insertCharacter = db.prepare(`
      @use_price, @buyout_price, @card_json, @cover_ext,
      0, 0, 0, @created_at, @updated_at)
 `);
+// Publish an update to an existing card (phase 5b). The author may revise the
+// public-facing metadata and the card itself; owner/global_id/created_at/counts
+// are immutable. updated_at is bumped so holders see the update badge next time.
+const updateCharacter = db.prepare(`
+  UPDATE shared_characters SET
+    author = @author, name = @name, source = @source, intro = @intro,
+    tags = @tags, use_price = @use_price, buyout_price = @buyout_price,
+    card_json = @card_json, cover_ext = @cover_ext, updated_at = @updated_at
+  WHERE global_id = @global_id
+`);
 const getCover = db.prepare(
   "SELECT cover_ext FROM shared_characters WHERE global_id = ?",
 );
@@ -147,13 +157,6 @@ const listTags = db.prepare(`
 
 /** Shape a DB row into the browse summary (parse tags JSON, drop nothing else). */
 function summaryOf(row) {
-  let tags = [];
-  try {
-    const parsed = JSON.parse(row.tags ?? "[]");
-    if (Array.isArray(parsed)) tags = parsed;
-  } catch {
-    tags = [];
-  }
   return {
     globalId: row.global_id,
     owner: row.owner,
@@ -161,7 +164,7 @@ function summaryOf(row) {
     name: row.name,
     source: row.source,
     intro: row.intro,
-    tags,
+    tags: parseTags(row.tags),
     usePrice: row.use_price,
     buyoutPrice: row.buyout_price,
     downloads: row.downloads,
@@ -172,11 +175,100 @@ function summaryOf(row) {
   };
 }
 
+/** Parse a row's tags JSON column into a string array (empty on any failure). */
+function parseTags(raw) {
+  try {
+    const parsed = JSON.parse(raw ?? "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Shape a full DB row into the acquire / read-only card response. Carries the
+ *  full card_json PLUS the public metadata an author needs to pre-fill the share
+ *  界面 when publishing an update (owner / tags / prices). owner lets the client
+ *  decide whether the logged-in user may edit (owner === account). */
+function cardResponseOf(row) {
+  return {
+    globalId: row.global_id,
+    owner: row.owner,
+    name: row.name,
+    author: row.author,
+    source: row.source,
+    intro: row.intro,
+    tags: parseTags(row.tags),
+    usePrice: row.use_price,
+    buyoutPrice: row.buyout_price,
+    cardJson: row.card_json,
+    updatedAt: row.updated_at,
+  };
+}
+
 /** Mint a fresh global id. Never reused/changed after delete (SSOT #182), so a
  *  random 16-byte hex is fine — collisions are astronomically unlikely and the
  *  PK insert would reject one anyway. */
 function newGlobalId() {
   return randomBytes(16).toString("hex");
+}
+/** Validate + normalize a publish/update body. Returns either { error } (a
+ *  client-error code to send as 400) or { value } with the cleaned fields
+ *  (source, intro, tags, usePrice, buyoutPrice, cardJson, name, coverBuf).
+ *  Shared by POST / (publish) and PUT /:id (publish update) so both apply the
+ *  exact same rules. */
+function validateCharacterInput(body) {
+  const b = body ?? {};
+
+  const source = String(b.source ?? "");
+  if (source !== "original" && source !== "reposted") return { error: "invalid_source" };
+
+  const intro = String(b.intro ?? "").trim();
+  if (cpLen(intro) > INTRO_MAX) return { error: "invalid_intro" };
+
+  const tags = [];
+  if (Array.isArray(b.tags)) {
+    const seen = new Set();
+    for (const raw of b.tags) {
+      const t = String(raw ?? "").trim();
+      if (!t) continue;
+      if (cpLen(t) > TAG_MAX_LEN) return { error: "invalid_tag" };
+      if (seen.has(t)) continue;
+      seen.add(t);
+      tags.push(t);
+      if (tags.length > TAGS_MAX) return { error: "too_many_tags" };
+    }
+  }
+
+  const usePrice = Number(b.usePrice);
+  const buyoutPrice = Number(b.buyoutPrice);
+  if (!isPrice(usePrice) || !isPrice(buyoutPrice)) return { error: "invalid_price" };
+
+  const cardJson = String(b.cardJson ?? "");
+  if (!cardJson || cardJson.length > CARD_JSON_MAX) return { error: "invalid_card" };
+  let parsed;
+  try {
+    parsed = JSON.parse(cardJson);
+  } catch {
+    return { error: "invalid_card" };
+  }
+  // Character name lives at the top level or under data.* (chara_card_v3).
+  const name = String(parsed?.name ?? parsed?.data?.name ?? "").trim();
+  if (!name) return { error: "invalid_card" };
+
+  // cover: required, must decode to a real WebP container
+  const coverBase64 = String(b.coverBase64 ?? "");
+  if (!coverBase64) return { error: "missing_cover" };
+  let coverBuf;
+  try {
+    coverBuf = Buffer.from(coverBase64, "base64");
+  } catch {
+    return { error: "invalid_cover" };
+  }
+  if (!coverBuf.length || coverBuf.length > COVER_MAX_BYTES || !isWebp(coverBuf)) {
+    return { error: "invalid_cover" };
+  }
+
+  return { value: { source, intro, tags, usePrice, buyoutPrice, cardJson, name, coverBuf } };
 }
 
 // --- /characters ----------------------------------------------------------
@@ -187,73 +279,9 @@ export const charactersRouter = Router();
 //   cardJson    — ST-format card as a STRING (the character name is read from it)
 //   coverBase64 — re-encoded pure WebP cover, base64 (no data: prefix)
 charactersRouter.post("/", requireAuth, (req, res) => {
-  const body = req.body ?? {};
-
-  // source
-  const source = String(body.source ?? "");
-  if (source !== "original" && source !== "reposted") {
-    return badRequest(res, "invalid_source");
-  }
-
-  // intro (<=100 code points; optional)
-  const intro = String(body.intro ?? "").trim();
-  if (cpLen(intro) > INTRO_MAX) {
-    return badRequest(res, "invalid_intro");
-  }
-
-  // tags: array of non-empty trimmed strings, de-duped, bounded
-  const tags = [];
-  if (Array.isArray(body.tags)) {
-    const seen = new Set();
-    for (const raw of body.tags) {
-      const t = String(raw ?? "").trim();
-      if (!t) continue;
-      if (cpLen(t) > TAG_MAX_LEN) return badRequest(res, "invalid_tag");
-      if (seen.has(t)) continue;
-      seen.add(t);
-      tags.push(t);
-      if (tags.length > TAGS_MAX) return badRequest(res, "too_many_tags");
-    }
-  }
-
-  // prices
-  const usePrice = Number(body.usePrice);
-  const buyoutPrice = Number(body.buyoutPrice);
-  if (!isPrice(usePrice) || !isPrice(buyoutPrice)) {
-    return badRequest(res, "invalid_price");
-  }
-
-  // card json: must be a parseable object carrying a non-empty name
-  const cardJson = String(body.cardJson ?? "");
-  if (!cardJson || cardJson.length > CARD_JSON_MAX) {
-    return badRequest(res, "invalid_card");
-  }
-  let parsed;
-  try {
-    parsed = JSON.parse(cardJson);
-  } catch {
-    return badRequest(res, "invalid_card");
-  }
-  // Character name lives at the top level or under data.* (chara_card_v3).
-  const name = String(parsed?.name ?? parsed?.data?.name ?? "").trim();
-  if (!name) {
-    return badRequest(res, "invalid_card");
-  }
-
-  // cover: required, must decode to a real WebP container
-  const coverBase64 = String(body.coverBase64 ?? "");
-  if (!coverBase64) {
-    return badRequest(res, "missing_cover");
-  }
-  let coverBuf;
-  try {
-    coverBuf = Buffer.from(coverBase64, "base64");
-  } catch {
-    return badRequest(res, "invalid_cover");
-  }
-  if (!coverBuf.length || coverBuf.length > COVER_MAX_BYTES || !isWebp(coverBuf)) {
-    return badRequest(res, "invalid_cover");
-  }
+  const v = validateCharacterInput(req.body);
+  if (v.error) return badRequest(res, v.error);
+  const { source, intro, tags, usePrice, buyoutPrice, cardJson, name, coverBuf } = v.value;
 
   // Allocate id + write the cover file first; only commit the DB row if the file
   // lands, so we never reference a missing cover.
@@ -373,10 +401,12 @@ const HEX_ID = /^[a-f0-9]{1,64}$/;
 const VERSIONS_MAX_IDS = 200; // matches the browse LIST_LIMIT ceiling
 
 // POST /characters/versions — body { ids: [globalId,...] }
-// Returns { versions: { <globalId>: updatedAt } } for the ids that still exist.
-// A held card whose id is ABSENT from the map has been deleted from the library
-// (the client surfaces that only when 更新 is clicked, never as a badge). One
-// round-trip for the whole list instead of N per-card requests.
+// Returns { versions: { <globalId>: { updatedAt, owner } } } for the ids that
+// still exist. A held card whose id is ABSENT from the map has been deleted from
+// the library (the client surfaces that only when 更新 is clicked, never as a
+// badge). owner lets the client backfill a held used card's owner so the author
+// can see the edit button without a full 更新 first. One round-trip for the
+// whole list instead of N per-card requests.
 charactersRouter.post("/versions", (req, res) => {
   const rawIds = Array.isArray(req.body?.ids) ? req.body.ids : [];
   // Keep only well-formed, de-duped hex ids, bounded.
@@ -393,11 +423,11 @@ charactersRouter.post("/versions", (req, res) => {
   try {
     const rows = db
       .prepare(
-        `SELECT global_id, updated_at FROM shared_characters WHERE global_id IN (${placeholders})`,
+        `SELECT global_id, updated_at, owner FROM shared_characters WHERE global_id IN (${placeholders})`,
       )
       .all(...ids);
     const versions = {};
-    for (const r of rows) versions[r.global_id] = r.updated_at;
+    for (const r of rows) versions[r.global_id] = { updatedAt: r.updated_at, owner: r.owner };
     return res.json({ ok: true, versions });
   } catch {
     return res.status(500).json({ ok: false, error: "db_read_failed" });
@@ -455,15 +485,7 @@ charactersRouter.post("/:id/acquire", (req, res) => {
 
   return res.json({
     ok: true,
-    card: {
-      globalId: row.global_id,
-      name: row.name,
-      author: row.author,
-      source: row.source,
-      intro: row.intro,
-      cardJson: row.card_json,
-      updatedAt: row.updated_at,
-    },
+    card: cardResponseOf(row),
     ...(profile ? { profile } : {}),
   });
 });
@@ -511,6 +533,61 @@ charactersRouter.get("/mine/ratings", requireAuth, (req, res) => {
   }
 });
 
+// PUT /characters/:id (auth) — publish an update to an existing card (phase 5b).
+// Only the owner may update. body is the same shape as POST / (publish):
+// { source, intro?, tags?, usePrice, buyoutPrice, cardJson, coverBase64 }. All
+// public metadata + the card + cover are revised; owner/global_id/created_at and
+// the download/like counters are immutable. updated_at is bumped to now so every
+// holder of this card sees the update badge on their next list open. The cover
+// file is overwritten in place (same global_id.webp); author is re-stamped to
+// the current display name, matching publish. Registered BEFORE GET /:id — a
+// different method, so no route conflict, but kept together for clarity.
+charactersRouter.put("/:id", requireAuth, (req, res) => {
+  const id = String(req.params.id ?? "");
+  if (!HEX_ID.test(id)) return res.status(404).json({ ok: false, error: "not_found" });
+
+  const row = getFullCharacter.get(id);
+  if (!row) return res.status(404).json({ ok: false, error: "not_found" });
+  // Owner-only: a card can only be updated by the account that uploaded it.
+  if (row.owner !== req.user.account) {
+    return res.status(403).json({ ok: false, error: "forbidden" });
+  }
+
+  const v = validateCharacterInput(req.body);
+  if (v.error) return badRequest(res, v.error);
+  const { source, intro, tags, usePrice, buyoutPrice, cardJson, name, coverBuf } = v.value;
+
+  // Overwrite the cover file first; only commit the DB row if it lands, so we
+  // never leave the row pointing at a half-written cover.
+  const coverPath = join(COVERS_DIR, `${id}.webp`);
+  try {
+    writeFileSync(coverPath, coverBuf);
+  } catch {
+    return res.status(500).json({ ok: false, error: "cover_write_failed" });
+  }
+
+  const now = Date.now();
+  try {
+    updateCharacter.run({
+      global_id: id,
+      author: req.user.username, // re-stamp to current display name, like publish
+      name,
+      source,
+      intro,
+      tags: JSON.stringify(tags),
+      use_price: usePrice,
+      buyout_price: buyoutPrice,
+      card_json: cardJson,
+      cover_ext: "webp",
+      updated_at: now,
+    });
+  } catch {
+    return res.status(500).json({ ok: false, error: "db_write_failed" });
+  }
+
+  return res.json({ ok: true, globalId: id, updatedAt: now });
+});
+
 // GET /characters/:id — public read-only full card (phase 5 update pull).
 // Returns the same card shape as acquire BUT does NOT bump downloads or settle
 // anything: it's only for refreshing a locally-held shared card to the latest
@@ -525,18 +602,7 @@ charactersRouter.get("/:id", (req, res) => {
   const row = getFullCharacter.get(id);
   if (!row) return res.status(404).json({ ok: false, error: "not_found" });
 
-  return res.json({
-    ok: true,
-    card: {
-      globalId: row.global_id,
-      name: row.name,
-      author: row.author,
-      source: row.source,
-      intro: row.intro,
-      cardJson: row.card_json,
-      updatedAt: row.updated_at,
-    },
-  });
+  return res.json({ ok: true, card: cardResponseOf(row) });
 });
 
 // --- /covers --------------------------------------------------------------

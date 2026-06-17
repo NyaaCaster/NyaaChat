@@ -144,6 +144,11 @@ export interface CharacterSettings {
   intro?: string;
   /** Marks a card obtained from the shared library vs. a local-native one. */
   shared?: boolean;
+  /** Owner account of the shared card (NOT the display name `author`). Stored on
+   *  acquired shared cards so the original uploader, when logged in, can be
+   *  recognised (account === owner) and offered 编辑/发布更新 — display-name
+   *  comparison would be unreliable across renames/duplicates. */
+  owner?: string;
 }
 
 /**
