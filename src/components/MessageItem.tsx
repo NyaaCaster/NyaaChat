@@ -1,7 +1,10 @@
 import React, { useState, useEffect, useRef } from "react";
 import Markdown from "react-markdown";
+import remarkMath from "remark-math";
 import rehypeRaw from "rehype-raw";
+import rehypeKatex from "rehype-katex";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
+import type { PluggableList } from "unified";
 import { Message } from "../types";
 import { motion } from "motion/react";
 import { Copy, Check, Trash2, RefreshCw, Pencil, X as XIcon, ImagePlus, Download, Loader2 } from "lucide-react";
@@ -23,6 +26,9 @@ const sanitizeSchema = {
     "*": [...(defaultSchema.attributes?.["*"] || []), "className"],
   },
 };
+
+const markdownRemarkPlugins: PluggableList = [remarkMath];
+const markdownRehypePlugins: PluggableList = [rehypeRaw, rehypeKatex, [rehypeSanitize, sanitizeSchema]];
 
 // navigator.clipboard requires a secure context (HTTPS or localhost). When the
 // app is served from a plain-HTTP IP/host, the modern API is unavailable, so
@@ -465,7 +471,8 @@ export const MessageItem = React.memo(function MessageItem({
                   ) : part.content.trim() ? (
                     <Markdown
                       key={`md-${partIndex}`}
-                      rehypePlugins={[rehypeRaw, [rehypeSanitize, sanitizeSchema]]}
+                      remarkPlugins={markdownRemarkPlugins}
+                      rehypePlugins={markdownRehypePlugins}
                       components={{
                         p: ({ children }) => <p>{renderTextWithQuotes(children)}</p>,
                         li: ({ children }) => <li>{renderTextWithQuotes(children)}</li>,
@@ -487,7 +494,8 @@ export const MessageItem = React.memo(function MessageItem({
               </>
             ) : (
               <Markdown
-                rehypePlugins={[rehypeRaw, [rehypeSanitize, sanitizeSchema]]}
+                remarkPlugins={markdownRemarkPlugins}
+                rehypePlugins={markdownRehypePlugins}
                 components={{
                   p: ({ children }) => <p>{renderTextWithQuotes(children)}</p>,
                   li: ({ children }) => <li>{renderTextWithQuotes(children)}</li>,

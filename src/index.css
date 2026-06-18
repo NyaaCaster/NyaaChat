@@ -56,6 +56,21 @@
     max-width: 100%;
   }
 
+  .markdown-body .katex-display {
+    overflow-x: auto;
+    overflow-y: hidden;
+    max-width: 100%;
+    padding: 0.25rem 0;
+  }
+
+  .markdown-body .katex {
+    white-space: normal;
+  }
+
+  .markdown-body .katex-display > .katex {
+    white-space: nowrap;
+  }
+
   /* Character cover decorations (chat bubbles). Both feather their edges with a
      mask so the cover dissolves into the bubble/background instead of ending on
      a hard rectangle (spec: chatbox-m / chatbox-pc1 / chatbox-pc2).
