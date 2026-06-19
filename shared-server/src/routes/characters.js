@@ -192,6 +192,23 @@ function parseTags(raw) {
   }
 }
 
+/** Encode the full card JSON for transport so API bodies no longer expose the
+ *  complete character card as directly-copyable plaintext. This is not DRM: the
+ *  browser receives the one-time key and decodes before local import. */
+function encryptCardJson(cardJson) {
+  const key = randomBytes(32);
+  const input = Buffer.from(cardJson, "utf8");
+  const output = Buffer.allocUnsafe(input.length);
+  for (let i = 0; i < input.length; i += 1) output[i] = input[i] ^ key[i % key.length];
+  return {
+    alg: "Nyaa-XOR-BASE64-V1",
+    key: key.toString("base64"),
+    iv: randomBytes(12).toString("base64"),
+    data: output.toString("base64"),
+    tag: randomBytes(16).toString("base64"),
+  };
+}
+
 /** Shape a full DB row into the acquire / read-only card response. Carries the
  *  full card_json PLUS the public metadata an author needs to pre-fill the share
  *  界面 when publishing an update (owner / tags / prices). owner lets the client
@@ -207,7 +224,7 @@ function cardResponseOf(row) {
     tags: parseTags(row.tags),
     usePrice: row.use_price,
     buyoutPrice: row.buyout_price,
-    cardJson: row.card_json,
+    encryptedCardJson: encryptCardJson(row.card_json),
     updatedAt: row.updated_at,
   };
 }

@@ -71,10 +71,25 @@ export interface AcquiredCard {
   cardJson: string;
   updatedAt: number;
 }
+
+interface EncryptedCardJson {
+  alg: "AES-256-GCM" | "Nyaa-XOR-BASE64-V1";
+  key: string;
+  iv: string;
+  data: string;
+  tag: string;
+}
+type WireAcquiredCard = Omit<AcquiredCard, "cardJson"> &
+  ({ cardJson: string } | { encryptedCardJson: EncryptedCardJson });
 interface AcquirePayload {
   ok: true;
   card: AcquiredCard;
   /** Updated buyer economy after a priced settlement (absent for anonymous free use). */
+  profile?: { catfood: number; spentTotal: number };
+}
+interface WireAcquirePayload {
+  ok: true;
+  card: WireAcquiredCard;
   profile?: { catfood: number; spentTotal: number };
 }
 interface RatingPayload {
@@ -101,6 +116,10 @@ interface VersionsPayload {
 interface CardPayload {
   ok: true;
   card: AcquiredCard;
+}
+interface WireCardPayload {
+  ok: true;
+  card: WireAcquiredCard;
 }
 
 async function request<T>(
@@ -150,6 +169,60 @@ async function request<T>(
   }
 }
 
+function base64ToBytes(value: string): Uint8Array {
+  const raw = atob(value);
+  const bytes = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i += 1) bytes[i] = raw.charCodeAt(i);
+  return bytes;
+}
+
+async function decryptCardJson(encrypted: EncryptedCardJson): Promise<string> {
+  if (encrypted.alg === "Nyaa-XOR-BASE64-V1") {
+    const data = base64ToBytes(encrypted.data);
+    const key = base64ToBytes(encrypted.key);
+    const plain = new Uint8Array(data.length);
+    for (let i = 0; i < data.length; i += 1) plain[i] = data[i] ^ key[i % key.length];
+    return new TextDecoder().decode(plain);
+  }
+  if (encrypted.alg !== "AES-256-GCM" || !globalThis.crypto?.subtle) {
+    throw new Error("unsupported_card_encryption");
+  }
+  const key = await crypto.subtle.importKey(
+    "raw",
+    base64ToBytes(encrypted.key),
+    "AES-GCM",
+    false,
+    ["decrypt"],
+  );
+  const data = base64ToBytes(encrypted.data);
+  const tag = base64ToBytes(encrypted.tag);
+  const sealed = new Uint8Array(data.length + tag.length);
+  sealed.set(data, 0);
+  sealed.set(tag, data.length);
+  const plain = await crypto.subtle.decrypt(
+    { name: "AES-GCM", iv: base64ToBytes(encrypted.iv), tagLength: 128 },
+    key,
+    sealed,
+  );
+  return new TextDecoder().decode(plain);
+}
+
+async function normalizeCard(card: WireAcquiredCard): Promise<AcquiredCard> {
+  if ("cardJson" in card) return card;
+  return {
+    ...card,
+    cardJson: await decryptCardJson(card.encryptedCardJson),
+  };
+}
+
+async function normalizeAcquirePayload(payload: WireAcquirePayload): Promise<AcquirePayload> {
+  return { ...payload, card: await normalizeCard(payload.card) };
+}
+
+async function normalizeCardPayload(payload: WireCardPayload): Promise<CardPayload> {
+  return { ...payload, card: await normalizeCard(payload.card) };
+}
+
 /** Fetch the (filtered, sorted) library listing. */
 export function fetchLibrary(query: LibraryQuery = {}): Promise<ApiResult<ListPayload>> {
   const params = new URLSearchParams();
@@ -187,16 +260,22 @@ export async function fetchCoverBlob(globalId: string): Promise<Blob | null> {
 /** Acquire a shared character (use / buyout). Returns the full card json plus,
  *  for a priced settlement, the buyer's updated economy. `token` may be omitted
  *  for free use (anonymous-friendly per the design). */
-export function acquireCharacter(
+export async function acquireCharacter(
   token: string | null,
   globalId: string,
   mode: "use" | "buyout",
 ): Promise<ApiResult<AcquirePayload>> {
-  return request<AcquirePayload>(`/characters/${globalId}/acquire`, {
+  const result = await request<WireAcquirePayload>(`/characters/${globalId}/acquire`, {
     method: "POST",
     token: token || undefined,
     body: { mode },
   });
+  if (result.kind !== "ok") return result;
+  try {
+    return { kind: "ok", ok: true, data: await normalizeAcquirePayload(result.data) };
+  } catch {
+    return { kind: "error", ok: false, error: "decrypt_failed", status: 0 };
+  }
 }
 
 /** Set / clear this account's rating on a character. value: 1=like, -1=dislike,
@@ -231,6 +310,12 @@ export function fetchVersions(ids: string[]): Promise<ApiResult<VersionsPayload>
 /** Read-only fetch of a shared card's latest full json (phase 5 更新). Does NOT
  *  bump downloads or settle anything. A 404 (kind:"error", status:404) means the
  *  card was deleted from the library and can no longer be updated. */
-export function fetchCharacterCard(globalId: string): Promise<ApiResult<CardPayload>> {
-  return request<CardPayload>(`/characters/${globalId}`);
+export async function fetchCharacterCard(globalId: string): Promise<ApiResult<CardPayload>> {
+  const result = await request<WireCardPayload>(`/characters/${globalId}`);
+  if (result.kind !== "ok") return result;
+  try {
+    return { kind: "ok", ok: true, data: await normalizeCardPayload(result.data) };
+  } catch {
+    return { kind: "error", ok: false, error: "decrypt_failed", status: 0 };
+  }
 }
