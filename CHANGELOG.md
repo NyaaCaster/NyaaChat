@@ -1,5 +1,4 @@
 # 更新历史
-
 ## v1.3.1
 Github Commit: [40232de](https://github.com/NyaaCaster/NyaaChat/commit/40232de8df69ba69cdb5dc612c337fd1ced939ba)
 
@@ -20,7 +19,7 @@ Github Commit: [40232de](https://github.com/NyaaCaster/NyaaChat/commit/40232de8d
 
 - 角色卡支持设置封面图，提供裁剪工具并上传存储
 - 聊天气泡中可显示角色封面图
-- 世界书条目新增「允许递归」开关，开启后该条目的内容可进一步触发其他条目的关键词激活
+- 世界书条目新增「允许递归」开关，开启后该条目可被其他条目内容的关键词激活
 
 ---
 
