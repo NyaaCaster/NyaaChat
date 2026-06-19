@@ -20,6 +20,66 @@ export function inferProvider(baseUrl: string, apiFormat?: ApiFormat): ApiProvid
 // in use by older code paths during the migration.
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// QinyAPI access points. The provider is reachable through two interchangeable
+// hosts; the user picks one in the LLM / image provider editors. The LLM path
+// runs baseUrl through normalizeBaseUrl (so `/v1` is enough), while the image
+// path POSTs the stored baseUrl verbatim and therefore needs the full
+// chat/completions URL. Each host also has its own "获取 API Key" signup link.
+// ---------------------------------------------------------------------------
+
+export interface QinyEndpoint {
+  id: "com" | "icu";
+  /** Short button label shown in the access-point selector. */
+  label: string;
+  /** OpenAI-compatible base for chat; normalizeBaseUrl-friendly. */
+  llmBaseUrl: string;
+  /** Full chat/completions URL the image path POSTs to verbatim. */
+  imageBaseUrl: string;
+  /** Target of the "获取 API Key" link for this host. */
+  apiKeyUrl: string;
+}
+
+export const QINY_ENDPOINTS: QinyEndpoint[] = [
+  {
+    id: "com",
+    label: ".com",
+    llmBaseUrl: "https://openai.chatnewai.com/v1",
+    imageBaseUrl: "https://openai.chatnewai.com/v1/chat/completions",
+    apiKeyUrl: "https://openai.chatnewai.com/register?aff=btB0",
+  },
+  {
+    id: "icu",
+    label: ".icu",
+    llmBaseUrl: "https://love.qinyan.icu/v1",
+    imageBaseUrl: "https://love.qinyan.icu/v1/chat/completions",
+    apiKeyUrl: "https://love.qinyan.icu/register?aff=btB0",
+  },
+];
+
+/** The default access point (`.com`), used when none is otherwise resolvable. */
+export const DEFAULT_QINY_ENDPOINT = QINY_ENDPOINTS[0];
+
+/**
+ * Resolve which access point a stored baseUrl belongs to by hostname. Tolerant
+ * of either the `/v1` or full `/v1/chat/completions` form. Falls back to the
+ * default (`.com`) for unrecognized / empty values so legacy settings keep
+ * pointing at the original host.
+ */
+export function resolveQinyEndpoint(baseUrl: string | undefined): QinyEndpoint {
+  const url = (baseUrl || "").toLowerCase();
+  for (const ep of QINY_ENDPOINTS) {
+    let host = "";
+    try {
+      host = new URL(ep.llmBaseUrl).hostname.toLowerCase();
+    } catch {
+      /* constant URLs are valid; guard only to satisfy the type */
+    }
+    if (host && url.includes(host)) return ep;
+  }
+  return DEFAULT_QINY_ENDPOINT;
+}
+
 export interface LlmProviderPresetMeta {
   kind: LlmProviderKind;
   name: string;
@@ -38,7 +98,7 @@ export const LLM_PROVIDER_PRESETS: LlmProviderPresetMeta[] = [
   {
     kind: "qiny",
     name: "QinyAPI",
-    baseUrl: "https://openai.chatnewai.com/v1/chat/completions",
+    baseUrl: DEFAULT_QINY_ENDPOINT.llmBaseUrl,
     apiFormat: "openai",
     baseUrlEditable: false,
   },
@@ -104,7 +164,7 @@ export const IMAGE_PROVIDER_PRESETS: ImageProviderPresetMeta[] = [
   {
     kind: "qiny",
     name: "QinyAPI",
-    baseUrl: "https://openai.chatnewai.com/v1/chat/completions",
+    baseUrl: DEFAULT_QINY_ENDPOINT.imageBaseUrl,
     selectable: true,
   },
   {

@@ -6,6 +6,7 @@ import { ApiKeyInput } from "./ApiKeyInput";
 import { Field, FieldHint, ToggleSwitch, DeleteModelButton } from "./SettingsFormBits";
 import { ImageProviderIcon } from "./icons/providerIcons";
 import { ManageImageModelsModal } from "./ManageImageModelsModal";
+import { QINY_ENDPOINTS, resolveQinyEndpoint, type QinyEndpoint } from "../lib/providers";
 
 interface ImageProvidersModalProps {
   isOpen: boolean;
@@ -71,12 +72,12 @@ export function ImageProvidersModal({
         }
         maxWidth="max-w-5xl"
       >
-        <div className="flex flex-col sm:flex-row h-[600px] max-h-[70vh]">
+        <div className="pv-layout h-[600px] max-h-[70vh]">
           {/* Provider list pane */}
           <div
-            className={`${
-              mobileView === "detail" ? "hidden" : "flex"
-            } sm:flex flex-col w-full sm:w-72 sm:border-r border-gray-200 dark:border-white/10 bg-gray-50/50 dark:bg-black/20 min-h-0`}
+            className={`pv-pane-list ${
+              mobileView === "detail" ? "pv-pane-hidden" : ""
+            } flex-col sm:border-r border-gray-200 dark:border-white/10 bg-gray-50/50 dark:bg-black/20 min-h-0`}
           >
             <div className="flex-1 overflow-y-auto p-2 min-h-0">
               <ul className="space-y-1 list-none">
@@ -96,13 +97,13 @@ export function ImageProvidersModal({
 
           {/* Detail pane */}
           <div
-            className={`${
-              mobileView === "list" ? "hidden" : "flex"
-            } sm:flex flex-col flex-1 min-h-0`}
+            className={`pv-pane-detail ${
+              mobileView === "list" ? "pv-pane-hidden" : ""
+            } flex-col min-h-0`}
           >
             {selected ? (
               <>
-                <div className="sm:hidden flex items-center gap-2 p-3 border-b border-gray-200 dark:border-white/10 flex-shrink-0">
+                <div className="pv-only-mobile items-center gap-2 p-3 border-b border-gray-200 dark:border-white/10 flex-shrink-0">
                   <button
                     type="button"
                     onClick={() => setMobileView("list")}
@@ -225,6 +226,13 @@ function ImageProviderDetail({
     onUpdate({ ...provider, size: next });
   };
 
+  // QinyAPI access-point switch. The image path POSTs baseUrl verbatim, so we
+  // store the chosen host's full chat/completions URL (not just `/v1`).
+  const handleQinyEndpointSelect = (ep: QinyEndpoint) => {
+    if (provider.baseUrl === ep.imageBaseUrl) return;
+    onUpdate({ ...provider, baseUrl: ep.imageBaseUrl });
+  };
+
   // Same escape hatch as the LLM side: removes a saved model even when the
   // upstream API no longer lists it (管理模型 only shows live entries).
   const handleDeleteModel = (modelId: string) => {
@@ -262,12 +270,39 @@ function ImageProviderDetail({
         onEnabledToggle={handleEnabledToggle}
       />
 
+      {provider.kind === "qiny" && (
+        <Field label="QingAPI 接入点">
+          <div className="flex flex-wrap gap-2">
+            {QINY_ENDPOINTS.map((ep) => {
+              const active = resolveQinyEndpoint(provider.baseUrl).id === ep.id;
+              return (
+                <button
+                  key={ep.id}
+                  type="button"
+                  onClick={() => handleQinyEndpointSelect(ep)}
+                  className={`px-4 py-1.5 rounded-lg border text-sm font-medium transition-all ${
+                    active
+                      ? "border-blue-500 bg-blue-500/10 dark:bg-blue-500/15 ring-1 ring-blue-500 text-blue-600 dark:text-blue-400"
+                      : "border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-[#1A1A1A] text-gray-900 dark:text-gray-100 hover:border-gray-300 dark:hover:border-white/20"
+                  }`}
+                >
+                  {ep.label}
+                </button>
+              );
+            })}
+          </div>
+          <FieldHint>
+            国内使用 .com 节点，海外或翻墙后使用.icu 节点
+          </FieldHint>
+        </Field>
+      )}
+
       <Field
         label="API Key"
         actionSlot={
           provider.kind === "qiny" && (
             <a
-              href="https://openai.chatnewai.com/register?aff=btB0"
+              href={resolveQinyEndpoint(provider.baseUrl).apiKeyUrl}
               target="_blank"
               rel="noopener noreferrer"
               className="text-[11px] font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:underline transition-colors"
@@ -284,7 +319,7 @@ function ImageProviderDetail({
           placeholder="sk-..."
         />
         <FieldHint>
-          QinyAPI 端点固定为 https://openai.chatnewai.com/v1,无需填写 API 地址。
+          QinyAPI 端点由上方「QingAPI 接入点」决定,无需手动填写 API 地址。
         </FieldHint>
       </Field>
 

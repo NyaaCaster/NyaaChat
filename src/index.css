@@ -205,3 +205,31 @@
   .lib-layout { flex-direction: row !important; align-items: stretch !important; }
 }
 
+/* API provider editors (对话/生图模型设置) master-detail layout.
+   Same extension-CSS-pollution defense as the cover strip / shared library
+   above. A hosted extension (e.g. JS-Slash-Runner) ships a purged Tailwind
+   build that re-injects the BASE utilities it uses (`.hidden` / `.flex` /
+   `.w-full`) AFTER the app stylesheet, but NOT the responsive variants the app
+   relies on here (`.sm\:flex` / `.sm\:flex-row` / `.sm\:w-72`). So at desktop
+   widths the late `.hidden` / `.w-full` win over the app's `sm:` overrides and
+   the split view collapses into the mobile master-detail layout. Because the
+   extension's enable-state lives in origin-scoped localStorage, the same build
+   then renders differently per domain (on under one host, off under another).
+   Drive the responsive split through app-private classes (which no extension
+   targets) + !important + a 40rem (Tailwind `sm`) media query instead.
+   `.pv-pane-hidden` hides the inactive pane on mobile only; `.pv-only-mobile`
+   is the back-to-list bar, hidden on desktop. Keep `.pv-pane-hidden` declared
+   after the pane rules so its mobile `display:none` wins by source order. */
+.pv-layout { display: flex !important; flex-direction: column !important; }
+.pv-pane-list { display: flex !important; width: 100% !important; }
+.pv-pane-detail { display: flex !important; }
+.pv-pane-hidden { display: none !important; }
+.pv-only-mobile { display: flex !important; }
+@media (min-width: 40rem) {
+  .pv-layout { flex-direction: row !important; }
+  .pv-pane-list { display: flex !important; width: 18rem !important; flex: none !important; }
+  .pv-pane-detail { display: flex !important; flex: 1 1 0% !important; }
+  .pv-pane-hidden { display: flex !important; }
+  .pv-only-mobile { display: none !important; }
+}
+

@@ -166,6 +166,13 @@ function validateImportPayload(raw: unknown): ImportResult {
       issues.push("frontendRenderingDepth 必须是不小于 0 的数字");
     }
   }
+  if (
+    s.sendMode !== undefined &&
+    s.sendMode !== "enter" &&
+    s.sendMode !== "ctrlEnter"
+  ) {
+    issues.push('sendMode 必须是 "enter" 或 "ctrlEnter"');
+  }
 
   // MCP fields. v2 files don't carry them; we let those slide and fill
   // defaults below. v3+ files must have valid shapes.
@@ -210,6 +217,9 @@ function validateImportPayload(raw: unknown): ImportResult {
   {
     const depth = Number(filled.frontendRenderingDepth);
     filled.frontendRenderingDepth = Number.isFinite(depth) && depth >= 0 ? Math.floor(depth) : 5;
+  }
+  if (filled.sendMode !== "enter" && filled.sendMode !== "ctrlEnter") {
+    filled.sendMode = "ctrlEnter";
   }
   if (typeof filled.isMcpEnabled !== "boolean") {
     filled.isMcpEnabled = true;

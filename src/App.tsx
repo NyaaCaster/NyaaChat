@@ -53,7 +53,7 @@ export type ConnectionStatus = "disconnected" | "connecting" | "connected";
 // with per-provider apiKey/baseUrl/models. The legacy single-endpoint `api`
 // and `imageApi` blocks are retained on AppState during the transition until
 // chatPipeline is switched over (phase 3).
-const SCHEMA_VERSION = 6;
+const SCHEMA_VERSION = 7;
 
 function migrate(raw: any): any {
   if (!raw || typeof raw !== "object") return raw;
@@ -74,8 +74,23 @@ function migrate(raw: any): any {
   if (v < 6) {
     raw = migrateV5ToV6(raw);
   }
+  if (v < 7) {
+    raw = migrateV6ToV7(raw);
+  }
 
   return raw;
+}
+
+/**
+ * v6 → v7: add the composer send-key habit. Existing users keep the historical
+ * behavior (Ctrl/⌘+Enter sends, Enter newlines), which is also the default.
+ */
+function migrateV6ToV7(raw: any): any {
+  return {
+    ...raw,
+    sendMode: raw.sendMode === "enter" ? "enter" : "ctrlEnter",
+    _version: 7,
+  };
 }
 
 /**
@@ -337,6 +352,7 @@ const DEFAULT_SETTINGS: AppState = {
   isStreaming: false,
   isFrontendRenderingEnabled: true,
   frontendRenderingDepth: 5,
+  sendMode: "ctrlEnter",
   isMcpEnabled: true,
   mcpUserCity: null,
   mcpToolsEnabled: { get_current_time: true, get_weather: true, roll_coc: true, roll_dnd: true, web_search: false },
@@ -468,6 +484,10 @@ export default function App() {
             Number.isFinite(parsed.frontendRenderingDepth) && parsed.frontendRenderingDepth >= 0
               ? Math.floor(parsed.frontendRenderingDepth)
               : DEFAULT_SETTINGS.frontendRenderingDepth,
+          sendMode:
+            parsed.sendMode === "enter" || parsed.sendMode === "ctrlEnter"
+              ? parsed.sendMode
+              : DEFAULT_SETTINGS.sendMode,
           isMcpEnabled:
             typeof parsed.isMcpEnabled === "boolean"
               ? parsed.isMcpEnabled

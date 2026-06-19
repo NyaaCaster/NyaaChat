@@ -167,6 +167,38 @@ export function ChatComposer({
     resizeTextarea();
   }, [input, attachments.length, resizeTextarea]);
 
+  // When a newline is inserted programmatically (the various "newline" key
+  // combos below), the controlled value updates but the browser would drop the
+  // caret to the end. Stash the intended caret offset and restore it after the
+  // commit so typing continues exactly where the user was.
+  const pendingCaretRef = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    if (pendingCaretRef.current == null) return;
+    const el = textareaRef.current;
+    const pos = pendingCaretRef.current;
+    pendingCaretRef.current = null;
+    if (el) {
+      el.focus();
+      try {
+        el.selectionStart = el.selectionEnd = pos;
+      } catch {
+        /* setSelectionRange can throw if the element isn't yet selectable */
+      }
+    }
+  }, [input]);
+
+  // Insert a newline at the current caret / selection and queue the caret to
+  // land just after it. Used by the send-key combos that should break a line
+  // instead of sending.
+  const insertNewlineAtCursor = useCallback(() => {
+    const el = textareaRef.current;
+    const start = el?.selectionStart ?? input.length;
+    const end = el?.selectionEnd ?? input.length;
+    const next = input.slice(0, start) + "\n" + input.slice(end);
+    pendingCaretRef.current = start + 1;
+    onInputChange(next);
+  }, [input, onInputChange]);
+
   // The ceiling depends on viewport height, so track window resizes too.
   useEffect(() => {
     window.addEventListener("resize", resizeTextarea);
@@ -432,13 +464,43 @@ export function ChatComposer({
             onChange={(e) => onInputChange(e.target.value)}
             onPaste={handlePaste}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+              // `mod` is Ctrl on Windows/Linux and ⌘ on macOS, so both
+              // keyboard layouts get the same shortcut behavior.
+              const mod = e.ctrlKey || e.metaKey;
+              const submit = () => {
                 e.preventDefault();
                 if (isLoading) onStop();
                 else onSubmit();
+              };
+
+              if (settings.sendMode === "enter") {
+                // Enter sends; Ctrl/⌘+Enter and Shift+Enter newline.
+                if (e.key === "Enter") {
+                  // Don't send mid-IME-composition (Chinese/Japanese input).
+                  if (e.nativeEvent.isComposing) return;
+                  if (e.shiftKey && !mod) return; // native newline
+                  if (mod) {
+                    e.preventDefault();
+                    insertNewlineAtCursor();
+                    return;
+                  }
+                  submit();
+                  return;
+                }
+                return;
+              }
+
+              // Default mode: Ctrl/⌘+Enter sends; a bare Enter newlines natively.
+              if (e.key === "Enter" && mod) {
+                if (e.nativeEvent.isComposing) return;
+                submit();
               }
             }}
-            placeholder="发送消息... (Ctrl + Enter 发送)"
+            placeholder={
+              settings.sendMode === "enter"
+                ? "发送消息... (Enter 发送)"
+                : "发送消息... (Ctrl + Enter 发送)"
+            }
             className="flex-1 py-3 pl-4 pr-12 bg-transparent outline-none resize-none text-sm leading-6 placeholder-gray-400 dark:placeholder-gray-600 focus:placeholder-transparent transition-all"
             rows={1}
           />

@@ -11,6 +11,8 @@ import {
   Download,
   Upload,
   AlertTriangle,
+  CornerDownLeft,
+  Command,
 } from "lucide-react";
 import { AppState } from "../types";
 import { BaseModal } from "./BaseModal";
@@ -39,6 +41,38 @@ const THEME_OPTIONS: ThemeOption[] = [
   { value: "system", label: "跟随系统", icon: Monitor },
 ];
 
+// macOS keyboards label the command key ⌘; on every other platform the
+// equivalent shortcut modifier is Ctrl. We mirror that in the help text so the
+// hints match the physical key the user will actually press.
+const IS_APPLE =
+  typeof navigator !== "undefined" &&
+  /Mac|iPhone|iPad|iPod/i.test(
+    (navigator as any).userAgentData?.platform || navigator.platform || navigator.userAgent,
+  );
+const MOD_KEY_LABEL = IS_APPLE ? "⌘" : "Ctrl";
+
+type SendModeOption = {
+  value: AppState["sendMode"];
+  label: string;
+  hint: string;
+  icon: React.ComponentType<{ size?: number; className?: string }>;
+};
+
+const SEND_MODE_OPTIONS: SendModeOption[] = [
+  {
+    value: "ctrlEnter",
+    label: `${MOD_KEY_LABEL} + Enter 发送`,
+    hint: "Enter 换行",
+    icon: Command,
+  },
+  {
+    value: "enter",
+    label: "Enter 发送",
+    hint: `${MOD_KEY_LABEL}+Enter / Shift+Enter 换行`,
+    icon: CornerDownLeft,
+  },
+];
+
 export function SettingsModal({
   isOpen,
   onClose,
@@ -55,6 +89,10 @@ export function SettingsModal({
 
   const handleThemeSelect = (theme: AppState["theme"]) => {
     onSave({ ...settings, theme });
+  };
+
+  const handleSendModeSelect = (sendMode: AppState["sendMode"]) => {
+    onSave({ ...settings, sendMode });
   };
 
   const handleStreamingToggle = (next: boolean) => {
@@ -143,6 +181,51 @@ export function SettingsModal({
               icon={<ImagePlus size={20} className="text-purple-500" />}
               label="生图模型设置"
             />
+          </div>
+
+          <SectionHeading>输入习惯</SectionHeading>
+          <div className="grid grid-cols-2 gap-2 -mt-4">
+            {SEND_MODE_OPTIONS.map((opt) => {
+              const Icon = opt.icon;
+              const active = settings.sendMode === opt.value;
+              return (
+                <button
+                  key={opt.value}
+                  onClick={() => handleSendModeSelect(opt.value)}
+                  className={`relative flex flex-col items-center justify-center gap-2 p-4 rounded-xl border text-center transition-all duration-200 ${
+                    active
+                      ? "border-blue-500 bg-blue-50 dark:bg-blue-500/10 ring-1 ring-blue-500"
+                      : "border-gray-200 dark:border-white/10 bg-white dark:bg-white/5 hover:border-gray-300 dark:hover:border-white/20 hover:bg-gray-50 dark:hover:bg-white/10"
+                  }`}
+                >
+                  <Icon
+                    size={22}
+                    className={
+                      active
+                        ? "text-blue-600 dark:text-blue-400"
+                        : "text-gray-500 dark:text-gray-400"
+                    }
+                  />
+                  <span
+                    className={`text-sm font-medium ${
+                      active
+                        ? "text-blue-700 dark:text-blue-400"
+                        : "text-gray-900 dark:text-gray-100"
+                    }`}
+                  >
+                    {opt.label}
+                  </span>
+                  <span className="text-[11px] leading-snug text-gray-500 dark:text-gray-400">
+                    {opt.hint}
+                  </span>
+                  {active && (
+                    <div className="absolute top-2 right-2 w-4 h-4 rounded-full bg-blue-500 flex items-center justify-center text-white">
+                      <Check size={10} strokeWidth={3} />
+                    </div>
+                  )}
+                </button>
+              );
+            })}
           </div>
 
           <SectionHeading>外观设置</SectionHeading>

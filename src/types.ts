@@ -212,6 +212,10 @@ export interface AppState {
   isFrontendRenderingEnabled: boolean;
   /** Number of latest message floors to render as front-end cards. 0 = all. */
   frontendRenderingDepth: number;
+  /** Composer send-key habit. "ctrlEnter" (default) = Ctrl/⌘+Enter sends and a
+   *  bare Enter inserts a newline; "enter" = a bare Enter sends while
+   *  Ctrl/⌘+Enter and Shift+Enter insert a newline. */
+  sendMode: "enter" | "ctrlEnter";
   /** Whether the MCP toolbar entry is "armed" — this only governs whether
    *  enabled MCP tools get advertised to the LLM on the next request.
    *  Per-tool toggles in `mcpToolsEnabled` apply on top of this. */
