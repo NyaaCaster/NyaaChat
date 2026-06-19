@@ -342,6 +342,10 @@ export function SharedLibraryModal({
         return "该角色不可买断";
       case "not_found":
         return "角色不存在或已被删除";
+      case "card_key_unavailable":
+        return "当前浏览器不支持安全随机数，无法安全下发角色卡";
+      case "decrypt_failed":
+        return "角色卡安全下发解密失败，请刷新后重试";
       default:
         return "操作失败，请重试";
     }

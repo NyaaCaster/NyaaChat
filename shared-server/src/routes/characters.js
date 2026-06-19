@@ -12,7 +12,8 @@
 // really a RIFF/WEBP container and never accept anything else.
 
 import { Router } from "express";
-import { randomBytes } from "node:crypto";
+import { Buffer } from "node:buffer";
+import { createCipheriv, createECDH, createHmac, hkdfSync, randomBytes } from "node:crypto";
 import { mkdirSync, writeFileSync, readFileSync, existsSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { db } from "../db.js";
@@ -192,10 +193,50 @@ function parseTags(raw) {
   }
 }
 
-/** Encode the full card JSON for transport so API bodies no longer expose the
- *  complete character card as directly-copyable plaintext. This is not DRM: the
- *  browser receives the one-time key and decodes before local import. */
-function encryptCardJson(cardJson) {
+const CARD_KEY_ALG = "ECDH-P256-AES-GCM-V1";
+const CARD_WRAP_ALG = "P256-HKDF-HMAC-XOR-V1";
+const CARD_KEY_INFO = Buffer.from("nyaachat-shared-card-v1", "utf8");
+const CARD_WRAP_INFO = Buffer.from("nyaachat-shared-card-hmac-xor-v1", "utf8");
+
+function parseClientCardWrap(raw) {
+  if (!raw || typeof raw.publicKey !== "string") return null;
+  try {
+    const publicKey = Buffer.from(raw.publicKey, "base64");
+    // Browser ECDH raw P-256 public keys are uncompressed points: 0x04 + X + Y.
+    if (publicKey.length !== 65 || publicKey[0] !== 0x04) return null;
+    if (raw.alg === CARD_WRAP_ALG) return { alg: CARD_WRAP_ALG, publicKey };
+    if (raw.alg === CARD_KEY_ALG) return { alg: CARD_KEY_ALG, publicKey };
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function hmacSha256(key, ...chunks) {
+  const mac = createHmac("sha256", key);
+  for (const chunk of chunks) mac.update(chunk);
+  return mac.digest();
+}
+
+function hmacStreamXor(input, key) {
+  const output = Buffer.allocUnsafe(input.length);
+  let offset = 0;
+  let counter = 0;
+  while (offset < input.length) {
+    const blockCounter = Buffer.allocUnsafe(4);
+    blockCounter.writeUInt32BE(counter, 0);
+    const block = hmacSha256(key, blockCounter);
+    const n = Math.min(block.length, input.length - offset);
+    for (let i = 0; i < n; i += 1) output[offset + i] = input[offset + i] ^ block[i];
+    offset += n;
+    counter += 1;
+  }
+  return output;
+}
+
+/** Legacy fallback for browsers where WebCrypto is unavailable (for example some
+ *  non-secure LAN origins). It hides plaintext but still carries the key. */
+function encryptCardJsonLegacy(cardJson) {
   const key = randomBytes(32);
   const input = Buffer.from(cardJson, "utf8");
   const output = Buffer.allocUnsafe(input.length);
@@ -209,11 +250,64 @@ function encryptCardJson(cardJson) {
   };
 }
 
+function encryptCardJsonWrapped(cardJson, cardKey) {
+  const server = createECDH("prime256v1");
+  server.generateKeys();
+  const salt = randomBytes(32);
+  const shared = server.computeSecret(cardKey.publicKey);
+
+  if (cardKey.alg === CARD_WRAP_ALG) {
+    const material = Buffer.from(hkdfSync("sha256", shared, salt, CARD_WRAP_INFO, 64));
+    const encKey = material.subarray(0, 32);
+    const macKey = material.subarray(32, 64);
+    const input = Buffer.from(cardJson, "utf8");
+    const data = hmacStreamXor(input, encKey);
+    const serverPublicKey = server.getPublicKey();
+    const tag = hmacSha256(macKey, salt, serverPublicKey, cardKey.publicKey, data);
+    return {
+      alg: CARD_WRAP_ALG,
+      curve: "P-256",
+      kdf: "HKDF-SHA256",
+      serverPublicKey: serverPublicKey.toString("base64"),
+      salt: salt.toString("base64"),
+      data: data.toString("base64"),
+      tag: tag.toString("base64"),
+    };
+  }
+
+  const iv = randomBytes(12);
+  const aesKey = Buffer.from(hkdfSync("sha256", shared, salt, CARD_KEY_INFO, 32));
+  const cipher = createCipheriv("aes-256-gcm", aesKey, iv);
+  const data = Buffer.concat([cipher.update(cardJson, "utf8"), cipher.final()]);
+  return {
+    alg: CARD_KEY_ALG,
+    curve: "P-256",
+    kdf: "HKDF-SHA256",
+    serverPublicKey: server.getPublicKey().toString("base64"),
+    salt: salt.toString("base64"),
+    iv: iv.toString("base64"),
+    data: data.toString("base64"),
+    tag: cipher.getAuthTag().toString("base64"),
+  };
+}
+
+/** Encode the full card JSON for transport so API bodies no longer expose the
+ *  complete character card as directly-copyable plaintext. This is not DRM: the
+ *  browser still decrypts before local import. */
+function encryptCardJson(cardJson, cardKey) {
+  try {
+    if (cardKey) return encryptCardJsonWrapped(cardJson, cardKey);
+  } catch {
+    // Fall back instead of breaking acquisition/update on malformed client keys.
+  }
+  return encryptCardJsonLegacy(cardJson);
+}
+
 /** Shape a full DB row into the acquire / read-only card response. Carries the
  *  full card_json PLUS the public metadata an author needs to pre-fill the share
  *  界面 when publishing an update (owner / tags / prices). owner lets the client
  *  decide whether the logged-in user may edit (owner === account). */
-function cardResponseOf(row) {
+function cardResponseOf(row, cardKey = null) {
   return {
     globalId: row.global_id,
     owner: row.owner,
@@ -224,7 +318,7 @@ function cardResponseOf(row) {
     tags: parseTags(row.tags),
     usePrice: row.use_price,
     buyoutPrice: row.buyout_price,
-    encryptedCardJson: encryptCardJson(row.card_json),
+    encryptedCardJson: encryptCardJson(row.card_json, cardKey),
     updatedAt: row.updated_at,
   };
 }
@@ -509,7 +603,7 @@ charactersRouter.post("/:id/acquire", (req, res) => {
 
   return res.json({
     ok: true,
-    card: cardResponseOf(row),
+    card: cardResponseOf(row, parseClientCardWrap(req.body?.cardWrap ?? req.body?.cardKey)),
     ...(profile ? { profile } : {}),
   });
 });
@@ -657,7 +751,11 @@ charactersRouter.get("/:id", (req, res) => {
   const row = getFullCharacter.get(id);
   if (!row) return res.status(404).json({ ok: false, error: "not_found" });
 
-  return res.json({ ok: true, card: cardResponseOf(row) });
+  const cardKey = parseClientCardWrap({
+    alg: String(req.query.cardWrapAlg ?? req.query.cardKeyAlg ?? ""),
+    publicKey: String(req.query.cardPublicKey ?? ""),
+  });
+  return res.json({ ok: true, card: cardResponseOf(row, cardKey) });
 });
 
 // --- /covers --------------------------------------------------------------

@@ -10,6 +10,11 @@
 // Note: the listing intentionally does NOT carry card_json (the full character
 // design). Browsing only needs the summary; the cover is fetched lazily by URL.
 
+import { p256 } from "@noble/curves/nist.js";
+import { hkdf } from "@noble/hashes/hkdf.js";
+import { hmac } from "@noble/hashes/hmac.js";
+import { sha256 } from "@noble/hashes/sha2.js";
+import { concatBytes, utf8ToBytes } from "@noble/hashes/utils.js";
 import { type ApiResult } from "./sharedAccountApi";
 
 const BASE = "/api/shared";
@@ -72,12 +77,43 @@ export interface AcquiredCard {
   updatedAt: number;
 }
 
-interface EncryptedCardJson {
-  alg: "AES-256-GCM" | "Nyaa-XOR-BASE64-V1";
+interface LegacyXorCardJson {
+  alg: "Nyaa-XOR-BASE64-V1";
   key: string;
   iv: string;
   data: string;
   tag: string;
+}
+interface LegacyAesCardJson {
+  alg: "AES-256-GCM";
+  key: string;
+  iv: string;
+  data: string;
+  tag: string;
+}
+interface WrappedAesCardJson {
+  alg: "ECDH-P256-AES-GCM-V1";
+  curve: "P-256";
+  kdf: "HKDF-SHA256";
+  serverPublicKey: string;
+  salt: string;
+  iv: string;
+  data: string;
+  tag: string;
+}
+interface WrappedHmacXorCardJson {
+  alg: "P256-HKDF-HMAC-XOR-V1";
+  curve: "P-256";
+  kdf: "HKDF-SHA256";
+  serverPublicKey: string;
+  salt: string;
+  data: string;
+  tag: string;
+}
+type EncryptedCardJson = LegacyXorCardJson | LegacyAesCardJson | WrappedAesCardJson | WrappedHmacXorCardJson;
+interface CardWrapContext {
+  request: { alg: "P256-HKDF-HMAC-XOR-V1"; publicKey: string };
+  privateKey: Uint8Array;
 }
 type WireAcquiredCard = Omit<AcquiredCard, "cardJson"> &
   ({ cardJson: string } | { encryptedCardJson: EncryptedCardJson });
@@ -176,7 +212,136 @@ function base64ToBytes(value: string): Uint8Array {
   return bytes;
 }
 
-async function decryptCardJson(encrypted: EncryptedCardJson): Promise<string> {
+function bytesToBase64(bytes: ArrayBuffer | Uint8Array): string {
+  const view = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  let raw = "";
+  for (let i = 0; i < view.length; i += 1) raw += String.fromCharCode(view[i]);
+  return btoa(raw);
+}
+
+const CARD_WRAP_INFO = utf8ToBytes("nyaachat-shared-card-hmac-xor-v1");
+const CARD_KEY_INFO = utf8ToBytes("nyaachat-shared-card-v1");
+
+function equalBytes(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i += 1) diff |= a[i] ^ b[i];
+  return diff === 0;
+}
+
+function hmacStreamXor(input: Uint8Array, key: Uint8Array): Uint8Array {
+  const output = new Uint8Array(input.length);
+  let offset = 0;
+  let counter = 0;
+  while (offset < input.length) {
+    const blockCounter = new Uint8Array(4);
+    new DataView(blockCounter.buffer).setUint32(0, counter, false);
+    const block = hmac(sha256, key, blockCounter);
+    const n = Math.min(block.length, input.length - offset);
+    for (let i = 0; i < n; i += 1) output[offset + i] = input[offset + i] ^ block[i];
+    offset += n;
+    counter += 1;
+  }
+  return output;
+}
+
+async function createCardWrapContext(): Promise<CardWrapContext | null> {
+  if (!globalThis.crypto?.getRandomValues) return null;
+  try {
+    const keys = p256.keygen();
+    const publicKey = p256.getPublicKey(keys.secretKey, false);
+    return {
+      request: { alg: "P256-HKDF-HMAC-XOR-V1", publicKey: bytesToBase64(publicKey) },
+      privateKey: keys.secretKey,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function decryptWrappedAesCardJson(
+  encrypted: WrappedAesCardJson,
+  context: CardWrapContext | null,
+): Promise<string> {
+  if (!context || encrypted.curve !== "P-256" || encrypted.kdf !== "HKDF-SHA256") {
+    throw new Error("missing_card_key_context");
+  }
+  if (!globalThis.crypto?.subtle) throw new Error("unsupported_card_encryption");
+  const serverPublicKey = await crypto.subtle.importKey(
+    "raw",
+    base64ToBytes(encrypted.serverPublicKey),
+    { name: "ECDH", namedCurve: "P-256" },
+    false,
+    [],
+  );
+  const clientPrivateKey = await crypto.subtle.importKey(
+    "raw",
+    context.privateKey,
+    { name: "ECDH", namedCurve: "P-256" },
+    false,
+    ["deriveBits"],
+  );
+  const shared = await crypto.subtle.deriveBits(
+    { name: "ECDH", public: serverPublicKey },
+    clientPrivateKey,
+    256,
+  );
+  const hkdfKey = await crypto.subtle.importKey("raw", shared, "HKDF", false, ["deriveKey"]);
+  const aesKey = await crypto.subtle.deriveKey(
+    {
+      name: "HKDF",
+      hash: "SHA-256",
+      salt: base64ToBytes(encrypted.salt),
+      info: CARD_KEY_INFO,
+    },
+    hkdfKey,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["decrypt"],
+  );
+  const data = base64ToBytes(encrypted.data);
+  const tag = base64ToBytes(encrypted.tag);
+  const sealed = new Uint8Array(data.length + tag.length);
+  sealed.set(data, 0);
+  sealed.set(tag, data.length);
+  const plain = await crypto.subtle.decrypt(
+    { name: "AES-GCM", iv: base64ToBytes(encrypted.iv), tagLength: 128 },
+    aesKey,
+    sealed,
+  );
+  return new TextDecoder().decode(plain);
+}
+
+function decryptWrappedHmacXorCardJson(
+  encrypted: WrappedHmacXorCardJson,
+  context: CardWrapContext | null,
+): string {
+  if (!context || encrypted.curve !== "P-256" || encrypted.kdf !== "HKDF-SHA256") {
+    throw new Error("missing_card_key_context");
+  }
+  const serverPublicKey = base64ToBytes(encrypted.serverPublicKey);
+  const sharedPoint = p256.getSharedSecret(context.privateKey, serverPublicKey, false);
+  const shared = sharedPoint.length === 65 && sharedPoint[0] === 0x04 ? sharedPoint.slice(1, 33) : sharedPoint;
+  const salt = base64ToBytes(encrypted.salt);
+  const material = hkdf(sha256, shared, salt, CARD_WRAP_INFO, 64);
+  const encKey = material.slice(0, 32);
+  const macKey = material.slice(32, 64);
+  const data = base64ToBytes(encrypted.data);
+  const expectedTag = hmac(sha256, macKey, concatBytes(salt, serverPublicKey, base64ToBytes(context.request.publicKey), data));
+  if (!equalBytes(expectedTag, base64ToBytes(encrypted.tag))) throw new Error("bad_card_tag");
+  return new TextDecoder().decode(hmacStreamXor(data, encKey));
+}
+
+async function decryptCardJson(
+  encrypted: EncryptedCardJson,
+  context: CardWrapContext | null = null,
+): Promise<string> {
+  if (encrypted.alg === "P256-HKDF-HMAC-XOR-V1") {
+    return decryptWrappedHmacXorCardJson(encrypted, context);
+  }
+  if (encrypted.alg === "ECDH-P256-AES-GCM-V1") {
+    return decryptWrappedAesCardJson(encrypted, context);
+  }
   if (encrypted.alg === "Nyaa-XOR-BASE64-V1") {
     const data = base64ToBytes(encrypted.data);
     const key = base64ToBytes(encrypted.key);
@@ -207,20 +372,33 @@ async function decryptCardJson(encrypted: EncryptedCardJson): Promise<string> {
   return new TextDecoder().decode(plain);
 }
 
-async function normalizeCard(card: WireAcquiredCard): Promise<AcquiredCard> {
+async function normalizeCard(
+  card: WireAcquiredCard,
+  context: CardWrapContext | null = null,
+): Promise<AcquiredCard> {
   if ("cardJson" in card) return card;
   return {
     ...card,
-    cardJson: await decryptCardJson(card.encryptedCardJson),
+    cardJson: await decryptCardJson(card.encryptedCardJson, context),
   };
 }
 
-async function normalizeAcquirePayload(payload: WireAcquirePayload): Promise<AcquirePayload> {
-  return { ...payload, card: await normalizeCard(payload.card) };
+async function normalizeAcquirePayload(
+  payload: WireAcquirePayload,
+  context: CardWrapContext | null = null,
+): Promise<AcquirePayload> {
+  return { ...payload, card: await normalizeCard(payload.card, context) };
 }
 
-async function normalizeCardPayload(payload: WireCardPayload): Promise<CardPayload> {
-  return { ...payload, card: await normalizeCard(payload.card) };
+async function normalizeCardPayload(
+  payload: WireCardPayload,
+  context: CardWrapContext | null = null,
+): Promise<CardPayload> {
+  return { ...payload, card: await normalizeCard(payload.card, context) };
+}
+
+function cardWrapUnavailable(): ApiResult<never> {
+  return { kind: "error", ok: false, error: "card_key_unavailable", status: 0 };
 }
 
 /** Fetch the (filtered, sorted) library listing. */
@@ -265,14 +443,16 @@ export async function acquireCharacter(
   globalId: string,
   mode: "use" | "buyout",
 ): Promise<ApiResult<AcquirePayload>> {
+  const cardWrap = await createCardWrapContext();
+  if (!cardWrap) return cardWrapUnavailable();
   const result = await request<WireAcquirePayload>(`/characters/${globalId}/acquire`, {
     method: "POST",
     token: token || undefined,
-    body: { mode },
+    body: { mode, cardWrap: cardWrap.request },
   });
   if (result.kind !== "ok") return result;
   try {
-    return { kind: "ok", ok: true, data: await normalizeAcquirePayload(result.data) };
+    return { kind: "ok", ok: true, data: await normalizeAcquirePayload(result.data, cardWrap) };
   } catch {
     return { kind: "error", ok: false, error: "decrypt_failed", status: 0 };
   }
@@ -311,10 +491,16 @@ export function fetchVersions(ids: string[]): Promise<ApiResult<VersionsPayload>
  *  bump downloads or settle anything. A 404 (kind:"error", status:404) means the
  *  card was deleted from the library and can no longer be updated. */
 export async function fetchCharacterCard(globalId: string): Promise<ApiResult<CardPayload>> {
-  const result = await request<WireCardPayload>(`/characters/${globalId}`);
+  const cardWrap = await createCardWrapContext();
+  if (!cardWrap) return cardWrapUnavailable();
+  const params = new URLSearchParams();
+  params.set("cardWrapAlg", cardWrap.request.alg);
+  params.set("cardPublicKey", cardWrap.request.publicKey);
+  const qs = params.toString();
+  const result = await request<WireCardPayload>(`/characters/${globalId}${qs ? `?${qs}` : ""}`);
   if (result.kind !== "ok") return result;
   try {
-    return { kind: "ok", ok: true, data: await normalizeCardPayload(result.data) };
+    return { kind: "ok", ok: true, data: await normalizeCardPayload(result.data, cardWrap) };
   } catch {
     return { kind: "error", ok: false, error: "decrypt_failed", status: 0 };
   }
