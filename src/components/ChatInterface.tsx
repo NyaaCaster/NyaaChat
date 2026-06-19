@@ -278,14 +278,15 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
   };
 
   useEffect(() => {
+    if (currentSession?.characterId === settings.currentCharacterId) return;
     setMessages(buildFirstMes(currentCharacter));
     // A new conversation must not inherit the previous one's transient
     // (chat/script/message) card variables. Global vars persist by design.
     resetTransientVariables();
-    // Intentionally only depends on the character ID, not the whole character
-    // object — editing a character's content shouldn't reset the live chat.
+    // Intentionally only depends on the character/session IDs, not the whole
+    // objects — editing a character or autosaving a session shouldn't reset chat.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings.currentCharacterId]);
+  }, [settings.currentCharacterId, currentSession?.characterId]);
 
   /**
    * Single source of truth for "send a turn to the model". Used by both

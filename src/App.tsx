@@ -342,6 +342,12 @@ const DEFAULT_SETTINGS: AppState = {
   mcpToolsEnabled: { get_current_time: true, get_weather: true, roll_coc: true, roll_dnd: true, web_search: false },
 };
 
+function findMostRecentSessionForCharacter(characterId: string): ChatSession | null {
+  // saveSession writes the latest touched session at the head; createdAt only
+  // records when a chat was first created, not when the user last used it.
+  return loadSessions().find((s) => s.characterId === characterId) ?? null;
+}
+
 export default function App() {
   const [settings, setSettings] = useState<AppState>(DEFAULT_SETTINGS);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -544,6 +550,36 @@ export default function App() {
     ]);
   };
 
+  const handleCharacterSelect = (id: string) => {
+    handleSaveSettings({
+      ...settings,
+      currentCharacterId: id,
+    });
+    setCurrentSession(findMostRecentSessionForCharacter(id));
+  };
+
+  const handleSelectSession = (session: ChatSession) => {
+    const linkedCharacter = settings.characters.find((c) => c.id === session.characterId)
+      ?? settings.characters.find((c) => c.name === session.characterName);
+    if (!linkedCharacter) {
+      setCurrentSession(session);
+      return;
+    }
+
+    const normalizedSession: ChatSession = {
+      ...session,
+      characterId: linkedCharacter.id,
+      characterName: linkedCharacter.name,
+    };
+    if (settings.currentCharacterId !== linkedCharacter.id) {
+      handleSaveSettings({
+        ...settings,
+        currentCharacterId: linkedCharacter.id,
+      });
+    }
+    setCurrentSession(normalizedSession);
+  };
+
   if (!isLoaded) return null; // or a loading spinner
 
   return (
@@ -605,6 +641,7 @@ export default function App() {
             onClose={() => setIsCharacterSelectionOpen(false)}
             settings={settings}
             onSave={handleSaveSettings}
+            onSelectCharacter={handleCharacterSelect}
           />
         )}
         {isChatHistoryOpen && (
@@ -612,7 +649,7 @@ export default function App() {
             isOpen={isChatHistoryOpen}
             onClose={() => setIsChatHistoryOpen(false)}
             currentSessionId={currentSession?.id ?? null}
-            onSelectSession={(session) => { setCurrentSession(session); }}
+            onSelectSession={handleSelectSession}
             onSessionsChange={() => setHistoryVersion((v) => v + 1)}
             onCurrentSessionDeleted={() => setCurrentSession(null)}
           />

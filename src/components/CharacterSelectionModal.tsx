@@ -24,6 +24,7 @@ interface CharacterSelectionModalProps {
   onClose: () => void;
   settings: AppState;
   onSave: (settings: AppState) => void;
+  onSelectCharacter?: (id: string) => void;
 }
 
 export function CharacterSelectionModal({
@@ -31,6 +32,7 @@ export function CharacterSelectionModal({
   onClose,
   settings,
   onSave,
+  onSelectCharacter,
 }: CharacterSelectionModalProps) {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingCharacter, setEditingCharacter] = useState<CharacterSettings | null>(null);
@@ -99,10 +101,14 @@ export function CharacterSelectionModal({
   }, [isOpen, settings.characters]);
 
   const handleSelectCharacter = (id: string) => {
-    onSave({
-      ...settings,
-      currentCharacterId: id,
-    });
+    if (onSelectCharacter) {
+      onSelectCharacter(id);
+    } else {
+      onSave({
+        ...settings,
+        currentCharacterId: id,
+      });
+    }
     onClose();
   };
 
