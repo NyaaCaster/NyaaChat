@@ -67,7 +67,6 @@ export interface BypassSettings {
   safetyStatement: boolean;
   creativeGuidance: boolean;
   disclaimer: boolean;
-  wordCountControl: boolean;
   customTemplates: {
     identityReset: string;
     scenarioFramework: string;
@@ -76,13 +75,27 @@ export interface BypassSettings {
     safetyStatement: string;
     creativeGuidance: string;
     disclaimer: string;
-    wordCountControl: string;
   };
-  /** RuleBreaker (OpusCheck) editable texts. Persisted so user edits survive
-   *  across sessions. Defaults live in lib/OpusCheckTemplates.ts. */
+  /** RuleBreaker (WordCheck) editable texts. Persisted so user edits survive
+   *  across sessions. Defaults live in lib/WordCheckTemplates.ts. */
   opusChecks: {
+    gemini31Check: string;
     opusCheck1: string;
     opusCheck2: string;
+  };
+  /** RosettaStone — first-party OUTPUT constraints. Standalone module, NOT a
+   *  bypass: independent of `enabled` (ClavisSalomonis), each entry toggled on
+   *  its own. Enabled+non-empty entries are merged into the dynamic tail's
+   *  <output_constraints> block (see lib/chatPipeline.ts). Editable-text
+   *  defaults live in lib/WordCountTemplates.ts (keyed by WordCountKey).
+   *  `wordCount` defaults off; `languageConstraint` defaults on. */
+  wordCount: {
+    enabled: boolean;
+    template: string;
+  };
+  languageConstraint: {
+    enabled: boolean;
+    template: string;
   };
 }
 

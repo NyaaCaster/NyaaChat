@@ -461,14 +461,34 @@ export function buildRequestMessages(args: BuildRequestArgs): ApiMessage[] {
     if (rules) tailParts.push(rules);
   }
 
-  const tailMessages: ApiMessage[] = tailParts.length
-    ? [
-        {
-          role: "system",
-          content: `<session_rules>\n${tailParts.join("\n\n")}\n</session_rules>`,
-        },
-      ]
-    : [];
+  const tailMessages: ApiMessage[] = (() => {
+    const blocks: string[] = [];
+    if (tailParts.length) {
+      blocks.push(`<session_rules>\n${tailParts.join("\n\n")}\n</session_rules>`);
+    }
+    // RosettaStone: first-party OUTPUT constraints (字数控制 + 语言约束) —
+    // independent of ClavisSalomonis (bypass.enabled) and of world info. They
+    // live at the generation point (recency) and ride the SAME single trailing
+    // system message as <session_rules> via one shared <output_constraints>
+    // block. One trailing system message is an invariant api.ts depends on
+    // (foldTailSystemIntoLatestUser folds exactly one, and refuses when two
+    // systems are adjacent) — emitting a second trailing system would break the
+    // non-Opus downgrade fold. Soft directives: phrased to yield to the user's
+    // latest turn (standard §6.3); not scene rules, so they stay out of
+    // <session_rules> and its mediation clause.
+    const rosettaTexts = [
+      settings.bypass?.wordCount,
+      settings.bypass?.languageConstraint,
+    ]
+      .filter((e) => e?.enabled && e.template?.trim())
+      .map((e) => applyPlaceholders(e!.template, userName, charName));
+    if (rosettaTexts.length) {
+      blocks.push(`<output_constraints>\n${rosettaTexts.join("\n\n")}\n</output_constraints>`);
+    }
+    return blocks.length
+      ? [{ role: "system", content: blocks.join("\n\n") } as ApiMessage]
+      : [];
+  })();
 
   return injectBypassPrompts(
     [...systemMessages, ...history, ...tailMessages],

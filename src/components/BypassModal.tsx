@@ -3,7 +3,8 @@ import { Flame, X, Edit2, Download, Upload, RotateCcw } from 'lucide-react';
 import { AppState } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { bypassTemplates } from '../lib/bypassTemplates';
-import { opusCheckTemplates, OpusCheckKey } from '../lib/OpusCheckTemplates';
+import { wordCheckTemplates, WordCheckKey } from '../lib/WordCheckTemplates';
+import { wordCountTemplates, WordCountKey } from '../lib/WordCountTemplates';
 import { BaseModal } from './BaseModal';
 import { ConfirmDialog } from './ConfirmDialog';
 
@@ -22,12 +23,20 @@ export function BypassModal({ isOpen, onClose, settings, onSave, onSendMessage }
   const [editingTemplate, setEditingTemplate] = React.useState<string | null>(null);
   const [importMessage, setImportMessage] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
   const [pendingReset, setPendingReset] = useState(false);
-  // RuleBreaker (OpusCheck) — the editable texts live in
+  // RuleBreaker (WordCheck) — the editable texts live in
   // localSettings.bypass.opusChecks so they persist on 保存配置. Only the
   // mutually-exclusive "which editor is open" flag is transient local UI
   // state (null = none open).
-  const [editingOpus, setEditingOpus] = useState<OpusCheckKey | null>(null);
-  const [pendingOpusReset, setPendingOpusReset] = useState(false);
+  const [editingOpus, setEditingOpus] = useState<WordCheckKey | null>(null);
+  // Per-entry reset is now independent: this holds WHICH entry has a pending
+  // reset confirmation (null = none), replacing the old single shared button.
+  const [pendingOpusReset, setPendingOpusReset] = useState<WordCheckKey | null>(null);
+  // RosettaStone — each entry's enabled flag + editable text live in
+  // localSettings.bypass[key] so they persist on 保存配置; only "which editor
+  // is open" and "which entry's reset is pending" are transient UI state
+  // (null = none).
+  const [editingRosetta, setEditingRosetta] = useState<WordCountKey | null>(null);
+  const [pendingRosettaReset, setPendingRosettaReset] = useState<WordCountKey | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const opusTexts = localSettings.bypass.opusChecks;
@@ -37,6 +46,7 @@ export function BypassModal({ isOpen, onClose, settings, onSave, onSendMessage }
     setEditingTemplate(null);
     setImportMessage(null);
     setEditingOpus(null);
+    setEditingRosetta(null);
   }, [settings, isOpen]);
 
   const handleBypassChange = (field: keyof AppState['bypass'], value: string | boolean) => {
@@ -104,7 +114,7 @@ export function BypassModal({ isOpen, onClose, settings, onSave, onSendMessage }
           throw new Error('Invalid format');
         }
 
-        const requiredKeys = ['identityReset', 'scenarioFramework', 'aiSelfPersuasion', 'roleplayInduction', 'safetyStatement', 'creativeGuidance', 'disclaimer', 'wordCountControl'];
+        const requiredKeys = ['identityReset', 'scenarioFramework', 'aiSelfPersuasion', 'roleplayInduction', 'safetyStatement', 'creativeGuidance', 'disclaimer'];
         for (const key of requiredKeys) {
           if (typeof parsed.customTemplates[key] !== 'string') {
             throw new Error(`Missing or invalid key: ${key}`);
@@ -146,14 +156,13 @@ export function BypassModal({ isOpen, onClose, settings, onSave, onSendMessage }
           safetyStatement: bypassTemplates.safetyStatement.content,
           creativeGuidance: bypassTemplates.creativeGuidance.content,
           disclaimer: bypassTemplates.disclaimer.content,
-          wordCountControl: bypassTemplates.wordCountControl.content,
         }
       }
     }));
     setPendingReset(false);
   };
 
-  const handleOpusTextChange = (key: OpusCheckKey, value: string) => {
+  const handleOpusTextChange = (key: WordCheckKey, value: string) => {
     setLocalSettings(prev => ({
       ...prev,
       bypass: {
@@ -163,24 +172,53 @@ export function BypassModal({ isOpen, onClose, settings, onSave, onSendMessage }
     }));
   };
 
+  // Reset a SINGLE RuleBreaker entry back to its default text. The entry is
+  // identified by `pendingOpusReset`; each row owns its own reset button.
   const handleOpusResetConfirm = () => {
+    const key = pendingOpusReset;
+    if (!key) return;
     setLocalSettings(prev => ({
       ...prev,
       bypass: {
         ...prev.bypass,
-        opusChecks: {
-          opusCheck1: opusCheckTemplates.opusCheck1.content,
-          opusCheck2: opusCheckTemplates.opusCheck2.content,
-        },
+        opusChecks: { ...prev.bypass.opusChecks, [key]: wordCheckTemplates[key].content },
       },
     }));
-    setPendingOpusReset(false);
+    setPendingOpusReset(null);
   };
 
-  // Clicking an OpusCheck button (not its edit icon) closes the modal and
+  // RosettaStone handlers — keyed by entry (wordCount / languageConstraint).
+  const handleRosettaChange = (
+    key: WordCountKey,
+    field: 'enabled' | 'template',
+    value: boolean | string,
+  ) => {
+    setLocalSettings(prev => ({
+      ...prev,
+      bypass: {
+        ...prev.bypass,
+        [key]: { ...prev.bypass[key], [field]: value },
+      },
+    }));
+  };
+
+  const handleRosettaResetConfirm = () => {
+    const key = pendingRosettaReset;
+    if (!key) return;
+    setLocalSettings(prev => ({
+      ...prev,
+      bypass: {
+        ...prev.bypass,
+        [key]: { ...prev.bypass[key], template: wordCountTemplates[key].content },
+      },
+    }));
+    setPendingRosettaReset(null);
+  };
+
+  // Clicking a WordCheck button (not its edit icon) closes the modal and
   // sends the corresponding text as the user in the active chat. No-op when
   // the text is empty or no send handler is wired.
-  const handleOpusSend = (key: OpusCheckKey) => {
+  const handleOpusSend = (key: WordCheckKey) => {
     const text = opusTexts[key];
     if (!text.trim() || !onSendMessage) return;
     onClose();
@@ -215,38 +253,116 @@ export function BypassModal({ isOpen, onClose, settings, onSave, onSendMessage }
       >
         <div className="p-6 sm:p-8 space-y-6">
           <section className="space-y-4">
-            {/* RuleBreaker — OpusCheck1 / OpusCheck2 文本编辑，无开关。 */}
+            {/* RosettaStone — first-party OUTPUT constraints (字数控制 +
+                语言约束), independent of ClavisSalomonis. Each entry: toggle +
+                edit + 重置 (its own icon button, inline). */}
+            <div className="space-y-6 p-5 sm:p-6 bg-red-50/50 dark:bg-red-500/5 rounded-2xl border border-red-100 dark:border-red-500/10">
+              <h4 className="text-base font-semibold tracking-tight text-red-700 dark:text-red-400" style={{ fontFamily: 'var(--font-display)' }}>
+                RosettaStone
+              </h4>
+              <div className="space-y-3">
+                {(['wordCount', 'languageConstraint'] as WordCountKey[]).map((key) => (
+                  <div key={key} className="flex flex-col bg-white/50 dark:bg-white/5 rounded-xl transition-colors">
+                    <div className="flex items-center justify-between p-2.5">
+                      <label className="flex items-center space-x-3 cursor-pointer group flex-1">
+                        <div className="relative flex items-center justify-center w-5 h-5">
+                          <input
+                            type="checkbox"
+                            checked={localSettings.bypass[key].enabled}
+                            onChange={(e) => handleRosettaChange(key, 'enabled', e.target.checked)}
+                            className="peer sr-only"
+                          />
+                          <div className="w-5 h-5 rounded-[6px] border-2 border-red-300 dark:border-red-500/50 peer-checked:bg-red-500 peer-checked:border-red-500 group-hover:border-red-400 transition-colors"></div>
+                          <svg className="absolute w-3.5 h-3.5 text-white scale-0 peer-checked:scale-100 transition-transform pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                          </svg>
+                        </div>
+                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{wordCountTemplates[key].label}</span>
+                      </label>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          onClick={() => setPendingRosettaReset(key)}
+                          className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/10 transition-colors"
+                          title="恢复默认"
+                        >
+                          <RotateCcw size={16} />
+                        </button>
+                        <button
+                          onClick={() => setEditingRosetta(prev => (prev === key ? null : key))}
+                          className={`p-1.5 rounded-lg transition-colors ${editingRosetta === key ? 'bg-red-100 text-red-600 dark:bg-red-500/20 dark:text-red-400' : 'text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/10'}`}
+                          title="编辑提示词模板"
+                        >
+                          {editingRosetta === key ? <X size={16} /> : <Edit2 size={16} />}
+                        </button>
+                      </div>
+                    </div>
+                    <AnimatePresence>
+                      {editingRosetta === key && (
+                        <motion.div
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: 'auto', opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          className="overflow-hidden"
+                        >
+                          <div className="px-3 pb-3 border-t border-gray-100 dark:border-white/5 pt-2">
+                            <textarea
+                              value={localSettings.bypass[key].template}
+                              onChange={(e) => handleRosettaChange(key, 'template', e.target.value)}
+                              className="w-full h-32 px-3 py-2 text-xs font-mono bg-white dark:bg-[#111111] border border-gray-200 dark:border-white/10 rounded-lg text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-red-500 resize-none transition-colors"
+                              placeholder="请输入提示词模板..."
+                            />
+                            <p className="text-[10px] text-gray-500 mt-1.5 flex justify-between">
+                              <span>支持变量: <code className="bg-gray-100 dark:bg-white/10 px-1 py-0.5 rounded text-red-600 dark:text-red-400">{`{{char}}`}</code>, <code className="bg-gray-100 dark:bg-white/10 px-1 py-0.5 rounded text-red-600 dark:text-red-400">{`{{user}}`}</code></span>
+                            </p>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                ))}
+              </div>
+            </div>
+            {/* RuleBreaker — Gemini31Check / OpusCheck1 / OpusCheck2 文本编辑，无开关。 */}
             <div className="space-y-6 p-5 sm:p-6 bg-red-50/50 dark:bg-red-500/5 rounded-2xl border border-red-100 dark:border-red-500/10">
               <h4 className="text-base font-semibold tracking-tight text-red-700 dark:text-red-400" style={{ fontFamily: 'var(--font-display)' }}>
                 RuleBreaker
               </h4>
               <div className="space-y-3">
                 {([
-                  { key: 'opusCheck1' as OpusCheckKey, label: opusCheckTemplates.opusCheck1.label },
-                  { key: 'opusCheck2' as OpusCheckKey, label: opusCheckTemplates.opusCheck2.label },
+                  { key: 'gemini31Check' as WordCheckKey, label: wordCheckTemplates.gemini31Check.label },
+                  { key: 'opusCheck1' as WordCheckKey, label: wordCheckTemplates.opusCheck1.label },
+                  { key: 'opusCheck2' as WordCheckKey, label: wordCheckTemplates.opusCheck2.label },
                 ]).map((item) => (
-                  <div key={item.key} className="flex items-center justify-between p-2.5 bg-white/50 dark:bg-white/5 rounded-xl">
+                  <div key={item.key} className="flex items-center justify-between gap-1 p-2.5 bg-white/50 dark:bg-white/5 rounded-xl">
                     <button
                       onClick={() => handleOpusSend(item.key)}
-                      disabled={!opusTexts[item.key].trim()}
-                      className="flex-1 text-left text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-red-600 dark:hover:text-red-400 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-gray-700 dark:disabled:hover:text-gray-300"
+                      className="flex-1 text-left text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-red-600 dark:hover:text-red-400 transition-colors"
                       title="发送此文本到当前对话"
                     >
                       {item.label}
                     </button>
-                    <button
-                      onClick={() => setEditingOpus(prev => (prev === item.key ? null : item.key))}
-                      className={`p-1.5 rounded-lg transition-colors ${editingOpus === item.key ? 'bg-red-100 text-red-600 dark:bg-red-500/20 dark:text-red-400' : 'text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/10'}`}
-                      title="编辑文本"
-                    >
-                      {editingOpus === item.key ? <X size={16} /> : <Edit2 size={16} />}
-                    </button>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        onClick={() => setPendingOpusReset(item.key)}
+                        className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/10 transition-colors"
+                        title="恢复默认文本"
+                      >
+                        <RotateCcw size={16} />
+                      </button>
+                      <button
+                        onClick={() => setEditingOpus(prev => (prev === item.key ? null : item.key))}
+                        className={`p-1.5 rounded-lg transition-colors ${editingOpus === item.key ? 'bg-red-100 text-red-600 dark:bg-red-500/20 dark:text-red-400' : 'text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/10'}`}
+                        title="编辑文本"
+                      >
+                        {editingOpus === item.key ? <X size={16} /> : <Edit2 size={16} />}
+                      </button>
+                    </div>
                   </div>
                 ))}
                 <p className="text-xs text-gray-500 dark:text-gray-400 px-1 leading-relaxed">
                   opusCheck1 用于 o4.8，如果无效，切换到 o4.7 使用 opusCheck2
                 </p>
-                {/* 互斥编辑框：两个按钮共用此位置，editingOpus 决定显示哪一段。 */}
+                {/* 互斥编辑框：所有按钮共用此位置，editingOpus 决定显示哪一段。 */}
                 <AnimatePresence mode="wait">
                   {editingOpus && (
                     <motion.div
@@ -265,16 +381,6 @@ export function BypassModal({ isOpen, onClose, settings, onSave, onSendMessage }
                     </motion.div>
                   )}
                 </AnimatePresence>
-              </div>
-              <div className="flex justify-end">
-                <button
-                  onClick={() => setPendingOpusReset(true)}
-                  className="px-3 py-2.5 text-gray-500 bg-white dark:bg-[#1A1A1A] border border-gray-200 dark:border-white/10 hover:bg-gray-50 dark:hover:bg-white/5 rounded-xl transition-colors flex items-center gap-2 text-sm font-medium"
-                  title="恢复默认"
-                >
-                  <RotateCcw size={16} />
-                  <span>重置</span>
-                </button>
               </div>
             </div>
             <div className="space-y-6 p-5 sm:p-6 bg-red-50/50 dark:bg-red-500/5 rounded-2xl border border-red-100 dark:border-red-500/10">
@@ -361,7 +467,6 @@ export function BypassModal({ isOpen, onClose, settings, onSave, onSendMessage }
                         { id: 'safetyStatement', label: 'Safety Statement (安全伪装)' },
                         { id: 'creativeGuidance', label: 'Creative Guidance (创作引导)' },
                         { id: 'disclaimer', label: 'Disclaimer (免责声明)' },
-                        { id: 'wordCountControl', label: 'Word Count (字数控制)' },
                       ].map((item) => (
                         <div key={item.id} className="flex flex-col bg-white/50 dark:bg-white/5 rounded-xl transition-colors">
                           <div className="flex items-center justify-between p-2.5">
@@ -433,13 +538,23 @@ export function BypassModal({ isOpen, onClose, settings, onSave, onSendMessage }
       />
 
       <ConfirmDialog
-        isOpen={pendingOpusReset}
+        isOpen={!!pendingOpusReset}
         title="恢复默认文本"
-        message="确定要将 OpusCheck1 / OpusCheck2 恢复为默认文本吗？当前修改过的内容将被覆盖。"
+        message={`确定要将 ${pendingOpusReset ? wordCheckTemplates[pendingOpusReset].label : ''} 恢复为默认文本吗？当前修改过的内容将被覆盖。`}
         destructive
         confirmText="恢复"
         onConfirm={handleOpusResetConfirm}
-        onCancel={() => setPendingOpusReset(false)}
+        onCancel={() => setPendingOpusReset(null)}
+      />
+
+      <ConfirmDialog
+        isOpen={!!pendingRosettaReset}
+        title="恢复默认模板"
+        message={`确定要将 ${pendingRosettaReset ? wordCountTemplates[pendingRosettaReset].label : ''} 恢复为默认模板吗？当前自定义的内容将被覆盖。`}
+        destructive
+        confirmText="恢复"
+        onConfirm={handleRosettaResetConfirm}
+        onCancel={() => setPendingRosettaReset(null)}
       />
     </>
   );

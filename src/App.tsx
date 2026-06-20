@@ -7,7 +7,8 @@ import React, { useState, useEffect, lazy, Suspense, useRef } from "react";
 import { AppState, LogEntry } from "./types";
 import { ChatInterface, type ChatInterfaceHandle } from "./components/ChatInterface";
 import { bypassTemplates } from "./lib/bypassTemplates";
-import { opusCheckTemplates } from "./lib/OpusCheckTemplates";
+import { wordCheckTemplates } from "./lib/WordCheckTemplates";
+import { wordCountTemplates } from "./lib/WordCountTemplates";
 import { createDefaultImageProviders, createDefaultLlmProviders, inferProvider } from "./lib/providers";
 import { newId } from "./lib/id";
 import { loadLastSessionId, loadSessions, saveLastSessionId } from "./lib/sessionStorage";
@@ -298,7 +299,6 @@ const DEFAULT_SETTINGS: AppState = {
     safetyStatement: true,
     creativeGuidance: false,
     disclaimer: false,
-    wordCountControl: true,
     templateName: "默认模板",
     customTemplates: {
       identityReset: bypassTemplates.identityReset.content,
@@ -308,11 +308,22 @@ const DEFAULT_SETTINGS: AppState = {
       safetyStatement: bypassTemplates.safetyStatement.content,
       creativeGuidance: bypassTemplates.creativeGuidance.content,
       disclaimer: bypassTemplates.disclaimer.content,
-      wordCountControl: bypassTemplates.wordCountControl.content,
     },
     opusChecks: {
-      opusCheck1: opusCheckTemplates.opusCheck1.content,
-      opusCheck2: opusCheckTemplates.opusCheck2.content,
+      gemini31Check: wordCheckTemplates.gemini31Check.content,
+      opusCheck1: wordCheckTemplates.opusCheck1.content,
+      opusCheck2: wordCheckTemplates.opusCheck2.content,
+    },
+    // RosettaStone — standalone output constraints (independent of the
+    // ClavisSalomonis `enabled` switch above). 字数控制 default off,
+    // 语言约束 default on.
+    wordCount: {
+      enabled: false,
+      template: wordCountTemplates.wordCount.content,
+    },
+    languageConstraint: {
+      enabled: true,
+      template: wordCountTemplates.languageConstraint.content,
     },
   },
   userRoles: [
@@ -398,17 +409,39 @@ export default function App() {
     if (saved) {
       try {
         const parsed = migrate(JSON.parse(saved));
+        // Strip obsolete `wordCountControl` keys (boolean on bypass, string on
+        // customTemplates) that legacy saves carry — they moved to `wordCount`
+        // and would otherwise linger via the spreads below and get re-persisted.
+        const { wordCountControl: _legacyWcOn, ...legacyBypass } = (parsed.bypass ?? {}) as any;
+        const { wordCountControl: _legacyWcTpl, ...legacyCustomTemplates } =
+          (parsed.bypass?.customTemplates ?? {}) as any;
         setSettings({
           bypass: {
             ...DEFAULT_SETTINGS.bypass,
-            ...parsed.bypass,
+            ...legacyBypass,
             customTemplates: {
               ...DEFAULT_SETTINGS.bypass.customTemplates,
-              ...(parsed.bypass?.customTemplates || {}),
+              ...legacyCustomTemplates,
             },
             opusChecks: {
               ...DEFAULT_SETTINGS.bypass.opusChecks,
               ...(parsed.bypass?.opusChecks || {}),
+            },
+            // RosettaStone output constraints. Legacy saves had no `wordCount`
+            // (defaults off) and never had `languageConstraint` (defaults on).
+            // Carry over a legacy edited word-count template (was
+            // customTemplates.wordCountControl) so prior edits survive; the
+            // legacy on/off boolean is intentionally dropped.
+            wordCount: {
+              ...DEFAULT_SETTINGS.bypass.wordCount,
+              ...(parsed.bypass?.customTemplates?.wordCountControl
+                ? { template: parsed.bypass.customTemplates.wordCountControl }
+                : {}),
+              ...(parsed.bypass?.wordCount || {}),
+            },
+            languageConstraint: {
+              ...DEFAULT_SETTINGS.bypass.languageConstraint,
+              ...(parsed.bypass?.languageConstraint || {}),
             },
           },
           userRoles: (() => {
