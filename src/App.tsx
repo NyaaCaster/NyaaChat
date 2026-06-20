@@ -54,7 +54,7 @@ export type ConnectionStatus = "disconnected" | "connecting" | "connected";
 // with per-provider apiKey/baseUrl/models. The legacy single-endpoint `api`
 // and `imageApi` blocks are retained on AppState during the transition until
 // chatPipeline is switched over (phase 3).
-const SCHEMA_VERSION = 7;
+const SCHEMA_VERSION = 8;
 
 function migrate(raw: any): any {
   if (!raw || typeof raw !== "object") return raw;
@@ -78,8 +78,27 @@ function migrate(raw: any): any {
   if (v < 7) {
     raw = migrateV6ToV7(raw);
   }
+  if (v < 8) {
+    raw = migrateV7ToV8(raw);
+  }
 
   return raw;
+}
+
+/**
+ * v7 → v8: ClavisSalomonis 的入口已从 UI 下线（见 BypassModal.tsx），存量客户端
+ * 若此前开启过该机制，其 `bypass.enabled` 仍会留存在 localStorage 中且无界面可关。
+ * 该迁移在每个客户端下次加载配置时统一将其强制置为 false，使其被动失效。
+ * RosettaStone / RuleBreaker 等同弹窗内的独立模块不受影响。
+ */
+function migrateV7ToV8(raw: any): any {
+  const bypass =
+    raw.bypass && typeof raw.bypass === "object" ? raw.bypass : {};
+  return {
+    ...raw,
+    bypass: { ...bypass, enabled: false },
+    _version: 8,
+  };
 }
 
 /**

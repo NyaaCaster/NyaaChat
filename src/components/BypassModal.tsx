@@ -383,6 +383,9 @@ export function BypassModal({ isOpen, onClose, settings, onSave, onSendMessage }
                 </AnimatePresence>
               </div>
             </div>
+            {/* ClavisSalomonis 模块已按需隐藏，对用户不可见。整块以 JSX 注释保留，
+                便于将来恢复——届时删除本块外层的注释包裹即可，内部逻辑未改动。 */}
+            {/*
             <div className="space-y-6 p-5 sm:p-6 bg-red-50/50 dark:bg-red-500/5 rounded-2xl border border-red-100 dark:border-red-500/10">
               <div className="flex items-center justify-between gap-4">
                 <h4 className="text-base font-semibold tracking-tight text-red-700 dark:text-red-400" style={{ fontFamily: 'var(--font-display)' }}>
@@ -523,6 +526,7 @@ export function BypassModal({ isOpen, onClose, settings, onSave, onSendMessage }
                 )}
               </AnimatePresence>
             </div>
+            */}
           </section>
         </div>
       </BaseModal>
