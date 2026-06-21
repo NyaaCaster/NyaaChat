@@ -385,7 +385,7 @@ const DEFAULT_SETTINGS: AppState = {
   sendMode: "ctrlEnter",
   isMcpEnabled: true,
   mcpUserCity: null,
-  mcpToolsEnabled: { get_current_time: true, get_weather: true, roll_coc: true, roll_dnd: true, web_search: false },
+  mcpToolsEnabled: { get_current_time: false, get_weather: false, roll_coc: false, roll_dnd: false, web_search: false },
 };
 
 function findMostRecentSessionForCharacter(characterId: string): ChatSession | null {

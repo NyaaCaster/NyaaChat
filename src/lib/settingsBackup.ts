@@ -232,7 +232,7 @@ function validateImportPayload(raw: unknown): ImportResult {
     typeof filled.mcpToolsEnabled !== "object" ||
     Array.isArray(filled.mcpToolsEnabled)
   ) {
-    filled.mcpToolsEnabled = { get_current_time: true, get_weather: true, roll_coc: true, roll_dnd: true, web_search: false };
+    filled.mcpToolsEnabled = { get_current_time: false, get_weather: false, roll_coc: false, roll_dnd: false, web_search: false };
   } else if (!("web_search" in (filled.mcpToolsEnabled as Record<string, boolean>))) {
     // Backups written before web_search joined the tool list lack the key;
     // missing keys read as enabled, but this tool must default to OFF.
