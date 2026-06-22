@@ -25,6 +25,13 @@ export default defineConfig(({mode}) => {
     define: {
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
       __APP_VERSION__: JSON.stringify(readAppVersion()),
+      // Non-secret display label for the fixed ComfyUI provider. The real
+      // server URL is NOT injected here — it stays server-side via the nginx
+      // /api/comfyui/fixed reverse proxy (envsubst), so it never lands in the
+      // frontend bundle.
+      __COMFYUI_FIXED_NAME__: JSON.stringify(env.COMFYUI_FIXED_NAME || 'NyaaComfyUI'),
+      // Non-secret description shown under the fixed ComfyUI provider's name.
+      __COMFYUI_FIXED_DESC__: JSON.stringify(env.COMFYUI_FIXED_DESC || ''),
     },
     resolve: {
       alias: {
@@ -46,6 +53,27 @@ export default defineConfig(({mode}) => {
           changeOrigin: true,
           rewrite: (p) => p.replace(/^\/api\/search/, '/search'),
         },
+        // Dev-mode mirror of nginx's /api/comfyui/fixed reverse proxy so the
+        // fixed ComfyUI server is reachable under `npm run dev`. ws:true lets
+        // the WebSocket progress channel (/ws) tunnel through. Only wired when
+        // COMFYUI_FIXED_URL is set in .env.
+        ...(env.COMFYUI_FIXED_URL
+          ? {
+              '/api/comfyui/fixed': {
+                target: env.COMFYUI_FIXED_URL,
+                changeOrigin: true,
+                ws: true,
+                rewrite: (p: string) => p.replace(/^\/api\/comfyui\/fixed/, ''),
+                // Mirror nginx's server-side auth injection so `npm run dev`
+                // also authenticates against the fixed ComfyUI server. The
+                // token stays in the dev (node) process — never shipped to the
+                // browser. Only sent when COMFYUI_FIXED_TOKEN is set.
+                ...(env.COMFYUI_FIXED_TOKEN
+                  ? { headers: { Authorization: `Bearer ${env.COMFYUI_FIXED_TOKEN}` } }
+                  : {}),
+              },
+            }
+          : {}),
       },
     },
   };

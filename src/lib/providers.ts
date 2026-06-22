@@ -1,4 +1,4 @@
-import { ApiFormat, ApiProvider, ApiSettings, AppState, ImageApiSettings, ImageProvider, LlmProvider, LlmProviderKind } from "../types";
+import { ApiFormat, ApiProvider, ApiSettings, AppState, ComfyImageSize, ImageApiSettings, ImageProvider, ImageProviderKind, LlmProvider, LlmProviderKind } from "../types";
 
 /**
  * Best-effort detection of provider from existing baseUrl/apiFormat.
@@ -153,11 +153,54 @@ export function createDefaultLlmProviders(): LlmProvider[] {
 }
 
 export interface ImageProviderPresetMeta {
-  kind: "qiny" | "comfyui";
+  kind: ImageProviderKind;
   name: string;
   baseUrl: string;
-  /** ComfyUI is a placeholder ("尽请期待") and must not be enabled. */
   selectable: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// ComfyUI defaults & workflow registry. The fixed server's display name comes
+// from COMFYUI_FIXED_NAME via the __COMFYUI_FIXED_NAME__ build-time define
+// (non-secret label); its real URL is never bundled — the frontend always
+// talks to same-origin /api/comfyui/fixed/* which nginx proxies.
+// ---------------------------------------------------------------------------
+
+export const COMFYUI_FIXED_NAME: string =
+  typeof __COMFYUI_FIXED_NAME__ !== "undefined" && __COMFYUI_FIXED_NAME__
+    ? __COMFYUI_FIXED_NAME__
+    : "NyaaComfyUI";
+
+/** Small description shown under the fixed ComfyUI provider name. Configured
+ *  via COMFYUI_FIXED_DESC in .env; empty string when unset. Non-secret. */
+export const COMFYUI_FIXED_DESC: string =
+  typeof __COMFYUI_FIXED_DESC__ !== "undefined" && __COMFYUI_FIXED_DESC__
+    ? __COMFYUI_FIXED_DESC__
+    : "";
+
+export const DEFAULT_COMFY_SIZE: ComfyImageSize = "1024x1024";
+export const DEFAULT_COMFY_WORKFLOW_ID = "anima2d";
+export const DEFAULT_COMFY_ART_STYLE = "风格4.5.2";
+
+export interface ComfyWorkflowMeta {
+  id: string;
+  /** Display label — also the "model" name shown in the composer picker. */
+  name: string;
+  /** Public path of the API-format workflow json; empty when disabled. */
+  file: string;
+  disabled?: boolean;
+}
+
+export const COMFY_WORKFLOWS: ComfyWorkflowMeta[] = [
+  { id: "anima2d", name: "Anima2D", file: "/comfyui/Anima-Nyaa.api.json" },
+  { id: "real", name: "真人", file: "", disabled: true },
+];
+
+export function comfyWorkflowById(id: string | undefined): ComfyWorkflowMeta {
+  return (
+    COMFY_WORKFLOWS.find((w) => w.id === id) ??
+    COMFY_WORKFLOWS.find((w) => w.id === DEFAULT_COMFY_WORKFLOW_ID)!
+  );
 }
 
 export const IMAGE_PROVIDER_PRESETS: ImageProviderPresetMeta[] = [
@@ -168,24 +211,50 @@ export const IMAGE_PROVIDER_PRESETS: ImageProviderPresetMeta[] = [
     selectable: true,
   },
   {
-    kind: "comfyui",
-    name: "ComfyUI",
-    baseUrl: "",
-    selectable: false,
+    kind: "comfyui-fixed",
+    name: COMFYUI_FIXED_NAME,
+    baseUrl: "", // same-origin /api/comfyui/fixed; real URL never stored client-side
+    selectable: true,
   },
 ];
 
+/**
+ * Build the comfy-specific default fields for a ComfyUI provider. The selected
+ * workflow is mirrored into `models` / `lastUsedModel` so the composer's
+ * generic provider picker (which keys off models[]) lists it like any other
+ * image model.
+ */
+export function defaultComfyFields(): Pick<
+  ImageProvider,
+  "comfySize" | "comfyWorkflowId" | "comfyArtStyle" | "models" | "lastUsedModel"
+> {
+  const wf = comfyWorkflowById(DEFAULT_COMFY_WORKFLOW_ID);
+  return {
+    comfySize: DEFAULT_COMFY_SIZE,
+    comfyWorkflowId: wf.id,
+    comfyArtStyle: DEFAULT_COMFY_ART_STYLE,
+    models: [{ id: wf.name }],
+    lastUsedModel: wf.name,
+  };
+}
+
 export function createDefaultImageProviders(): ImageProvider[] {
-  return IMAGE_PROVIDER_PRESETS.map((preset) => ({
-    id: preset.kind,
-    kind: preset.kind,
-    name: preset.name,
-    enabled: false,
-    apiKey: "",
-    baseUrl: preset.baseUrl,
-    models: [],
-    size: "default",
-  }));
+  return IMAGE_PROVIDER_PRESETS.map((preset) => {
+    const base: ImageProvider = {
+      id: preset.kind,
+      kind: preset.kind,
+      name: preset.name,
+      enabled: false,
+      apiKey: "",
+      baseUrl: preset.baseUrl,
+      models: [],
+      size: "default",
+    };
+    if (preset.kind === "comfyui-fixed" || preset.kind === "comfyui-custom") {
+      return { ...base, ...defaultComfyFields() };
+    }
+    return base;
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -219,9 +288,11 @@ export function providerToApiSettings(
 }
 
 /**
- * Map an ImageProvider (v2) to the legacy ImageApiSettings (v1) shape used
- * by generateImage. Only the QinyAPI-compatible OpenAI-format kind has a
- * working call path today; ComfyUI is a placeholder.
+ * Map an ImageProvider (v2) to the legacy ImageApiSettings (v1) shape used by
+ * generateImage. This path only covers the OpenAI-compatible kinds (`qiny` and
+ * `openai-custom`) — both POST to an OpenAI-format chat/completions endpoint,
+ * so the legacy `provider` enum is set to "qiny" for either. ComfyUI kinds use
+ * the dedicated comfyuiApi path instead and never reach this helper.
  */
 export function imageProviderToApiSettings(
   provider: ImageProvider,
@@ -229,7 +300,7 @@ export function imageProviderToApiSettings(
 ): ImageApiSettings {
   return {
     enabled: provider.enabled,
-    provider: provider.kind,
+    provider: "qiny",
     apiKey: provider.apiKey,
     model: modelId ?? provider.lastUsedModel ?? provider.models[0]?.id ?? "",
     size: provider.size ?? "default",

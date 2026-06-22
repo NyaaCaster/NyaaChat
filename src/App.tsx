@@ -9,7 +9,7 @@ import { ChatInterface, type ChatInterfaceHandle } from "./components/ChatInterf
 import { bypassTemplates } from "./lib/bypassTemplates";
 import { wordCheckTemplates } from "./lib/WordCheckTemplates";
 import { wordCountTemplates } from "./lib/WordCountTemplates";
-import { createDefaultImageProviders, createDefaultLlmProviders, inferProvider } from "./lib/providers";
+import { COMFYUI_FIXED_NAME, createDefaultImageProviders, createDefaultLlmProviders, defaultComfyFields, inferProvider } from "./lib/providers";
 import { newId } from "./lib/id";
 import { loadLastSessionId, loadSessions, saveLastSessionId } from "./lib/sessionStorage";
 import { ChatSession, LlmProvider, ImageProvider, LlmProviderKind } from "./types";
@@ -287,6 +287,54 @@ function migrateV1ToV2(raw: any): any {
 }
 
 /**
+ * Normalize a persisted `imageProviders[]` to the current schema. Pre-ComfyUI
+ * builds stored a single placeholder `kind: "comfyui"` provider; this rewrites
+ * it to `comfyui-fixed` (NyaaComfyUI) with the comfy defaults, fills missing
+ * comfy fields on any ComfyUI-kind provider, and guarantees a fixed-ComfyUI
+ * entry exists so the new provider is always reachable in settings.
+ */
+function normalizeImageProviders(list: any[]): ImageProvider[] {
+  const normalized: ImageProvider[] = list.map((p: any) => {
+    // Legacy placeholder kind → fixed ComfyUI.
+    if (p?.kind === "comfyui") {
+      return {
+        ...p,
+        kind: "comfyui-fixed",
+        name: COMFYUI_FIXED_NAME,
+        baseUrl: "",
+        ...defaultComfyFields(),
+        // Preserve any prior enabled flag, but the old placeholder was never
+        // enabled — keep whatever was stored.
+        enabled: !!p.enabled,
+      } as ImageProvider;
+    }
+    // Ensure existing ComfyUI providers carry the comfy fields (older partial
+    // saves, or hand-edited backups).
+    if (p?.kind === "comfyui-fixed" || p?.kind === "comfyui-custom") {
+      const d = defaultComfyFields();
+      return {
+        ...p,
+        comfySize: p.comfySize ?? d.comfySize,
+        comfyWorkflowId: p.comfyWorkflowId ?? d.comfyWorkflowId,
+        comfyArtStyle: p.comfyArtStyle ?? d.comfyArtStyle,
+        models: Array.isArray(p.models) && p.models.length > 0 ? p.models : d.models,
+        lastUsedModel: p.lastUsedModel ?? d.lastUsedModel,
+        name: p.kind === "comfyui-fixed" ? COMFYUI_FIXED_NAME : p.name,
+      } as ImageProvider;
+    }
+    return p as ImageProvider;
+  });
+  // Guarantee the fixed ComfyUI provider exists.
+  if (!normalized.some((p) => p.kind === "comfyui-fixed")) {
+    const fixed = createDefaultImageProviders().find(
+      (p) => p.kind === "comfyui-fixed",
+    );
+    if (fixed) normalized.push(fixed);
+  }
+  return normalized;
+}
+
+/**
  * Map a v1 `api` block to the matching v2 LlmProvider kind. Honors the
  * explicit `apiProvider` field when present, otherwise falls back to URL-based
  * inference. The v1 enum has no "qiny" or "ollama" — those are v2 additions.
@@ -505,7 +553,7 @@ export default function App() {
             ? parsed.llmProviders
             : DEFAULT_SETTINGS.llmProviders,
           imageProviders: Array.isArray(parsed.imageProviders) && parsed.imageProviders.length > 0
-            ? parsed.imageProviders
+            ? normalizeImageProviders(parsed.imageProviders)
             : DEFAULT_SETTINGS.imageProviders,
           currentLlmProviderId:
             parsed.currentLlmProviderId || DEFAULT_SETTINGS.currentLlmProviderId,

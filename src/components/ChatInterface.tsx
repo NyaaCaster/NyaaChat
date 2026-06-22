@@ -1,8 +1,9 @@
 import React, { useState, useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from "react";
 import { Sparkles } from "lucide-react";
 import { ApiSettings, Message, AppState, LogEntry, ChatSession } from "../types";
-import { fetchChatCompletion, type LlmTool, type ToolExecutor } from "../lib/api";
+import { fetchChatCompletion, type ApiMessage, type LlmTool, type ToolExecutor } from "../lib/api";
 import { generateImage } from "../lib/imageApi";
+import { generateComfyImage, type ComfyProgress } from "../lib/comfyuiApi";
 import { newId } from "../lib/id";
 import { saveSession } from "../lib/sessionStorage";
 import { getActiveImageProvider, getActiveLlmProvider, imageProviderToApiSettings, providerToApiSettings } from "../lib/providers";
@@ -10,6 +11,7 @@ import { searchWeb, WebSearchError, WEB_SEARCH_FEATURE_ENABLED } from "../lib/se
 import { callTool, listTools, mergeUserCity, filterAdvertised } from "../lib/mcpApi";
 import {
   applyPlaceholders,
+  buildComfyPromptRequest,
   buildImagePrompt,
   buildMessageContent,
   buildRequestMessages,
@@ -30,6 +32,19 @@ import { syncChat, syncMeta, getEffectiveRegexScripts, subscribeRegexScripts, re
  * timeouts, and the network-level browser strings that indicate a CORS or
  * DNS / TLS failure.
  */
+/**
+ * Format transient ComfyUI progress for the generating bubble. Returns e.g.
+ * "排队 2 · 进度 60%". Empty parts are dropped; null/undefined yields a neutral
+ * "生成中…".
+ */
+function formatComfyProgress(p: ComfyProgress | null | undefined): string {
+  if (!p) return "生成中…";
+  const parts: string[] = [];
+  if (typeof p.queueRemaining === "number") parts.push(`排队 ${p.queueRemaining}`);
+  if (typeof p.percent === "number") parts.push(`进度 ${p.percent}%`);
+  return parts.length > 0 ? parts.join(" · ") : "生成中…";
+}
+
 function describeError(err: any): string {
   if (!err) return "未知错误";
   const status = err?.status;
@@ -87,6 +102,9 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [imageGeneratingId, setImageGeneratingId] = useState<string | null>(null);
+  // Transient ComfyUI progress for the bubble currently rendering (queue +
+  // step %). Keyed by the generating message id; cleared when it finishes.
+  const [comfyProgress, setComfyProgress] = useState<{ id: string; p: ComfyProgress } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const previousMessageIdsRef = useRef<string[]>([]);
@@ -717,21 +735,29 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
     void sendChat(lastUser.content, [], withoutLastUser);
   };
 
-  // Resolve image-gen state from the v2 active image provider rather than
-  // the legacy single-endpoint settings.imageApi. The provider must be
-  // enabled, of kind "qiny" (only working backend), have an apiKey, and
-  // have at least one model entry — providerToApiSettings derives the
-  // model id from lastUsedModel || models[0].
+  // Resolve image-gen readiness from the v2 active image provider. Two
+  // families are supported:
+  //   - OpenAI-compatible (qiny / openai-custom): needs apiKey + a model
+  //   - ComfyUI (comfyui-fixed / comfyui-custom): needs a workflow (model);
+  //     custom additionally needs a server URL. No apiKey required.
   const activeImageProvider = getActiveImageProvider(settings);
   const activeImageApi = activeImageProvider
     ? imageProviderToApiSettings(activeImageProvider)
     : null;
-  const isImageApiReady =
-    !!activeImageProvider &&
-    activeImageProvider.enabled &&
-    activeImageProvider.kind === "qiny" &&
-    !!activeImageApi?.apiKey &&
-    !!activeImageApi?.model;
+  const isComfyImage =
+    activeImageProvider?.kind === "comfyui-fixed" ||
+    activeImageProvider?.kind === "comfyui-custom";
+  const isImageApiReady = (() => {
+    if (!activeImageProvider || !activeImageProvider.enabled) return false;
+    if (isComfyImage) {
+      const hasWorkflow = !!(activeImageProvider.lastUsedModel || activeImageProvider.models[0]);
+      const hasServer =
+        activeImageProvider.kind === "comfyui-fixed" || !!activeImageProvider.baseUrl;
+      return hasWorkflow && hasServer;
+    }
+    // OpenAI-compatible families.
+    return !!activeImageApi?.apiKey && !!activeImageApi?.model;
+  })();
 
   /**
    * Run the image API for `prompt` and insert the resulting image as a new
@@ -781,51 +807,100 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
       // Declared outside the try so the catch can report elapsed time too.
       let imageStartedAt = Date.now();
       try {
-        // Wire-level size strategy (kept in sync with imageApi.ts):
-        //   默认           → field omitted (regardless of model)
-        //   gpt-image-2 4K → "3840x2160" → fallback "2048x2048"
-        //   其他模型 4K    → "3840x2160" → fallback omitted
-        if (!activeImageApi) {
+        if (!activeImageProvider || !activeImageApi) {
           throw new Error("Image provider not configured");
         }
-        const isGptImage2 = /gpt-image-2/i.test(activeImageApi.model);
-        const sizeWirePlan =
-          activeImageApi.size === "4k"
-            ? `3840x2160 → fallback ${isGptImage2 ? "2048x2048" : "(omitted)"}`
-            : "(omitted)";
-        onAddLog({
-          direction: "request",
-          content: "Sending image generation request",
-          meta: {
-            model: activeImageApi.model,
-            sizeChoice: activeImageApi.size,
-            sizeWire: sizeWirePlan,
+
+        if (isComfyImage) {
+          // ComfyUI path: workflow graph submitted to the same-origin proxy,
+          // progress streamed over ws. The "model" is the workflow name.
+          const workflowName =
+            activeImageProvider.lastUsedModel ||
+            activeImageProvider.models[0]?.id ||
+            "ComfyUI";
+          onAddLog({
+            direction: "request",
+            content: "Sending ComfyUI image generation request",
+            meta: {
+              provider: activeImageProvider.kind,
+              workflow: workflowName,
+              size: activeImageProvider.comfySize,
+              artStyle: activeImageProvider.comfyArtStyle,
+              prompt,
+            },
+          });
+          imageStartedAt = Date.now();
+          const url = await generateComfyImage({
+            provider: activeImageProvider,
             prompt,
-          },
-        });
-        // Reset to the moment we actually hand off to the network.
-        imageStartedAt = Date.now();
-        const url = await generateImage(prompt, activeImageApi, controller.signal);
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === targetId
-              ? {
-                  ...m,
-                  role: "assistant",
-                  content: prompt,
-                  imagePrompt: prompt,
-                  imageUrl: url,
-                  model: activeImageApi.model,
-                  timestamp: m.timestamp ?? Date.now(),
-                }
-              : m,
-          ),
-        );
-        onAddLog({
-          direction: "response",
-          content: "Received image",
-          meta: { model: activeImageApi.model, url, durationMs: Date.now() - imageStartedAt },
-        });
+            onProgress: (p) => setComfyProgress({ id: targetId, p }),
+            signal: controller.signal,
+          });
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === targetId
+                ? {
+                    ...m,
+                    role: "assistant",
+                    content: prompt,
+                    imagePrompt: prompt,
+                    imageUrl: url,
+                    model: workflowName,
+                    timestamp: m.timestamp ?? Date.now(),
+                  }
+                : m,
+            ),
+          );
+          onAddLog({
+            direction: "response",
+            content: "Received ComfyUI image",
+            meta: { workflow: workflowName, durationMs: Date.now() - imageStartedAt },
+          });
+        } else {
+          // OpenAI-compatible path.
+          // Wire-level size strategy (kept in sync with imageApi.ts):
+          //   默认           → field omitted (regardless of model)
+          //   gpt-image-2 4K → "3840x2160" → fallback "2048x2048"
+          //   其他模型 4K    → "3840x2160" → fallback omitted
+          const isGptImage2 = /gpt-image-2/i.test(activeImageApi.model);
+          const sizeWirePlan =
+            activeImageApi.size === "4k"
+              ? `3840x2160 → fallback ${isGptImage2 ? "2048x2048" : "(omitted)"}`
+              : "(omitted)";
+          onAddLog({
+            direction: "request",
+            content: "Sending image generation request",
+            meta: {
+              model: activeImageApi.model,
+              sizeChoice: activeImageApi.size,
+              sizeWire: sizeWirePlan,
+              prompt,
+            },
+          });
+          // Reset to the moment we actually hand off to the network.
+          imageStartedAt = Date.now();
+          const url = await generateImage(prompt, activeImageApi, controller.signal);
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === targetId
+                ? {
+                    ...m,
+                    role: "assistant",
+                    content: prompt,
+                    imagePrompt: prompt,
+                    imageUrl: url,
+                    model: activeImageApi.model,
+                    timestamp: m.timestamp ?? Date.now(),
+                  }
+                : m,
+            ),
+          );
+          onAddLog({
+            direction: "response",
+            content: "Received image",
+            meta: { model: activeImageApi.model, url, durationMs: Date.now() - imageStartedAt },
+          });
+        }
       } catch (err: any) {
         const isAbort =
           err?.name === "AbortError" ||
@@ -864,19 +939,95 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
         }
       } finally {
         setImageGeneratingId((cur) => (cur === targetId ? null : cur));
+        setComfyProgress((cur) => (cur?.id === targetId ? null : cur));
         setIsLoading(false);
         if (abortControllerRef.current === controller) {
           abortControllerRef.current = null;
         }
       }
     },
-    [isImageApiReady, isLoading, activeImageApi, onAddLog],
+    [isImageApiReady, isLoading, activeImageApi, activeImageProvider, isComfyImage, onAddLog],
+  );
+
+  /**
+   * Generate an English image prompt for the ComfyUI path by asking the active
+   * chat LLM to rewrite the scene (the anima checkpoint is English-only). Falls
+   * back to the terse builder when no chat model is configured.
+   */
+  const buildEnglishComfyPrompt = useCallback(
+    async (msg: Message, signal?: AbortSignal): Promise<string> => {
+      const llm = getActiveLlmProvider(settings);
+      const modelId = llm?.lastUsedModel || llm?.models[0]?.id;
+      if (!llm || !llm.enabled || !modelId) {
+        throw new Error("未启用对话模型，无法生成英文提示词");
+      }
+      const { system, user } = buildComfyPromptRequest({
+        targetMessage: msg,
+        baseMessages: messages,
+        currentCharacter,
+        settings,
+        userName,
+        charName,
+      });
+      const apiSettings: ApiSettings = {
+        ...providerToApiSettings(llm, modelId),
+        isStreaming: false,
+      };
+      const apiMessages: ApiMessage[] = [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ];
+      let text = "";
+      await fetchChatCompletion(
+        apiMessages,
+        apiSettings,
+        (chunk) => {
+          text += chunk;
+        },
+        signal,
+      );
+      const out = text.trim();
+      if (!out) throw new Error("英文提示词生成为空");
+      return out;
+    },
+    [messages, currentCharacter, settings, userName, charName],
   );
 
   const handleGenerateImage = useCallback(
-    (id: string) => {
+    async (id: string) => {
+      if (isLoading) return;
       const msg = messages.find((m) => m.id === id);
       if (!msg) return;
+
+      if (isComfyImage) {
+        // Build an English prompt via the chat LLM first. Spin the source
+        // message's button during this prep so the click feels responsive.
+        setImageGeneratingId(id);
+        let prompt = "";
+        try {
+          prompt = (await buildEnglishComfyPrompt(msg)).trim();
+        } catch (err: any) {
+          onAddLog({
+            direction: "info",
+            content: "ComfyUI English-prompt LLM unavailable, falling back to terse builder",
+            meta: { error: err?.message || String(err) },
+          });
+          prompt = buildImagePrompt({
+            targetMessage: msg,
+            baseMessages: messages,
+            currentCharacter,
+            settings,
+            userName,
+            charName,
+          }).trim();
+        } finally {
+          setImageGeneratingId((cur) => (cur === id ? null : cur));
+        }
+        if (!prompt) return;
+        void runImageGeneration(prompt, id);
+        return;
+      }
+
       const prompt = buildImagePrompt({
         targetMessage: msg,
         baseMessages: messages,
@@ -888,7 +1039,18 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
       if (!prompt) return;
       void runImageGeneration(prompt, id);
     },
-    [messages, runImageGeneration, currentCharacter, settings, userName, charName],
+    [
+      messages,
+      runImageGeneration,
+      currentCharacter,
+      settings,
+      userName,
+      charName,
+      isComfyImage,
+      isLoading,
+      buildEnglishComfyPrompt,
+      onAddLog,
+    ],
   );
 
   const handleRegenerateImage = useCallback(
@@ -997,6 +1159,11 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
                     onGenerateImage={isImageApiReady ? handleGenerateImage : undefined}
                     onRegenerateImage={isImageApiReady ? handleRegenerateImage : undefined}
                     imageGenerating={imageGeneratingId === message.id}
+                    imageProgressText={
+                      comfyProgress?.id === message.id
+                        ? formatComfyProgress(comfyProgress.p)
+                        : undefined
+                    }
                     busy={isLoading}
                     regexScripts={regexScripts}
                     coverUrl={coverUrl}

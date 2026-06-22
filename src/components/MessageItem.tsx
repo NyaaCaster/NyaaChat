@@ -128,6 +128,9 @@ interface MessageItemProps {
   onRegenerateImage?: (id: string) => void;
   /** True while THIS bubble is awaiting the image API response. */
   imageGenerating?: boolean;
+  /** Optional live progress text (ComfyUI queue + step %) shown over the
+   *  placeholder while THIS bubble renders. Undefined for the OpenAI path. */
+  imageProgressText?: string;
   /** True while ANY chat / image request is in flight. Disables generate &
    *  regenerate buttons across all bubbles so clicks don't get silently
    *  dropped by the parent's loading guard. */
@@ -160,6 +163,7 @@ export const MessageItem = React.memo(function MessageItem({
   onGenerateImage,
   onRegenerateImage,
   imageGenerating,
+  imageProgressText,
   busy,
   regexScripts,
   mesid,
@@ -424,6 +428,16 @@ export const MessageItem = React.memo(function MessageItem({
                 generating={!!imageGenerating}
                 onOpen={() => setViewerOpen(true)}
               />
+            ) : imageGenerating ? (
+              <div className="flex items-center gap-2 py-6 px-2 text-sm text-gray-500 dark:text-gray-400">
+                <Loader2 size={16} className="animate-spin text-purple-500" />
+                <span>正在生成图片…</span>
+                {imageProgressText && (
+                  <span className="text-xs text-gray-400 dark:text-gray-500">
+                    {imageProgressText}
+                  </span>
+                )}
+              </div>
             ) : editing ? (
               <div className="flex flex-col gap-2">
                 <textarea
@@ -640,32 +654,37 @@ function ImageBubbleBody({
 }) {
   const [loaded, setLoaded] = React.useState(false);
   return (
-    <div className="not-prose relative">
-      <button
-        type="button"
-        onClick={onOpen}
-        className="block group relative overflow-hidden rounded-xl bg-gray-100 dark:bg-white/5 border border-gray-200/50 dark:border-white/10 max-w-full"
-        title="点击查看大图"
-      >
-        <img
-          src={src}
-          alt="生成图片"
-          onLoad={() => setLoaded(true)}
-          className={`block max-w-full max-h-[60vh] object-contain transition-opacity duration-300 ${loaded ? 'opacity-100' : 'opacity-0'}`}
-          draggable={false}
-        />
-        {!loaded && (
-          <div className="absolute inset-0 flex items-center justify-center min-h-32 min-w-48 text-gray-400 dark:text-gray-500">
-            <Loader2 size={20} className="animate-spin" />
+    <div className="not-prose">
+      <div className="relative">
+        <button
+          type="button"
+          onClick={onOpen}
+          className="block group relative overflow-hidden rounded-xl bg-gray-100 dark:bg-white/5 border border-gray-200/50 dark:border-white/10 max-w-full"
+          title="点击查看大图"
+        >
+          <img
+            src={src}
+            alt="生成图片"
+            onLoad={() => setLoaded(true)}
+            className={`block max-w-full max-h-[60vh] object-contain transition-opacity duration-300 ${loaded ? 'opacity-100' : 'opacity-0'}`}
+            draggable={false}
+          />
+          {!loaded && (
+            <div className="absolute inset-0 flex items-center justify-center min-h-32 min-w-48 text-gray-400 dark:text-gray-500">
+              <Loader2 size={20} className="animate-spin" />
+            </div>
+          )}
+        </button>
+        {generating && (
+          <div className="absolute inset-0 rounded-xl bg-black/30 backdrop-blur-[1px] flex items-center justify-center text-white text-xs gap-2">
+            <Loader2 size={16} className="animate-spin" />
+            重新生成中…
           </div>
         )}
-      </button>
-      {generating && (
-        <div className="absolute inset-0 rounded-xl bg-black/30 backdrop-blur-[1px] flex items-center justify-center text-white text-xs gap-2">
-          <Loader2 size={16} className="animate-spin" />
-          重新生成中…
-        </div>
-      )}
+      </div>
+      <p className="mt-1.5 text-[11px] italic text-gray-400 dark:text-gray-500 max-w-full">
+        如果生成图片与情景不符，是提示词生成未通过LLM的违禁内容审查。
+      </p>
     </div>
   );
 }

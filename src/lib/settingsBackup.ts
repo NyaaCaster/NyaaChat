@@ -254,7 +254,12 @@ const VALID_LLM_KINDS = new Set([
   "ollama",
   "custom",
 ]);
-const VALID_IMAGE_KINDS = new Set(["qiny", "comfyui"]);
+const VALID_IMAGE_KINDS = new Set([
+  "qiny",
+  "openai-custom",
+  "comfyui-fixed",
+  "comfyui-custom",
+]);
 const VALID_API_FORMATS = new Set(["openai", "anthropic"]);
 
 function validateLlmProviderShape(p: unknown): string[] {

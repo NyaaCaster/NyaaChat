@@ -12,11 +12,14 @@ services:
       # UTC. The base nginx:1.27-alpine image already ships tzdata, so we
       # don't need to install anything extra.
       - TZ=Asia/Shanghai
-      # Restrict the official nginx envsubst filter to MCP_-prefixed vars
-      # only. Without this filter, envsubst would clobber nginx's own
-      # variables ($1, $img_scheme, $arg_url, $upstream_cache_status, ...)
-      # and break the image-proxy / SPA routing.
-      - NGINX_ENVSUBST_FILTER=^MCP_
+      # Restrict the official nginx envsubst filter to MCP_- and COMFYUI_-
+      # prefixed vars only. Without this filter, envsubst would clobber nginx's
+      # own variables ($1, $img_scheme, $arg_url, $upstream_cache_status,
+      # $cu_host, $connection_upgrade, ...) and break the image-proxy / comfyui
+      # reverse proxy / SPA routing. COMFYUI_FIXED_URL is injected into the
+      # /api/comfyui/fixed proxy_pass so the real server URL never reaches the
+      # frontend bundle.
+      - NGINX_ENVSUBST_FILTER=^(MCP|COMFYUI)_
     ports:
       - "3095:3095"
     depends_on:

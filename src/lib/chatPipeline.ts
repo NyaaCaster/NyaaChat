@@ -630,3 +630,78 @@ export function buildImagePrompt(args: BuildImagePromptArgs): string {
   }
   return prompt;
 }
+
+// ComfyUI prompt assembly. Unlike the OpenAI image path, the anima checkpoint
+// is English-only and length-tolerant, so we DON'T terse-truncate here — we
+// hand a richer (Chinese) scene description to the chat LLM and ask it to write
+// an English image prompt. These caps only bound token use, not the final
+// image prompt (which the model writes freely).
+const COMFY_CONTEXT_TURNS = 4;
+const COMFY_CONTEXT_MAX_CHARS = 400;
+const COMFY_DESC_MAX_CHARS = 600;
+const COMFY_TARGET_MAX_CHARS = 800;
+
+export interface ComfyPromptRequest {
+  /** English system instruction for the prompt-writing LLM. */
+  system: string;
+  /** Chinese scene context the LLM converts into an English image prompt. */
+  user: string;
+}
+
+/**
+ * Build the (system, user) pair sent to the chat LLM to produce an English
+ * image prompt for the ComfyUI path. The LLM reads the roleplay scene (in its
+ * original language) and writes a single English prompt focused on the visual
+ * of the focal message.
+ */
+export function buildComfyPromptRequest(args: BuildImagePromptArgs): ComfyPromptRequest {
+  const { targetMessage, baseMessages, currentCharacter, settings, userName, charName } = args;
+
+  const system =
+    "You are an expert prompt writer for an anime-style text-to-image model. " +
+    "Read the roleplay scene below and write ONE vivid English image prompt that " +
+    "depicts the visual of the FOCAL message. Describe the subject, appearance, " +
+    "hair, eyes, clothing, expression, pose, action, setting, lighting, mood and " +
+    "composition. Output ONLY the prompt itself: natural English (a flowing " +
+    "description and/or comma-separated tags are both fine). Do NOT include any " +
+    "Chinese, explanations, preamble, quotation marks or markdown. The image model " +
+    "is English-only, so everything must be in English.";
+
+  const sections: string[] = [];
+
+  if (currentCharacter?.description) {
+    const desc = applyPlaceholders(currentCharacter.description, userName, charName);
+    sections.push(`角色 ${charName}：${truncate(desc, COMFY_DESC_MAX_CHARS)}`);
+  }
+
+  const currentUserRoleForImage = settings.userRoles?.find(
+    (u) => u.id === settings.currentUserRoleId,
+  );
+  if (currentUserRoleForImage?.profile) {
+    const profile = applyPlaceholders(currentUserRoleForImage.profile, userName, charName);
+    sections.push(`用户 ${userName}：${truncate(profile, 200)}`);
+  }
+
+  const targetIdx = baseMessages.findIndex((m) => m.id === targetMessage.id);
+  const before = targetIdx === -1 ? baseMessages : baseMessages.slice(0, targetIdx);
+  const recent = before
+    .filter((m) => m.role !== "system" && !m.imageUrl && !m.imagePrompt && (m.content || "").trim())
+    .slice(-COMFY_CONTEXT_TURNS);
+  if (recent.length > 0) {
+    const lines = recent.map((m) => {
+      const speaker = m.role === "user" ? userName : charName;
+      return `${speaker}：${truncate(m.content || "", COMFY_CONTEXT_MAX_CHARS)}`;
+    });
+    sections.push(`场景：\n${lines.join("\n")}`);
+  }
+
+  sections.push(
+    `画面（FOCAL，要画的就是这一条）：${truncate(
+      applyPlaceholders(targetMessage.content || "", userName, charName),
+      COMFY_TARGET_MAX_CHARS,
+    )}`,
+  );
+
+  return { system, user: sections.join("\n\n") };
+}
+

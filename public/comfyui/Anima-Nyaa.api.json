@@ -1,0 +1,305 @@
+{
+  "8": {
+    "inputs": {
+      "samples": [
+        "19",
+        0
+      ],
+      "vae": [
+        "15",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE解码"
+    }
+  },
+  "15": {
+    "inputs": {
+      "vae_name": "qwen_image_vae.safetensors",
+      "+": null
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "加载VAE"
+    }
+  },
+  "19": {
+    "inputs": {
+      "seed": 0,
+      "steps": 8,
+      "cfg": 1,
+      "sampler_name": "er_sde",
+      "scheduler": "beta",
+      "denoise": 1,
+      "model": [
+        "53",
+        0
+      ],
+      "positive": [
+        "80",
+        0
+      ],
+      "negative": [
+        "91",
+        0
+      ],
+      "latent_image": [
+        "28",
+        0
+      ]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "K采样器"
+    }
+  },
+  "28": {
+    "inputs": {
+      "width": "%width%",
+      "height": "%height%",
+      "batch_size": 1
+    },
+    "class_type": "EmptyLatentImage",
+    "_meta": {
+      "title": "空Latent图像"
+    }
+  },
+  "44": {
+    "inputs": {
+      "unet_name": "anima_baseV10.safetensors",
+      "weight_dtype": "default",
+      "+": null
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "UNet加载器"
+    }
+  },
+  "45": {
+    "inputs": {
+      "clip_name": "anima_baseV10_txt.safetensors",
+      "type": "stable_diffusion",
+      "device": "default",
+      "+": null
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "加载CLIP"
+    }
+  },
+  "53": {
+    "inputs": {
+      "lora_name": "anima-turbo-lora-v0.2.safetensors",
+      "strength_model": 0.7,
+      "strength_clip": 1,
+      "+": null,
+      "model": [
+        "44",
+        0
+      ],
+      "clip": [
+        "45",
+        0
+      ]
+    },
+    "class_type": "LoraLoader",
+    "_meta": {
+      "title": "加载LoRA"
+    }
+  },
+  "80": {
+    "inputs": {
+      "text": [
+        "84",
+        0
+      ],
+      "clip": [
+        "53",
+        1
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "⚙️ 正向提示词"
+    }
+  },
+  "82": {
+    "inputs": {
+      "prompt": "\nslender figure,  masterpiece, best quality, amazing quality, \n"
+    },
+    "class_type": "CR Prompt Text",
+    "_meta": {
+      "title": "✍️ 正向提示词-后"
+    }
+  },
+  "83": {
+    "inputs": {
+      "prompt": "masterpiece, best quality, score_7, safe, \nhighres,\n\n"
+    },
+    "class_type": "CR Prompt Text",
+    "_meta": {
+      "title": "✍️ 正向提示词-前"
+    }
+  },
+  "84": {
+    "inputs": {
+      "separator": "",
+      "text1": [
+        "99",
+        0
+      ],
+      "text2": [
+        "82",
+        0
+      ]
+    },
+    "class_type": "CR Text Concatenate",
+    "_meta": {
+      "title": "正向提示词-尾合并"
+    }
+  },
+  "87": {
+    "inputs": {
+      "separator": "",
+      "text1": [
+        "107",
+        0
+      ],
+      "text2": [
+        "93",
+        0
+      ]
+    },
+    "class_type": "CR Text Concatenate",
+    "_meta": {
+      "title": "反向提示词-合并"
+    }
+  },
+  "89": {
+    "inputs": {
+      "prompt": "worst quality, low quality, score_1, score_2, score_3, artist name,\nfat, thick leg, thick thigh, low quality, worst qualitylow quality, worst quality, bad anatomy, bad hands, missing fingers, extra digits, blurry, ugly, deformed, realistic, photorealistic, modern clothes, aggressive, energetic,bun,\n"
+    },
+    "class_type": "CR Prompt Text",
+    "_meta": {
+      "title": "✍️ 反向提示词-前"
+    }
+  },
+  "91": {
+    "inputs": {
+      "text": [
+        "87",
+        0
+      ],
+      "clip": [
+        "53",
+        1
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "⚙️ 反向面提示词"
+    }
+  },
+  "92": {
+    "inputs": {
+      "prompt": "%prompt%"
+    },
+    "class_type": "CR Prompt Text",
+    "_meta": {
+      "title": "✍️ 提示词-输入"
+    }
+  },
+  "93": {
+    "inputs": {
+      "prompt": ""
+    },
+    "class_type": "CR Prompt Text",
+    "_meta": {
+      "title": "✍️ 反向提示词-输入"
+    }
+  },
+  "99": {
+    "inputs": {
+      "separator": "",
+      "text1": [
+        "101",
+        0
+      ],
+      "text2": [
+        "92",
+        0
+      ]
+    },
+    "class_type": "CR Text Concatenate",
+    "_meta": {
+      "title": "正向提示词-前合并"
+    }
+  },
+  "100": {
+    "inputs": {
+      "prompt": "%artlist_p%"
+    },
+    "class_type": "CR Prompt Text",
+    "_meta": {
+      "title": "✍️ 画师串-正面"
+    }
+  },
+  "101": {
+    "inputs": {
+      "separator": "",
+      "text1": [
+        "83",
+        0
+      ],
+      "text2": [
+        "100",
+        0
+      ]
+    },
+    "class_type": "CR Text Concatenate",
+    "_meta": {
+      "title": "✍️ 画师串-正面合并"
+    }
+  },
+  "106": {
+    "inputs": {
+      "prompt": "%artlist_n%"
+    },
+    "class_type": "CR Prompt Text",
+    "_meta": {
+      "title": "✍️ 画师串-负面"
+    }
+  },
+  "107": {
+    "inputs": {
+      "separator": "",
+      "text1": [
+        "89",
+        0
+      ],
+      "text2": [
+        "106",
+        0
+      ]
+    },
+    "class_type": "CR Text Concatenate",
+    "_meta": {
+      "title": "✍️ 画师串-负面合并"
+    }
+  },
+  "114": {
+    "inputs": {
+      "filename_prefix": "NyaaChat/Comfyui",
+      "images": [
+        "8",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "保存图像"
+    }
+  }
+}

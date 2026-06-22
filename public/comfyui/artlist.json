@@ -1,0 +1,80 @@
+{
+  "name": "artlist",
+  "options": [
+    {
+      "name": "风格Nyaa01",
+      "p": "(yoneyama mai:1.16),(artist ciloranko:1.05),zhibuji loom,(fuzichoco:0.86),(rella:1.1),(konya karasue:1.1),(hagimorijia:1.05),wlop, 7481llu,",
+      "n": ""
+    },
+    {
+      "name": "风格4.5.1",
+      "p": "(mignon,artist:quasarcake,artist:houkisei,artist:kedama milk,40hara:0.6),piromizu,(ke-ta:0.95),(modare:0.95),year 2024,year 2025,",
+      "n": ""
+    },
+    {
+      "name": "风格4.5.2",
+      "p": "(misaka_12003-gou:1.2),(dino_(dinoartforame),wanke,liduke:0.8),(artist:raita:1.3),artist:ningen_mame,artist:meion,artist:nixeu,artist:mamimi(mamamimi),satou kuuki,raika ken,(artist:5t:1.3),4k,(artist:kcccc:1.3),(artist:toraishi666:1.2),year 2025,year 2024,",
+      "n": "(artist collaboration:3.0),"
+    },
+    {
+      "name": "风格4.5.3",
+      "p": "(artist:herohero_(higashi_no_dou):3.0),ginhaha,atdan,hoprosuke,takiki,xipa,(mignon,artist:quasarcake,artist:houkisei,artist:kedama milk,40hara:0.6),piromizu,(ke-ta:0.95),(modare:0.95),year 2024,year 2025,",
+      "n": "(artist collaboration:5.0),"
+    },
+    {
+      "name": "风格4.5.4",
+      "p": "(artist:iumu:1.3),(ask(askzy):1.0),ningen mame,(betabeet:0.9),(kase_daiki,meion,kousaki rui:0.5),(jima:0.6),(misaka12003-gou:0.5),artist:hagi (ame hagi),dino(dinoartforame),year 2024,(year 2025:1.0),no text,best quality,very aesthetic,absurdres,(shiny skin:0.1),year 2025,",
+      "n": "(artist collaboration:5.1),"
+    },
+    {
+      "name": "风格4.5.5",
+      "p": "(artist:freng:0.7),(artist:modare:0.7),(artist:blue gk:1.0),(artist:mx2j:1.3),year 2024,",
+      "n": ""
+    },
+    {
+      "name": "风格4.5.6",
+      "p": "",
+      "n": ""
+    },
+    {
+      "name": "风格3.0.1",
+      "p": "(artist:pottsness:1.10),(artist:onineko:0.91),(artist:as109:0.91),",
+      "n": ""
+    },
+    {
+      "name": "风格3.0.2",
+      "p": "(artist:watersnake:0.91),(artist:electrophorus:0.91),artist_sho (sho lwlw),(artist_ciloranko:1.05),(artist:pottsness:1.16),(artist:onineko:0.95),(artist:as109:0.95),",
+      "n": ""
+    },
+    {
+      "name": "风格3.0.3",
+      "p": "(yumenouchi chiharu:1.16),mochizuki kei,(rei (sanbonzakura):0.75),",
+      "n": "(thirty 8ght:1.22),(ask(askzy):1.22),(modare:1.10),yd,"
+    },
+    {
+      "name": "风格3.0.4",
+      "p": "oharu-chan,zuizi,",
+      "n": ""
+    },
+    {
+      "name": "风格3.0.5",
+      "p": "(thirty 8ght:1.22),(ask(askzy):1.22),(modare:1.10),yd,",
+      "n": ""
+    },
+    {
+      "name": "风格3.0.6",
+      "p": "artist:morino hon,artist:nuu (nu-nyu),(artist:harada takehito:1.05),",
+      "n": ""
+    },
+    {
+      "name": "风格3.0.7",
+      "p": "(artist:mochizuki_kei:1.05),(wlop,artist:as109:0.91),",
+      "n": ""
+    },
+    {
+      "name": "风格3.0.8",
+      "p": "eonsang,ask (askzy),(artists:ningen mame:0.91),(artist:binggong asylum:0.86),akizero1510,",
+      "n": ""
+    }
+  ]
+}

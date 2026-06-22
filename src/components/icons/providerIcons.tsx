@@ -4,6 +4,7 @@ import Gemini from "@lobehub/icons/es/Gemini";
 import DeepSeek from "@lobehub/icons/es/DeepSeek";
 import Ollama from "@lobehub/icons/es/Ollama";
 import ComfyUI from "@lobehub/icons/es/ComfyUI";
+import { Palette } from "lucide-react";
 import { ImageProviderKind, LlmProviderKind } from "../../types";
 import { QinyIcon } from "./QinyIcon";
 import { CustomProviderIcon } from "./CustomProviderIcon";
@@ -42,7 +43,12 @@ export function ImageProviderIcon({ kind, size = 18 }: IconProps & { kind: Image
   switch (kind) {
     case "qiny":
       return <QinyIcon size={size} />;
-    case "comfyui":
+    case "openai-custom":
+      // Palette glyph in the project blue — marks a user-defined OpenAI-
+      // compatible image endpoint, distinct from the built-in QinyAPI mark.
+      return <Palette size={size} color="#3B82F6" />;
+    case "comfyui-fixed":
+    case "comfyui-custom":
       return <ComfyUI.Color size={size} />;
   }
 }

@@ -289,7 +289,14 @@ export interface LlmProvider {
   lastUsedModel?: string;
 }
 
-export type ImageProviderKind = "qiny" | "comfyui";
+export type ImageProviderKind =
+  | "qiny" // 内置 OpenAI 兼容（固定，QinyAPI）
+  | "openai-custom" // 自定义 OpenAI 兼容 API
+  | "comfyui-fixed" // 固定 ComfyUI 服务器（NyaaComfyUI）
+  | "comfyui-custom"; // 自定义 ComfyUI 服务
+
+/** ComfyUI 出图尺寸（写入工作流节点 28 的 %width%/%height%）。 */
+export type ComfyImageSize = "1024x1024" | "1024x1536" | "1536x1024";
 
 export interface ImageProvider {
   id: string;
@@ -300,7 +307,15 @@ export interface ImageProvider {
   baseUrl: string;
   models: ModelEntry[];
   lastUsedModel?: string;
+  /** OpenAI 族（qiny / openai-custom）的尺寸档；ComfyUI 族忽略。 */
   size?: ImageSize;
+  // --- 以下仅 ComfyUI 族（comfyui-fixed / comfyui-custom）使用，其余 kind 忽略 ---
+  /** 出图尺寸，默认 "1024x1024"。 */
+  comfySize?: ComfyImageSize;
+  /** 选用的工作流 id（当前仅 "anima2d"；"real" 占位禁用）。 */
+  comfyWorkflowId?: string;
+  /** 选用的画风条目名（artlist.json options[].name），默认 "风格4.5.2"。 */
+  comfyArtStyle?: string;
 }
 
 export interface ChatSession {
