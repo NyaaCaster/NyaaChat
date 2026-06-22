@@ -7,9 +7,10 @@
 # network once before first build:  docker network create nyaachat-net
 #
 # Large/persistent data (sqlite db + cover images) is bind-mounted to the host
-# big disk per the project's Docker large-asset convention. Override the host
-# paths via SHARED_DB_DIR / SHARED_COVERS_DIR (see .env.example) on non-Windows
-# hosts.
+# big disk per the project's Docker large-asset convention. Set the host base
+# path via SHARED_RES_DIR in .env (see .env.example); db/ and covers/ are
+# created under it. Defaults to "." (current dir) so the open-source compose
+# file carries no machine-specific path.
 name: nyaachat-shared
 
 services:
@@ -26,8 +27,8 @@ services:
       # same-origin through the main nginx at /api/shared/.
       - "5107:5107"
     volumes:
-      - ${SHARED_DB_DIR:-E:/DockerRes/nyaachat-shared/db}:/data/db
-      - ${SHARED_COVERS_DIR:-E:/DockerRes/nyaachat-shared/covers}:/data/covers
+      - ${SHARED_RES_DIR:-.}/db:/data/db
+      - ${SHARED_RES_DIR:-.}/covers:/data/covers
     networks:
       - nyaachat-net
     restart: unless-stopped
