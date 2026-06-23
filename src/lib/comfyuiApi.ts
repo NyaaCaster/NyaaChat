@@ -218,11 +218,11 @@ function buildGraph(
   if (graph[NODE_PROMPT]?.inputs) {
     graph[NODE_PROMPT].inputs.prompt = opts.prompt;
   }
-  if (graph[NODE_ART_P]?.inputs) {
-    graph[NODE_ART_P].inputs.prompt = opts.art?.p ?? "";
+  if (opts.art && graph[NODE_ART_P]?.inputs) {
+    graph[NODE_ART_P].inputs.prompt = opts.art.p;
   }
-  if (graph[NODE_ART_N]?.inputs) {
-    graph[NODE_ART_N].inputs.prompt = opts.art?.n ?? "";
+  if (opts.art && graph[NODE_ART_N]?.inputs) {
+    graph[NODE_ART_N].inputs.prompt = opts.art.n;
   }
   if (graph[NODE_SEED]?.inputs) {
     graph[NODE_SEED].inputs.seed = randomSeed();
@@ -471,11 +471,13 @@ export async function generateComfyImage(args: GenerateComfyImageArgs): Promise<
 
   const { httpBase, wsBase } = resolveComfyBase(provider);
 
-  const [template, artOptions] = await Promise.all([
-    loadWorkflowTemplate(wf.file, signal),
-    loadArtList(signal).catch(() => [] as ArtStyleOption[]),
-  ]);
-  const art = artOptions.find((o) => o.name === provider.comfyArtStyle);
+  const template = await loadWorkflowTemplate(wf.file, signal);
+  const artOptions = wf.usesArtStyle
+    ? await loadArtList(signal).catch(() => [] as ArtStyleOption[])
+    : [];
+  const art = wf.usesArtStyle
+    ? artOptions.find((o) => o.name === provider.comfyArtStyle)
+    : undefined;
 
   const graph = buildGraph(template, { prompt, size: provider.comfySize, art });
 

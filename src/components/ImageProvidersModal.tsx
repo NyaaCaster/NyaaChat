@@ -25,6 +25,7 @@ import {
   COMFY_WORKFLOWS,
   COMFYUI_FIXED_DESC,
   COMFYUI_FIXED_NAME,
+  comfyWorkflowById,
   defaultComfyFields,
   QINY_ENDPOINTS,
   resolveQinyEndpoint,
@@ -753,6 +754,7 @@ function ComfyProviderDetail({
   };
 
   const currentArt = provider.comfyArtStyle ?? "风格4.5.2";
+  const currentWorkflow = comfyWorkflowById(provider.comfyWorkflowId);
 
   return (
     <div className="space-y-6">
@@ -872,21 +874,23 @@ function ComfyProviderDetail({
         <FieldHint>工作流名称即对话框上方画图模型列表中显示的名称。</FieldHint>
       </Field>
 
-      <Field label="画风选择">
-        <select
-          value={currentArt}
-          onChange={(e) => handleArtChange(e.target.value)}
-          className="w-full px-3 py-2 border border-gray-200 dark:border-white/10 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-gray-50 dark:bg-[#1A1A1A] text-gray-900 dark:text-gray-100 outline-none transition-all text-sm"
-        >
-          {/* Ensure the saved style is selectable even before artlist loads. */}
-          {artOptions.length === 0 && <option value={currentArt}>{currentArt}</option>}
-          {artOptions.map((o) => (
-            <option key={o.name} value={o.name}>
-              {o.name}
-            </option>
-          ))}
-        </select>
-      </Field>
+      {currentWorkflow.usesArtStyle && (
+        <Field label="画风选择">
+          <select
+            value={currentArt}
+            onChange={(e) => handleArtChange(e.target.value)}
+            className="w-full px-3 py-2 border border-gray-200 dark:border-white/10 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-gray-50 dark:bg-[#1A1A1A] text-gray-900 dark:text-gray-100 outline-none transition-all text-sm"
+          >
+            {/* Ensure the saved style is selectable even before artlist loads. */}
+            {artOptions.length === 0 && <option value={currentArt}>{currentArt}</option>}
+            {artOptions.map((o) => (
+              <option key={o.name} value={o.name}>
+                {o.name}
+              </option>
+            ))}
+          </select>
+        </Field>
+      )}
 
       <Field label="测试生成">
         <div className="rounded-xl border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-[#1A1A1A] p-4 space-y-3">

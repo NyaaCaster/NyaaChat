@@ -188,12 +188,14 @@ export interface ComfyWorkflowMeta {
   name: string;
   /** Public path of the API-format workflow json; empty when disabled. */
   file: string;
+  /** Whether this workflow consumes artlist.json positive/negative style prompts. */
+  usesArtStyle?: boolean;
   disabled?: boolean;
 }
 
 export const COMFY_WORKFLOWS: ComfyWorkflowMeta[] = [
-  { id: "anima2d", name: "Anima2D", file: "/comfyui/Anima-Nyaa.api.json" },
-  { id: "real", name: "真人", file: "", disabled: true },
+  { id: "anima2d", name: "Anima2D", file: "/comfyui/Anima-Nyaa.api.json", usesArtStyle: true },
+  { id: "real", name: "DarkBeast真人", file: "/comfyui/DarkBeast-Nyaa.api.json" },
 ];
 
 export function comfyWorkflowById(id: string | undefined): ComfyWorkflowMeta {

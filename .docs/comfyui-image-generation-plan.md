@@ -255,3 +255,10 @@ baseUrl?: string;                  // 自定义服务器地址（fixed 不存真
 - 改动：`nginx.conf`（geo + 头）、`vite.config.ts`、`.env.example`。
 
 > 备注：`.env` 本身 git-ignore，真实 `COMFYUI_FIXED_URL` / `COMFYUI_FIXED_TOKEN` 不入库；模板与说明在 `.env.example`。
+
+### 12.5 DarkBeast 真人工作流（v2）
+- 新增真人工作流 `DarkBeast真人`：UI 中原「真人」占位按钮改为可选工作流，读取 `public/comfyui/DarkBeast-Nyaa.api.json`。
+- DarkBeast API 工作流只使用节点 `28`（`width` / `height`）、节点 `92`（`prompt`）与节点 `19`（随机 seed）。不加载 `artlist.json`，也不写入 Anima2D 专属的节点 `100` / `106`。
+- `artlist.json` 的正/负向画风串仅用于 `Anima2D`；设置页「画风选择」也仅在当前工作流为 `Anima2D` 时显示。
+- 测试生成与对话内「基于此消息生成图片」继续复用同一 ComfyUI 调用层，因此会按当前工作流自动切换参数注入策略。
+- 改动：`src/lib/providers.ts`（工作流元数据 `usesArtStyle`）、`src/lib/comfyuiApi.ts`（条件加载/注入 artlist）、`src/components/ImageProvidersModal.tsx`（画风选择显隐）。

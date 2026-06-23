@@ -1,0 +1,156 @@
+{
+  "8": {
+    "inputs": {
+      "samples": [
+        "19",
+        0
+      ],
+      "vae": [
+        "15",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE解码"
+    }
+  },
+  "15": {
+    "inputs": {
+      "vae_name": "ae.sft",
+      "+": null
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "加载VAE"
+    }
+  },
+  "19": {
+    "inputs": {
+      "seed": 101219835756745,
+      "steps": 8,
+      "cfg": 1,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1,
+      "model": [
+        "44",
+        0
+      ],
+      "positive": [
+        "80",
+        0
+      ],
+      "negative": [
+        "80",
+        0
+      ],
+      "latent_image": [
+        "28",
+        0
+      ]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "K采样器"
+    }
+  },
+  "28": {
+    "inputs": {
+      "width": "%width%",
+      "height": "%height%",
+      "batch_size": 1
+    },
+    "class_type": "EmptyLatentImage",
+    "_meta": {
+      "title": "空Latent图像"
+    }
+  },
+  "44": {
+    "inputs": {
+      "unet_name": "darkBeast_dbzit9DIMRclaw.safetensors",
+      "weight_dtype": "default",
+      "+": null
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "UNet加载器"
+    }
+  },
+  "45": {
+    "inputs": {
+      "clip_name": "zImageTurbo_turbo_txt.safetensors",
+      "type": "lumina2",
+      "device": "cpu",
+      "+": null
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "加载CLIP"
+    }
+  },
+  "80": {
+    "inputs": {
+      "text": [
+        "99",
+        0
+      ],
+      "clip": [
+        "45",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "⚙️ 正向提示词"
+    }
+  },
+  "83": {
+    "inputs": {
+      "prompt": "masterpiece,best quality,highres, cinematic lighting, atmospheric,\n漂亮的亚洲人，明星气质，五官精致，青涩懵懂，皮肤白皙，整体呈现出一种现实美感,仿佛是用普通相机拍摄的真实瞬间,细节丰富,质感自然,具有浓厚的虐待气息与青春美感,\n\n"
+    },
+    "class_type": "CR Prompt Text",
+    "_meta": {
+      "title": "✍️ 正向提示词-前"
+    }
+  },
+  "92": {
+    "inputs": {
+      "prompt": "%prompt%"
+    },
+    "class_type": "CR Prompt Text",
+    "_meta": {
+      "title": "✍️ 提示词-输入"
+    }
+  },
+  "99": {
+    "inputs": {
+      "separator": "",
+      "text1": [
+        "83",
+        0
+      ],
+      "text2": [
+        "92",
+        0
+      ]
+    },
+    "class_type": "CR Text Concatenate",
+    "_meta": {
+      "title": "正向提示词-前合并"
+    }
+  },
+  "114": {
+    "inputs": {
+      "filename_prefix": "NyaaChat/DarkBeast/Comfyui",
+      "images": [
+        "8",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "保存图像"
+    }
+  }
+}
