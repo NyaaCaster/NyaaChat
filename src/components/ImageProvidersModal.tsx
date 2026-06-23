@@ -47,10 +47,10 @@ interface ImageProvidersModalProps {
   onSave: (settings: AppState) => void;
 }
 
-const COMFY_SIZES: { value: ComfyImageSize; label: string }[] = [
-  { value: "1024x1024", label: "1024×1024" },
-  { value: "1024x1536", label: "1024×1536" },
-  { value: "1536x1024", label: "1536×1024" },
+const COMFY_SIZES: { value: ComfyImageSize; label: string; iconClass: string }[] = [
+  { value: "1024x1024", label: "方形", iconClass: "fa-brands fa-square-bluesky" },
+  { value: "1024x1536", label: "竖屏", iconClass: "fa-solid fa-mobile-screen" },
+  { value: "1536x1024", label: "横屏", iconClass: "fa-solid fa-desktop" },
 ];
 
 function isCustomKind(kind: ImageProvider["kind"]): boolean {
@@ -836,12 +836,13 @@ function ComfyProviderDetail({
                 key={opt.value}
                 type="button"
                 onClick={() => handleSizeChange(opt.value)}
-                className={`px-4 py-1.5 rounded-lg border text-sm font-medium transition-all ${
+                className={`inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg border text-sm font-medium transition-all ${
                   active
                     ? "border-purple-500 bg-purple-500/10 dark:bg-purple-500/15 ring-1 ring-purple-500 text-purple-600 dark:text-purple-400"
                     : "border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-[#1A1A1A] text-gray-900 dark:text-gray-100 hover:border-gray-300 dark:hover:border-white/20"
                 }`}
               >
+                <i className={`${opt.iconClass} text-[13px]`} aria-hidden="true" />
                 {opt.label}
               </button>
             );
