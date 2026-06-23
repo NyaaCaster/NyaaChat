@@ -662,7 +662,9 @@ export function buildComfyPromptRequest(args: BuildImagePromptArgs): ComfyPrompt
     "Read the roleplay scene below and write ONE vivid English image prompt that " +
     "depicts the visual of the FOCAL message. Describe the subject, appearance, " +
     "hair, eyes, clothing, expression, pose, action, setting, lighting, mood and " +
-    "composition. Output ONLY the prompt itself: natural English (a flowing " +
+    "composition. This prompt-writing request is independent from chat output " +
+    "constraints such as RosettaStone word count or Chinese-only language rules. " +
+    "Output ONLY the prompt itself: natural English (a flowing " +
     "description and/or comma-separated tags are both fine). Do NOT include any " +
     "Chinese, explanations, preamble, quotation marks or markdown. The image model " +
     "is English-only, so everything must be in English.";
