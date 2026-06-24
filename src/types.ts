@@ -80,8 +80,8 @@ export interface BypassSettings {
    *  across sessions. Defaults live in lib/WordCheckTemplates.ts. */
   opusChecks: {
     gemini31Check: string;
-    opusCheck1: string;
-    opusCheck2: string;
+    opus48Check: string;
+    opus47Check: string;
   };
   /** RosettaStone — first-party OUTPUT constraints. Standalone module, NOT a
    *  bypass: independent of `enabled` (ClavisSalomonis), each entry toggled on

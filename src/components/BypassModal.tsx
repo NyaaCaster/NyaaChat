@@ -322,7 +322,7 @@ export function BypassModal({ isOpen, onClose, settings, onSave, onSendMessage }
                 ))}
               </div>
             </div>
-            {/* RuleBreaker — Gemini31Check / OpusCheck1 / OpusCheck2 文本编辑，无开关。 */}
+            {/* RuleBreaker — Gemini31Check / Opus48Check / Opus47Check 文本编辑，无开关。 */}
             <div className="space-y-6 p-5 sm:p-6 bg-red-50/50 dark:bg-red-500/5 rounded-2xl border border-red-100 dark:border-red-500/10">
               <h4 className="text-base font-semibold tracking-tight text-red-700 dark:text-red-400" style={{ fontFamily: 'var(--font-display)' }}>
                 RuleBreaker
@@ -330,8 +330,8 @@ export function BypassModal({ isOpen, onClose, settings, onSave, onSendMessage }
               <div className="space-y-3">
                 {([
                   { key: 'gemini31Check' as WordCheckKey, label: wordCheckTemplates.gemini31Check.label },
-                  { key: 'opusCheck1' as WordCheckKey, label: wordCheckTemplates.opusCheck1.label },
-                  { key: 'opusCheck2' as WordCheckKey, label: wordCheckTemplates.opusCheck2.label },
+                  { key: 'opus48Check' as WordCheckKey, label: wordCheckTemplates.opus48Check.label },
+                  { key: 'opus47Check' as WordCheckKey, label: wordCheckTemplates.opus47Check.label },
                 ]).map((item) => (
                   <div key={item.key} className="flex items-center justify-between gap-1 p-2.5 bg-white/50 dark:bg-white/5 rounded-xl">
                     <button
@@ -360,7 +360,7 @@ export function BypassModal({ isOpen, onClose, settings, onSave, onSendMessage }
                   </div>
                 ))}
                 <p className="text-xs text-gray-500 dark:text-gray-400 px-1 leading-relaxed">
-                  opusCheck1 用于 o4.8，如果无效，切换到 o4.7 使用 opusCheck2
+                  直接点击破甲词名称即可发送破甲词到当前对话，注意对应模型。
                 </p>
                 {/* 互斥编辑框：所有按钮共用此位置，editingOpus 决定显示哪一段。 */}
                 <AnimatePresence mode="wait">

@@ -378,8 +378,8 @@ const DEFAULT_SETTINGS: AppState = {
     },
     opusChecks: {
       gemini31Check: wordCheckTemplates.gemini31Check.content,
-      opusCheck1: wordCheckTemplates.opusCheck1.content,
-      opusCheck2: wordCheckTemplates.opusCheck2.content,
+      opus48Check: wordCheckTemplates.opus48Check.content,
+      opus47Check: wordCheckTemplates.opus47Check.content,
     },
     // RosettaStone — standalone output constraints (independent of the
     // ClavisSalomonis `enabled` switch above). 字数控制 default off,
@@ -482,6 +482,23 @@ export default function App() {
         const { wordCountControl: _legacyWcOn, ...legacyBypass } = (parsed.bypass ?? {}) as any;
         const { wordCountControl: _legacyWcTpl, ...legacyCustomTemplates } =
           (parsed.bypass?.customTemplates ?? {}) as any;
+        const parsedOpusChecks = (parsed.bypass?.opusChecks ?? {}) as Record<string, string | undefined>;
+        const migratedOpusChecks = {
+          ...DEFAULT_SETTINGS.bypass.opusChecks,
+          ...(typeof parsedOpusChecks.gemini31Check === "string"
+            ? { gemini31Check: parsedOpusChecks.gemini31Check }
+            : {}),
+          ...(typeof parsedOpusChecks.opus48Check === "string"
+            ? { opus48Check: parsedOpusChecks.opus48Check }
+            : typeof parsedOpusChecks.opusCheck1 === "string"
+              ? { opus48Check: parsedOpusChecks.opusCheck1 }
+              : {}),
+          ...(typeof parsedOpusChecks.opus47Check === "string"
+            ? { opus47Check: parsedOpusChecks.opus47Check }
+            : typeof parsedOpusChecks.opusCheck2 === "string"
+              ? { opus47Check: parsedOpusChecks.opusCheck2 }
+              : {}),
+        };
         setSettings({
           bypass: {
             ...DEFAULT_SETTINGS.bypass,
@@ -490,10 +507,7 @@ export default function App() {
               ...DEFAULT_SETTINGS.bypass.customTemplates,
               ...legacyCustomTemplates,
             },
-            opusChecks: {
-              ...DEFAULT_SETTINGS.bypass.opusChecks,
-              ...(parsed.bypass?.opusChecks || {}),
-            },
+            opusChecks: migratedOpusChecks,
             // RosettaStone output constraints. Legacy saves had no `wordCount`
             // (defaults off) and never had `languageConstraint` (defaults on).
             // Carry over a legacy edited word-count template (was
