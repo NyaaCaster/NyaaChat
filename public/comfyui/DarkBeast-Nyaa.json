@@ -615,7 +615,7 @@
       "widgets_values": [
         "zImageTurbo_turbo_txt.safetensors",
         "lumina2",
-        "cpu",
+        "default",
         null
       ]
     },
@@ -671,7 +671,7 @@
         }
       },
       "widgets_values": [
-        "masterpiece,best quality,highres, cinematic lighting, atmospheric,\n漂亮的亚洲人，明星气质，五官精致，青涩懵懂，皮肤白皙，整体呈现出一种现实美感,仿佛是用普通相机拍摄的真实瞬间,细节丰富,质感自然,具有浓厚的虐待气息与青春美感,\n\n"
+        "masterpiece,best quality,highres, cinematic lighting, atmospheric,\n漂亮的亚洲人，明星气质，五官精致，青涩懵懂，皮肤白皙，整体呈现出一种现实美感,仿佛是用普通相机拍摄的真实瞬间,细节丰富,质感自然,具有浓厚的虐待气息与青春美感,\nlight leaks,light rendering,light-rays,ray tracing,lens flare,volumetric lights,ray tracing,lens flare,see-through silhouette,\nrim lighting,volumetric lights,\nhigh-key and low-variance brightness scale,\nbokeh,blurry foreground,light particles,\n\n"
       ],
       "color": "#2a363b",
       "bgcolor": "#3f5159"

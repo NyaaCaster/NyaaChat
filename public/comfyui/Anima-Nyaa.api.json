@@ -127,7 +127,7 @@
   },
   "82": {
     "inputs": {
-      "prompt": "\nslender figure,  masterpiece, best quality, amazing quality, \n"
+      "prompt": "\n\nlight leaks,light rendering,light-rays,ray tracing,lens flare,volumetric lights,ray tracing,lens flare,see-through silhouette,\nrim lighting,volumetric lights,\nhigh-key and low-variance brightness scale,\nbokeh,blurry foreground,light particles,\nslender figure,  masterpiece, best quality, amazing quality,\n"
     },
     "class_type": "CR Prompt Text",
     "_meta": {

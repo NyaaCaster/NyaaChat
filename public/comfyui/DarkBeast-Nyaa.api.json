@@ -81,7 +81,7 @@
     "inputs": {
       "clip_name": "zImageTurbo_turbo_txt.safetensors",
       "type": "lumina2",
-      "device": "cpu",
+      "device": "default",
       "+": null
     },
     "class_type": "CLIPLoader",
@@ -107,7 +107,7 @@
   },
   "83": {
     "inputs": {
-      "prompt": "masterpiece,best quality,highres, cinematic lighting, atmospheric,\n漂亮的亚洲人，明星气质，五官精致，青涩懵懂，皮肤白皙，整体呈现出一种现实美感,仿佛是用普通相机拍摄的真实瞬间,细节丰富,质感自然,具有浓厚的虐待气息与青春美感,\n\n"
+      "prompt": "masterpiece,best quality,highres, cinematic lighting, atmospheric,\n漂亮的亚洲人，明星气质，五官精致，青涩懵懂，皮肤白皙，整体呈现出一种现实美感,仿佛是用普通相机拍摄的真实瞬间,细节丰富,质感自然,具有浓厚的虐待气息与青春美感,\nlight leaks,light rendering,light-rays,ray tracing,lens flare,volumetric lights,ray tracing,lens flare,see-through silhouette,\nrim lighting,volumetric lights,\nhigh-key and low-variance brightness scale,\nbokeh,blurry foreground,light particles,\n\n"
     },
     "class_type": "CR Prompt Text",
     "_meta": {
