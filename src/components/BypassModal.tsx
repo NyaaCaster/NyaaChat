@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { Flame, X, Edit2, Download, Upload, RotateCcw } from 'lucide-react';
+import { Flame, X, Edit2, Download as _Download, Upload as _Upload, RotateCcw } from 'lucide-react';
 import { AppState } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { bypassTemplates } from '../lib/bypassTemplates';
@@ -20,8 +20,8 @@ interface BypassModalProps {
 
 export function BypassModal({ isOpen, onClose, settings, onSave, onSendMessage }: BypassModalProps) {
   const [localSettings, setLocalSettings] = React.useState<AppState>(settings);
-  const [editingTemplate, setEditingTemplate] = React.useState<string | null>(null);
-  const [importMessage, setImportMessage] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
+  const [_editingTemplate, setEditingTemplate] = React.useState<string | null>(null);
+  const [_importMessage, setImportMessage] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
   const [pendingReset, setPendingReset] = useState(false);
   // RuleBreaker (WordCheck) — the editable texts live in
   // localSettings.bypass.opusChecks so they persist on 保存配置. Only the
@@ -49,14 +49,14 @@ export function BypassModal({ isOpen, onClose, settings, onSave, onSendMessage }
     setEditingRosetta(null);
   }, [settings, isOpen]);
 
-  const handleBypassChange = (field: keyof AppState['bypass'], value: string | boolean) => {
+  const _handleBypassChange = (field: keyof AppState['bypass'], value: string | boolean) => {
     setLocalSettings(prev => ({
       ...prev,
       bypass: { ...prev.bypass, [field]: value }
     }));
   };
 
-  const handleTemplateChange = (templateId: string, value: string) => {
+  const _handleTemplateChange = (templateId: string, value: string) => {
     setLocalSettings(prev => ({
       ...prev,
       bypass: {
@@ -74,7 +74,7 @@ export function BypassModal({ isOpen, onClose, settings, onSave, onSendMessage }
     onClose();
   };
 
-  const handleExport = () => {
+  const _handleExport = () => {
     const dataToExport = {
       templateName: localSettings.bypass.templateName || '默认模板',
       customTemplates: localSettings.bypass.customTemplates
@@ -96,11 +96,11 @@ export function BypassModal({ isOpen, onClose, settings, onSave, onSendMessage }
     URL.revokeObjectURL(url);
   };
 
-  const handleImportClick = () => {
+  const _handleImportClick = () => {
     fileInputRef.current?.click();
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const _handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Globe, Key, Clock, Shield, User, Repeat } from "lucide-react";
+import { Globe, Key, Clock, Shield, User, Repeat, Plus, X as XIcon } from "lucide-react";
 import { WorldInfoRule } from "../types";
 import { motion } from "motion/react";
 import { BaseModal } from "./BaseModal";
@@ -19,7 +19,8 @@ export function WorldInfoRuleModal({
 }: WorldInfoRuleModalProps) {
   const [name, setName] = useState("");
   const [triggerType, setTriggerType] = useState<"permanent" | "keywords">("permanent");
-  const [keywords, setKeywords] = useState("");
+  const [keywordDraft, setKeywordDraft] = useState("");
+  const [keywords, setKeywords] = useState<string[]>([]);
   const [position, setPosition] = useState<"system" | "assistant">("system");
   const [hard, setHard] = useState(false);
   const [allowRecursion, setAllowRecursion] = useState(false);
@@ -29,7 +30,8 @@ export function WorldInfoRuleModal({
     if (initialRule) {
       setName(initialRule.name);
       setTriggerType(initialRule.triggerType);
-      setKeywords(initialRule.keywords || "");
+      setKeywordDraft("");
+      setKeywords((initialRule.keywords || "").split(",").map((kw) => kw.trim()).filter(Boolean));
       setPosition(initialRule.position);
       setHard(initialRule.hard === true);
       setAllowRecursion(initialRule.allowRecursion === true);
@@ -37,13 +39,29 @@ export function WorldInfoRuleModal({
     } else {
       setName("");
       setTriggerType("permanent");
-      setKeywords("");
+      setKeywordDraft("");
+      setKeywords([]);
       setPosition("system");
       setHard(false);
       setAllowRecursion(false);
       setContent("");
     }
   }, [initialRule, isOpen]);
+
+  const addKeyword = () => {
+    const keyword = keywordDraft.trim();
+    if (!keyword) return;
+    if (keywords.includes(keyword)) {
+      setKeywordDraft("");
+      return;
+    }
+    setKeywords([...keywords, keyword]);
+    setKeywordDraft("");
+  };
+
+  const removeKeyword = (keyword: string) => {
+    setKeywords(keywords.filter((kw) => kw !== keyword));
+  };
 
   const handleSave = () => {
     if (!name.trim() || !content.trim()) return;
@@ -52,7 +70,7 @@ export function WorldInfoRuleModal({
       id: initialRule?.id || Date.now().toString(),
       name: name.trim(),
       triggerType,
-      keywords: triggerType === "keywords" ? keywords.trim() : undefined,
+      keywords: triggerType === "keywords" ? keywords.join(",") : undefined,
       position,
       hard,
       // Recursion is meaningful only for keyword entries; permanent entries are
@@ -138,16 +156,51 @@ export function WorldInfoRuleModal({
               animate={{ opacity: 1, height: "auto" }}
               className="mt-3 overflow-hidden"
             >
-              <input
-                type="text"
-                value={keywords}
-                onChange={(e) => setKeywords(e.target.value)}
-                placeholder="输入触发关键字..."
-                className="w-full px-4 py-3 bg-gray-50 dark:bg-white/[0.03] border border-gray-200 dark:border-white/10 rounded-2xl text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all outline-none"
-              />
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={keywordDraft}
+                  onChange={(e) => setKeywordDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      addKeyword();
+                    }
+                  }}
+                  placeholder="输入单个触发词"
+                  className="flex-1 min-w-0 px-4 py-3 bg-gray-50 dark:bg-white/[0.03] border border-gray-200 dark:border-white/10 rounded-2xl text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={addKeyword}
+                  className="px-4 py-3 bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 hover:bg-gray-50 dark:hover:bg-white/10 text-gray-700 dark:text-gray-300 text-sm font-medium rounded-2xl transition-all flex items-center gap-1"
+                >
+                  <Plus size={14} /> 添加
+                </button>
+              </div>
               <p className="text-[10px] text-gray-500 mt-1.5 px-1 italic">
-                用英文逗号分割关键字，如：猫娘, catgirl, 猫猫......
+                输入一个触发词后按 Enter 或点击添加；每个触发词会单独显示在下方。
               </p>
+              {keywords.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 pt-2">
+                  {keywords.map((keyword) => (
+                    <span
+                      key={keyword}
+                      className="inline-flex items-center gap-1 pl-2.5 pr-1 py-1 text-xs font-medium text-green-700 dark:text-green-300 bg-green-500/10 border border-green-500/20 rounded-lg"
+                    >
+                      {keyword}
+                      <button
+                        type="button"
+                        onClick={() => removeKeyword(keyword)}
+                        className="p-0.5 text-green-400 hover:text-red-500 hover:bg-red-500/10 rounded transition-colors"
+                        title="删除触发词"
+                      >
+                        <XIcon size={12} />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
               <button
                 type="button"
                 onClick={() => setAllowRecursion((v) => !v)}

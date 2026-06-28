@@ -663,7 +663,7 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
       if (!text.trim()) return;
       void sendChat(text, [], messages);
     },
-  }), [isLoading, messages, settings]);
+  }));
 
 
   // Auto-save current session when messages change. Debounced 800ms so the

@@ -585,7 +585,7 @@ function chipCls(active: boolean): string {
 
 const CUSTOM_MARKER = -1;
 
-function PriceTiers({
+function _PriceTiers({
   tiers,
   selected,
   onSelect,
