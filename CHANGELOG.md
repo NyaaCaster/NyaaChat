@@ -1,4 +1,16 @@
 # 更新历史
+## v1.3.8
+Github Commit: [cc83987](https://github.com/NyaaCaster/NyaaChat/commit/cc83987508bd1126bb2622826bbea5fe27a3909d)
+
+发布日期：2026-06-28
+
+### 🔧 修复
+
+- 修复用户消息发送附件后，对话气泡内不显示已挂载附件的问题
+- 用户历史消息现在会在文本下方显示附件标签，图片附件会额外显示图片预览
+- 历史消息中的附件标签不再提供删除按钮，避免误导为仍可编辑的输入区附件
+
+---
 ## v1.3.7
 Github Commit: [b367eb5](https://github.com/NyaaCaster/NyaaChat/commit/b367eb5d716bb00971ed130751c98eca5a12cea9)
 
