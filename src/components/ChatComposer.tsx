@@ -12,8 +12,7 @@ import {
   Square,
   X as XIcon,
 } from "lucide-react";
-import type { Attachment } from "../lib/chatPipeline";
-import { AppState, LlmProvider, ImageProvider, ModelCapability, ModelHealth } from "../types";
+import { AppState, LlmProvider, ImageProvider, ModelCapability, ModelHealth, Attachment } from "../types";
 import {
   getActiveImageProvider,
   getActiveLlmProvider,
@@ -512,7 +511,7 @@ export function ChatComposer({
               }
             }}
             type={isLoading ? "button" : "submit"}
-            disabled={!input.trim() && !isLoading}
+            disabled={!input.trim() && attachments.length === 0 && !isLoading}
             className={`absolute right-2 bottom-2 p-2 rounded-lg text-white disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300 flex items-center justify-center overflow-hidden ${
               isLoading
                 ? "bg-red-500 hover:bg-red-600 shadow-glow shadow-red-500/50"

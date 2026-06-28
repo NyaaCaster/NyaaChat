@@ -362,6 +362,7 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
       role: "user",
       content:
         typeof messageContent === "string" ? messageContent : processedInput,
+      attachments: atts.length > 0 ? atts : undefined,
       timestamp: Date.now(),
     };
     const botMessageId = newId();
@@ -646,7 +647,7 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
       handleStop();
       return;
     }
-    if (!input.trim()) return;
+    if (!input.trim() && attachments.length === 0) return;
     const content = input;
     const atts = attachments;
     setInput("");

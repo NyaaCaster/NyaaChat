@@ -1,7 +1,15 @@
+export interface Attachment {
+  name: string;
+  type: "image" | "text";
+  data: string;
+  mimeType: string;
+}
+
 export interface Message {
   id: string;
   role: "system" | "user" | "assistant";
   content: string;
+  attachments?: Attachment[];
   timestamp?: number;
   tokenCount?: number;
   model?: string;

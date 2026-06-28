@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import type { Attachment } from "../lib/chatPipeline";
+import type { Attachment } from "../types";
 
 /**
  * Attachment buffer for the composer. Reads files via FileReader and keeps

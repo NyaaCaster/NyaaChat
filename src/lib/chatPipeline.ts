@@ -1,15 +1,8 @@
 import { ApiMessage, VOLATILE_PART_FLAG } from "./api";
 import { injectBypassPrompts } from "./bypassTemplates";
-import { AppState, CharacterSettings, Message } from "../types";
+import { AppState, CharacterSettings, Message, Attachment } from "../types";
 import { SearchResult } from "./searchApi";
 import { getEffectiveRegexScripts, getRegexedString, regex_placement } from "../compat";
-
-export type Attachment = {
-  name: string;
-  type: "image" | "text";
-  data: string;
-  mimeType: string;
-};
 
 /**
  * Pure helper: turn user-typed text + attachments into the multimodal

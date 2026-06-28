@@ -7,7 +7,7 @@ import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import type { PluggableList } from "unified";
 import { Message } from "../types";
 import { motion } from "motion/react";
-import { Copy, Check, Trash2, RefreshCw, Pencil, X as XIcon, ImagePlus, Download, Loader2 } from "lucide-react";
+import { Copy, Check, Trash2, RefreshCw, Pencil, X as XIcon, ImagePlus, Download, Loader2, FileText, Image as ImageIcon } from "lucide-react";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ImageViewerModal } from "./ImageViewerModal";
 import { CoverViewerModal } from "./CoverViewerModal";
@@ -288,6 +288,7 @@ export const MessageItem = React.memo(function MessageItem({
   };
 
   const timeStr = formatTime(message.timestamp);
+  const hasUserAttachments = isUser && (message.attachments?.length ?? 0) > 0;
 
   // Character cover decoration: only on assistant TEXT bubbles (not user, not
   // system — those return early above — not image bubbles, not while editing).
@@ -530,6 +531,9 @@ export const MessageItem = React.memo(function MessageItem({
                 }}
               >{normalizedContent}</Markdown>
             )}
+            {hasUserAttachments && !editing && (
+              <UserAttachmentList attachments={message.attachments!} />
+            )}
           </div>
         </div>
       </div>
@@ -642,6 +646,47 @@ export const MessageItem = React.memo(function MessageItem({
     </motion.div>
   );
 });
+
+function UserAttachmentList({
+  attachments,
+}: {
+  attachments: NonNullable<Message["attachments"]>;
+}) {
+  return (
+    <div className="not-prose mt-3 space-y-2">
+      <div className="flex flex-wrap gap-2">
+        {attachments.map((att, i) => (
+          <div
+            key={`${att.name}-${i}`}
+            className="flex items-center gap-1.5 px-2 py-1 bg-white/70 dark:bg-white/10 border border-gray-200 dark:border-white/10 rounded-lg text-xs text-gray-700 dark:text-gray-300"
+          >
+            {att.type === "image" ? (
+              <ImageIcon size={12} className="text-blue-500" />
+            ) : (
+              <FileText size={12} className="text-gray-400" />
+            )}
+            <span className="max-w-[140px] truncate">{att.name}</span>
+          </div>
+        ))}
+      </div>
+      {attachments.some((att) => att.type === "image") && (
+        <div className="grid gap-2 sm:grid-cols-2">
+          {attachments.map((att, i) =>
+            att.type === "image" ? (
+              <img
+                key={`${att.name}-preview-${i}`}
+                src={`data:${att.mimeType};base64,${att.data}`}
+                alt={att.name}
+                className="max-h-80 max-w-full rounded-xl border border-gray-200/70 dark:border-white/10 bg-gray-100 dark:bg-white/5 object-contain"
+                draggable={false}
+              />
+            ) : null,
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function ImageBubbleBody({
   src,
