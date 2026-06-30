@@ -1,11 +1,12 @@
 // Browser-local bridge for SillyTavern character extension fields and chat metadata.
 //
 // ST persists arbitrary extension data under `character.data.extensions` and
-// `chat_metadata`. NyaaChat keeps user state in localStorage, so the compat layer
-// mirrors those two ST surfaces into browser-local stores and exposes an explicit
+// `chat_metadata`. NyaaChat keeps user state in IndexedDB, so the compat layer
+// mirrors those two ST surfaces into IDB-backed stores and exposes an explicit
 // write hook for React to keep CharacterSettings as the durable app-side source.
 
 import type { CharacterSettings } from "../types";
+import { getItem, setItem } from "../lib/idbStorage";
 
 export interface CharacterLikeWithExtensions {
   extensions?: unknown;
@@ -39,7 +40,10 @@ const CHAT_METADATA_KEY_PREFIX = "nyaachat_chat_metadata";
 const DRAFT_SCOPE = "__draft__";
 
 let activeChatScope = DRAFT_SCOPE;
-let chatMetadata: Record<string, unknown> = loadChatMetadata(DRAFT_SCOPE);
+// Start empty — the real value is loaded asynchronously by
+// setActiveChatMetadataScope() which is called from the ChatInterface auto-save
+// effect once the session is established.
+let chatMetadata: Record<string, unknown> = {};
 let extensionFieldWriter: ExtensionFieldWriter | null = null;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -58,10 +62,9 @@ function chatMetadataKey(scope: string): string {
   return `${CHAT_METADATA_KEY_PREFIX}::${scope}`;
 }
 
-function loadChatMetadata(scope: string): Record<string, unknown> {
-  if (typeof localStorage === "undefined") return {};
+async function loadChatMetadata(scope: string): Promise<Record<string, unknown>> {
   try {
-    const raw = localStorage.getItem(chatMetadataKey(scope));
+    const raw = await getItem(chatMetadataKey(scope));
     const parsed = raw ? JSON.parse(raw) : {};
     return isRecord(parsed) ? parsed : {};
   } catch {
@@ -70,21 +73,20 @@ function loadChatMetadata(scope: string): Record<string, unknown> {
 }
 
 function saveChatMetadata(scope: string, value: Record<string, unknown>): void {
-  if (typeof localStorage === "undefined") return;
   try {
-    localStorage.setItem(chatMetadataKey(scope), JSON.stringify(value));
+    void setItem(chatMetadataKey(scope), JSON.stringify(value));
   } catch (err) {
     console.error(`[compat] failed to persist chat_metadata (${scope})`, err);
   }
 }
 
 /** Switch the active chat metadata scope. Passing null means the unsaved draft chat. */
-export function setActiveChatMetadataScope(sessionId: string | null): void {
+export async function setActiveChatMetadataScope(sessionId: string | null): Promise<void> {
   const next = sessionId || DRAFT_SCOPE;
   if (next === activeChatScope) return;
   saveChatMetadata(activeChatScope, chatMetadata);
   activeChatScope = next;
-  chatMetadata = loadChatMetadata(activeChatScope);
+  chatMetadata = await loadChatMetadata(activeChatScope);
 }
 
 /** Stable-enough chat_metadata object for getContext(). Mutations are saved by saveMetadataNow(). */

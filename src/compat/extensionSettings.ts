@@ -1,16 +1,16 @@
-// Local persistence for SillyTavern-compatible extension_settings.
+// Persistence for SillyTavern-compatible extension_settings — backed by
+// IndexedDB (via the shared idbStorage kv store).
 //
 // ST extensions treat extension_settings as a shared mutable object: they keep a
 // reference, mutate nested fields, then call saveSettingsDebounced(). Therefore
 // the exported object identity must never change. We hydrate it in-place from
-// localStorage and serialize the same object back on save.
+// IndexedDB (once at bootstrap) and serialise the same object back on save.
+
+import { getItem, setItem } from "../lib/idbStorage";
 
 export type ExtensionSettingsRecord = Record<string, unknown>;
 
 const STORAGE_KEY = "nyaachat_extension_settings";
-const IDB_DB_NAME = "nyaachat_extension_settings";
-const IDB_STORE_NAME = "objects";
-const IDB_MAIN_KEY = "extension_settings";
 
 export const extension_settings: ExtensionSettingsRecord = {};
 
@@ -31,88 +31,68 @@ function replaceContents(target: ExtensionSettingsRecord, source: ExtensionSetti
   Object.assign(target, deepClone(source));
 }
 
-function loadFromLocalStorage(): ExtensionSettingsRecord {
-  if (typeof localStorage === "undefined") return {};
+// ---------------------------------------------------------------------------
+// Hydration (called once at bootstrap before extensions run)
+// ---------------------------------------------------------------------------
+
+/** Load extension_settings from IndexedDB and populate the stable
+ *  `extension_settings` object in-place.  Must be awaited before
+ *  `installCompatLayer()` so extensions see restored data. */
+export async function hydrateExtensionSettings(): Promise<void> {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = await getItem(STORAGE_KEY);
     const parsed = raw ? JSON.parse(raw) : {};
-    return isPlainRecord(parsed) ? parsed : {};
+    if (isPlainRecord(parsed)) {
+      replaceContents(extension_settings, parsed);
+    }
   } catch (err) {
     console.error("[compat] failed to load extension_settings", err);
-    return {};
   }
 }
 
-function saveToLocalStorage(value: ExtensionSettingsRecord): void {
-  if (typeof localStorage === "undefined") return;
+// ---------------------------------------------------------------------------
+// Synchronous read (kept for backward compat — returns the live object)
+// ---------------------------------------------------------------------------
+
+/** Synchronous hydration from the old localStorage path.  No longer called at
+ *  module evaluation; retained so existing importers that call it manually
+ *  still compile and behave safely (it accesses the live object which is
+ *  already hydrated via `hydrateExtensionSettings()` at bootstrap). */
+export function loadExtensionSettingsFromStorage(): void {
+  // The live object is already hydrated; this is a no-op compatibility stub.
+}
+
+// ---------------------------------------------------------------------------
+// Persist
+// ---------------------------------------------------------------------------
+
+/** Persist the current `extension_settings` to IndexedDB.  Fire-and-forget —
+ *  errors are logged but not surfaced (matching the prior localStorage
+ *  behaviour).  Extensions reach this through
+ *  getContext().saveSettingsDebounced(). */
+export function saveExtensionSettingsNow(): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(value));
+    void setItem(STORAGE_KEY, JSON.stringify(extension_settings));
   } catch (err) {
     console.error("[compat] failed to persist extension_settings", err);
   }
 }
 
-/** Hydrate the stable extension_settings object from the browser-local backing
- *  store. Called at module evaluation so imported shim modules see restored data
- *  before extensions run. */
-export function loadExtensionSettingsFromStorage(): void {
-  replaceContents(extension_settings, loadFromLocalStorage());
-}
+// ---------------------------------------------------------------------------
+// Legacy IndexedDB reserve helpers — kept for backward compatibility.
+// They now delegate to the shared idbStorage store instead of a separate DB.
+// ---------------------------------------------------------------------------
 
-/** Persist the current stable object. Extensions usually reach this through
- *  getContext().saveSettingsDebounced(). */
-export function saveExtensionSettingsNow(): void {
-  saveToLocalStorage(extension_settings);
-}
-
-// IndexedDB reserve path for large script libraries. P1 keeps localStorage as the
-// synchronous source of truth because ST's saveSettingsDebounced() is sync-facing;
-// these helpers give later phases a narrow place to move oversized objects
-// without changing the extension_settings API surface.
-function openIndexedDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(IDB_DB_NAME, 1);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(IDB_STORE_NAME)) {
-        db.createObjectStore(IDB_STORE_NAME);
-      }
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-}
-
+/** @deprecated Use `saveExtensionSettingsNow()` — the shared idbStorage kv
+ *  store is now the single source of truth. */
 export async function saveExtensionSettingsToIndexedDb(
-  value: ExtensionSettingsRecord = extension_settings,
+  _value?: ExtensionSettingsRecord,
 ): Promise<void> {
-  if (typeof indexedDB === "undefined") return;
-  const db = await openIndexedDb();
-  try {
-    await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction(IDB_STORE_NAME, "readwrite");
-      tx.objectStore(IDB_STORE_NAME).put(deepClone(value), IDB_MAIN_KEY);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    });
-  } finally {
-    db.close();
-  }
+  saveExtensionSettingsNow();
 }
 
+/** @deprecated Use `hydrateExtensionSettings()` — the shared idbStorage kv
+ *  store is now the single source of truth. */
 export async function loadExtensionSettingsFromIndexedDb(): Promise<ExtensionSettingsRecord> {
-  if (typeof indexedDB === "undefined") return {};
-  const db = await openIndexedDb();
-  try {
-    return await new Promise<ExtensionSettingsRecord>((resolve, reject) => {
-      const tx = db.transaction(IDB_STORE_NAME, "readonly");
-      const req = tx.objectStore(IDB_STORE_NAME).get(IDB_MAIN_KEY);
-      req.onsuccess = () => resolve(isPlainRecord(req.result) ? req.result : {});
-      req.onerror = () => reject(req.error);
-    });
-  } finally {
-    db.close();
-  }
+  return extension_settings;
 }
-
-loadExtensionSettingsFromStorage();

@@ -97,34 +97,36 @@ export function UserAccountModal({ isOpen, onClose }: UserAccountModalProps) {
 
   useEffect(() => {
     if (!isOpen || hydrated) return;
-    const stored = loadStoredAccount();
+    (async () => {
+    const stored = await loadStoredAccount();
     setSession(stored);
     setHydrated(true);
     // Re-validate the stored token in the background; drop it if stale.
     if (stored) {
-      fetchProfile(stored.token).then((r) => {
+      fetchProfile(stored.token).then(async (r) => {
         if (r.kind === "ok") {
           const next = { token: stored.token, profile: r.data.profile };
           setSession(next);
-          saveStoredAccount(next);
+          await saveStoredAccount(next);
         } else if (r.kind === "error" && r.status === 401) {
-          clearStoredAccount();
+          await clearStoredAccount();
           setSession(null);
         }
         // network error: keep the cached session, user may be offline.
       });
     }
+    })();
   }, [isOpen, hydrated]);
 
-  const applyProfile = useCallback((profile: AccountProfile, token: string) => {
+  const applyProfile = useCallback(async (profile: AccountProfile, token: string) => {
     const next = { token, profile };
     setSession(next);
-    saveStoredAccount(next);
+    await saveStoredAccount(next);
   }, []);
 
   const handleLogout = useCallback(async () => {
     if (session) await apiLogout(session.token);
-    clearStoredAccount();
+    await clearStoredAccount();
     setSession(null);
   }, [session]);
 

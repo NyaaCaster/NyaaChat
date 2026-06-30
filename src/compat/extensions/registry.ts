@@ -14,6 +14,7 @@ import type {
   RegistryEntry,
   ResolvedExtension,
 } from "./types";
+import { getItem, setItem } from "../../lib/idbStorage";
 
 /** Base path under which bundled extensions live (served from public/). */
 export const EXTENSIONS_BASE = "/extensions";
@@ -24,9 +25,9 @@ const PREFS_KEY = "nyaachat_ext_prefs";
  *  extension's defaultUserEnabled. */
 export type UserExtensionPrefs = Record<string, boolean>;
 
-export function loadUserPrefs(): UserExtensionPrefs {
+export async function loadUserPrefs(): Promise<UserExtensionPrefs> {
   try {
-    const raw = localStorage.getItem(PREFS_KEY);
+    const raw = await getItem(PREFS_KEY);
     const parsed = raw ? JSON.parse(raw) : {};
     return parsed && typeof parsed === "object" ? parsed : {};
   } catch {
@@ -34,11 +35,14 @@ export function loadUserPrefs(): UserExtensionPrefs {
   }
 }
 
-export function saveUserPref(id: string, enabled: boolean): void {
-  const prefs = loadUserPrefs();
+export async function saveUserPref(id: string, enabled: boolean): Promise<void> {
+  let prefs: UserExtensionPrefs = {};
+  try {
+    prefs = await loadUserPrefs();
+  } catch { /* fall through with empty prefs */ }
   prefs[id] = enabled;
   try {
-    localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
+    await setItem(PREFS_KEY, JSON.stringify(prefs));
   } catch (err) {
     console.error("[compat] failed to persist extension prefs", err);
   }
@@ -70,7 +74,7 @@ export async function fetchRegistry(): Promise<RegistryEntry[]> {
  */
 export async function resolveExtensions(): Promise<ResolvedExtension[]> {
   const entries = await fetchRegistry();
-  const prefs = loadUserPrefs();
+  const prefs = await loadUserPrefs();
   const out: ResolvedExtension[] = [];
 
   for (const entry of entries) {

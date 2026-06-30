@@ -5,7 +5,7 @@ import { fetchChatCompletion, type ApiMessage, type LlmTool, type ToolExecutor }
 import { generateImage } from "../lib/imageApi";
 import { generateComfyImage, type ComfyProgress } from "../lib/comfyuiApi";
 import { newId } from "../lib/id";
-import { saveSession, getLocalStorageUsage, LOCAL_STORAGE_QUOTA } from "../lib/sessionStorage";
+import { saveSession } from "../lib/sessionStorage";
 import { getActiveImageProvider, getActiveLlmProvider, imageProviderToApiSettings, providerToApiSettings } from "../lib/providers";
 import { searchWeb, WebSearchError, WEB_SEARCH_FEATURE_ENABLED } from "../lib/searchApi";
 import { callTool, listTools, mergeUserCity, filterAdvertised } from "../lib/mcpApi";
@@ -676,7 +676,7 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
     if (messages.length === 0) return;
     const userMessages = messages.filter(m => m.role === "user");
     if (userMessages.length === 0) return;
-    const timer = setTimeout(() => {
+    const timer = setTimeout(async () => {
       const session: ChatSession = {
         id: currentSession?.id ?? newId(),
         characterId: currentSession?.characterId ?? currentCharacter?.id ?? "default",
@@ -687,20 +687,24 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
       };
       try {
         saveMetadataNow();
-        saveSession(session);
+        await saveSession(session);
         if (!currentSession || currentSession.id !== session.id) {
-          setActiveChatScope(session.id);
-          setActiveChatMetadataScope(session.id);
+          await setActiveChatScope(session.id);
+          await setActiveChatMetadataScope(session.id);
           onSessionChange(session);
         }
       } catch (err: any) {
         console.error("Auto-save failed", err);
         const isQuota =
           err?.name === "QuotaExceededError" || /quota/i.test(err?.message || "");
-        const used = (getLocalStorageUsage() / (1024 * 1024)).toFixed(1);
+        let usedMb = "?";
+        try {
+          const est = await navigator.storage?.estimate?.();
+          usedMb = est?.usage ? (est.usage / (1024 * 1024)).toFixed(1) : "?";
+        } catch { /* keep "?" */ }
         setSaveError(
           isQuota
-            ? `存储空间已满（${used} MB），当前消息未能保存。请在「聊天记录」中删除部分历史后刷新页面。`
+            ? `存储空间已满（${usedMb} MB），当前消息未能保存。请在「聊天记录」中删除部分历史后刷新页面。`
             : "消息保存失败：" + (err?.message || String(err)),
         );
       }

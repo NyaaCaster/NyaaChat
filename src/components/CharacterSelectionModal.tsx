@@ -48,6 +48,8 @@ export function CharacterSelectionModal({
   // phase 5b: account whose login decides which shared cards show 编辑 (account
   // === card.owner). Refreshed on open so logging in/out is reflected.
   const [account, setAccount] = useState<string | null>(null);
+  const [storedToken, setStoredToken] = useState<string>("");
+  const [storedUsername, setStoredUsername] = useState<string>("");
   // phase 5b: editing one's own shared card. editMode flags the editor into
   // shared-author mode; the publish-update flow then carries the edited card +
   // cover blob into the share 界面 pre-filled with the server's share metadata.
@@ -76,7 +78,12 @@ export function CharacterSelectionModal({
   useEffect(() => {
     if (!isOpen) return;
     setNotice(null);
-    setAccount(loadStoredAccount()?.profile.account ?? null);
+    (async () => {
+    const stored = await loadStoredAccount();
+    setAccount(stored?.profile.account ?? null);
+    setStoredToken(stored?.token ?? "");
+    setStoredUsername(stored?.profile.username ?? "");
+    })();
     const sharedCards = (settings.characters || []).filter((c) => c.shared && c.globalId);
     if (!sharedCards.length) {
       setUpdateStatus({});
@@ -221,11 +228,11 @@ export function CharacterSelectionModal({
 
   // Step 2: accepting the warning. If logged out, open the account modal to
   // guide login; only a live session proceeds to the share界面.
-  const handleShareConfirm = () => {
+  const handleShareConfirm = async () => {
     const character = pendingShare;
     setPendingShare(null);
     if (!character) return;
-    const stored = loadStoredAccount();
+    const stored = await loadStoredAccount();
     if (!stored) {
       setIsAccountOpen(true);
       return;
@@ -649,8 +656,8 @@ export function CharacterSelectionModal({
         isOpen={updatePublish !== null}
         onClose={() => setUpdatePublish(null)}
         character={updatePublish?.character ?? null}
-        token={loadStoredAccount()?.token ?? ""}
-        authorName={loadStoredAccount()?.profile.username ?? ""}
+        token={storedToken}
+        authorName={storedUsername}
         mode="update"
         globalId={updatePublish?.globalId}
         prefill={updatePublish?.prefill ?? null}

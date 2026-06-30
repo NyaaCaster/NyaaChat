@@ -50,7 +50,7 @@ export function ExtensionsModal({ isOpen, onClose }: ExtensionsModalProps) {
   }, [isOpen]);
 
   const handleToggle = (ext: ResolvedExtension, next: boolean) => {
-    saveUserPref(ext.id, next);
+    void saveUserPref(ext.id, next);
     setExts((prev) =>
       prev.map((e) => (e.id === ext.id ? { ...e, userPref: next, effective: next } : e)),
     );

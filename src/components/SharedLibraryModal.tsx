@@ -118,6 +118,7 @@ export function SharedLibraryModal({
 
   // --- phase 4: session, ratings, acquisition --------------------------------
   const [profile, setProfile] = useState<AccountProfile | null>(null);
+  const [storedToken, setStoredToken] = useState<string>("");
   const [myRatings, setMyRatings] = useState<Record<string, number>>({});
   const [actingId, setActingId] = useState<string | null>(null); // card mid-action
   const [payment, setPayment] = useState<{ item: SharedCharacterSummary; mode: PaymentMode } | null>(null);
@@ -183,8 +184,8 @@ export function SharedLibraryModal({
   // Re-read the stored session for profile/balance. Does NOT load ratings (that
   // is guarded separately) so a handler calling this can't trigger a stale
   // ratings overwrite.
-  const syncSession = () => {
-    const stored = loadStoredAccount();
+  const syncSession = async () => {
+    const stored = await loadStoredAccount();
     setProfile(stored?.profile ?? null);
     setAccount(stored?.profile?.account ?? null);
     return stored;
@@ -198,15 +199,18 @@ export function SharedLibraryModal({
       ratingSeq.current++; // drop any in-flight ratings load
       return;
     }
-    const stored = loadStoredAccount();
+    (async () => {
+    const stored = await loadStoredAccount();
     setProfile(stored?.profile ?? null);
     setAccount(stored?.profile?.account ?? null);
+    setStoredToken(stored?.token ?? "");
     if (stored) {
       loadMyRatings(stored.token);
     } else {
       setMyRatings({});
       ratingSeq.current++;
     }
+    })();
   }, [isOpen]);
 
   // Debounce the search box (400ms), per the design's "no 10s cooldown, just
@@ -293,12 +297,12 @@ export function SharedLibraryModal({
   // --- phase 4 handlers ------------------------------------------------------
 
   /** Reflect a priced settlement's new balance into state + persisted login. */
-  const applyProfilePatch = (patch: { catfood: number; spentTotal: number }) => {
-    const stored = loadStoredAccount();
+  const applyProfilePatch = async (patch: { catfood: number; spentTotal: number }) => {
+    const stored = await loadStoredAccount();
     if (!stored) return;
     const next: AccountProfile = { ...stored.profile, catfood: patch.catfood, spentTotal: patch.spentTotal };
     setProfile(next);
-    saveStoredAccount({ token: stored.token, profile: next });
+    await saveStoredAccount({ token: stored.token, profile: next });
   };
 
   /** Build a local CharacterSettings from an acquired ST card, attaching the
@@ -361,12 +365,12 @@ export function SharedLibraryModal({
     if (fromPayment) setPaymentBusy(true);
     try {
       // Read the freshest token (free use works anonymously; paid was gated).
-      const tok = loadStoredAccount()?.token ?? null;
+      const tok = (await loadStoredAccount())?.token ?? null;
       const result = await acquireCharacter(tok, item.globalId, mode);
       if (result.kind !== "ok") {
         if (result.kind === "error" && result.error === "unauthorized") {
           // Stale / expired token on a priced acquisition — re-login.
-          clearStoredAccount();
+          await clearStoredAccount();
           setProfile(null);
           setPayment(null);
           setLoginOpen(true);
@@ -397,7 +401,7 @@ export function SharedLibraryModal({
     }
   };
 
-  const startUse = (item: SharedCharacterSummary) => {
+  const startUse = async (item: SharedCharacterSummary) => {
     const free = item.usePrice === 0;
     // Slot cap applies to use (shared cards occupy an account slot); free use is
     // allowed logged-out but still consumes a local slot.
@@ -409,7 +413,7 @@ export function SharedLibraryModal({
       void doAcquire(item, "use", false);
       return;
     }
-    const stored = syncSession();
+    const stored = await syncSession();
     if (!stored) {
       setLoginOpen(true);
       return;
@@ -417,10 +421,10 @@ export function SharedLibraryModal({
     setPayment({ item, mode: "use" });
   };
 
-  const startBuyout = (item: SharedCharacterSummary) => {
+  const startBuyout = async (item: SharedCharacterSummary) => {
     // Buyout is always priced (the button is hidden when buyoutPrice is 0) and
     // does NOT occupy a slot, so there is no cap check here.
-    const stored = syncSession();
+    const stored = await syncSession();
     if (!stored) {
       setLoginOpen(true);
       return;
@@ -428,9 +432,9 @@ export function SharedLibraryModal({
     setPayment({ item, mode: "buyout" });
   };
 
-  const confirmPayment = () => {
+  const confirmPayment = async () => {
     if (!payment) return;
-    const stored = loadStoredAccount();
+    const stored = await loadStoredAccount();
     if (!stored) {
       setPayment(null);
       setLoginOpen(true);
@@ -447,7 +451,7 @@ export function SharedLibraryModal({
   const rate = async (item: SharedCharacterSummary, value: 1 | -1) => {
     // Only needs the token — must NOT call syncSession here: its async ratings
     // refetch can land after this rating and clobber the optimistic update.
-    const stored = loadStoredAccount();
+    const stored = await loadStoredAccount();
     if (!stored) {
       setLoginOpen(true);
       return;
@@ -458,7 +462,7 @@ export function SharedLibraryModal({
     if (result.kind !== "ok") {
       if (result.kind === "error" && result.error === "unauthorized") {
         // Stale / expired token — drop it and guide a fresh login.
-        clearStoredAccount();
+        await clearStoredAccount();
         setProfile(null);
         setLoginOpen(true);
         return;
@@ -490,7 +494,7 @@ export function SharedLibraryModal({
    *  user revises source / intro / tags there; the card data + cover are carried
    *  through unchanged. */
   const startEdit = async (item: SharedCharacterSummary) => {
-    const stored = syncSession();
+    const stored = await syncSession();
     if (!stored) {
       setLoginOpen(true);
       return;
@@ -552,7 +556,7 @@ export function SharedLibraryModal({
   /** Confirm delete: remove the card from the server, then drop it from the list. */
   const confirmDelete = async () => {
     if (!pendingDelete || deleteBusy) return;
-    const stored = loadStoredAccount();
+    const stored = await loadStoredAccount();
     if (!stored) {
       setPendingDelete(null);
       setLoginOpen(true);
@@ -572,7 +576,7 @@ export function SharedLibraryModal({
         return;
       }
       if (result.kind === "error" && result.error === "unauthorized") {
-        clearStoredAccount();
+        await clearStoredAccount();
         setProfile(null);
         setAccount(null);
         setPendingDelete(null);
@@ -802,8 +806,9 @@ export function SharedLibraryModal({
         isOpen={loginOpen}
         onClose={() => {
           setLoginOpen(false);
-          const stored = syncSession();
-          if (stored) loadMyRatings(stored.token);
+          void syncSession().then((stored) => {
+            if (stored) loadMyRatings(stored.token);
+          });
         }}
       />
 
@@ -814,7 +819,7 @@ export function SharedLibraryModal({
           isOpen={!!edit}
           onClose={() => setEdit(null)}
           character={edit.character}
-          token={loadStoredAccount()?.token ?? ""}
+          token={storedToken}
           authorName={profile?.username ?? edit.character.author ?? ""}
           mode="update"
           globalId={edit.globalId}

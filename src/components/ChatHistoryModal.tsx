@@ -2,13 +2,11 @@ import React, { useEffect, useRef, useState } from "react";
 import { History, Download, FileText, Trash2, Upload, HardDrive } from "lucide-react";
 import { ChatSession } from "../types";
 import { newId } from "../lib/id";
-import { loadSessions, saveSession, deleteSession, LOCAL_STORAGE_QUOTA, getLocalStorageUsage } from "../lib/sessionStorage";
+import { loadSessions, saveSession, deleteSession } from "../lib/sessionStorage";
+import { APP_STORAGE_QUOTA } from "../lib/idbStorage";
 import { sessionToMarkdown } from "../lib/exportSession";
 import { BaseModal } from "./BaseModal";
 import { ConfirmDialog } from "./ConfirmDialog";
-
-// Re-export so existing call sites keep working without further refactors.
-export { loadSessions, saveSession, deleteSession };
 
 // --- storage quota estimation -----------------------------------------------
 
@@ -18,22 +16,15 @@ interface StorageEstimate {
 }
 
 async function getStorageEstimate(): Promise<StorageEstimate | null> {
-  // Prefer the Storage API (covers localStorage + IndexedDB + Cache).
+  // Storage API covers the whole origin quota (IndexedDB + Cache + …).  After
+  // the localStorage→IDB migration this is the single source of truth.
   try {
     if (typeof navigator !== "undefined" && navigator.storage?.estimate) {
       const est = await navigator.storage.estimate();
       if (est.usage != null) return { usage: est.usage, quota: est.quota ?? 0 };
     }
-  } catch { /* fall through to manual fallback */ }
-
-  // Fallback: manually sum localStorage keys (doesn't cover IndexedDB, but
-  // still useful when the Storage API is unavailable or permissions-blocked).
-  try {
-    const usage = getLocalStorageUsage();
-    return { usage, quota: LOCAL_STORAGE_QUOTA };
-  } catch {
-    return null;
-  }
+  } catch { /* Storage API unavailable */ }
+  return null;
 }
 
 function formatBytes(bytes: number): string {
@@ -156,17 +147,19 @@ export function ChatHistoryModal({
   const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > LOCAL_STORAGE_QUOTA) {
-      setImportError(`文件过大（${(file.size / 1024 / 1024).toFixed(2)} MB），上限 10 MB`);
+    const est = storageEstimate ?? await getStorageEstimate();
+    const quotaLimit = est?.quota && est.quota > 0 ? est.quota : APP_STORAGE_QUOTA;
+    if (file.size > quotaLimit) {
+      setImportError(`文件过大（${(file.size / 1024 / 1024).toFixed(2)} MB），上限 ${(quotaLimit / (1024 * 1024)).toFixed(0)} MB`);
       if (fileInputRef.current) fileInputRef.current.value = "";
       return;
     }
-    // Capacity check — refuse import if localStorage is too close to quota.
-    const used = getLocalStorageUsage();
+    // Capacity check — refuse import if the origin is too close to full.
+    const used = est?.usage ?? 0;
     const estAfter = used + file.size * 2; // ×2 for UTF-16 after JSON.parse+stringify
-    if (estAfter > LOCAL_STORAGE_QUOTA * 0.95) {
+    if (estAfter > quotaLimit * 0.95) {
       setImportError(
-        `存储空间不足（已用 ${(used / (1024 * 1024)).toFixed(1)} MB / ${LOCAL_STORAGE_QUOTA / (1024 * 1024)} MB），无法导入。请在「聊天记录」中删除部分历史后重试。`,
+        `存储空间不足（已用 ${(used / (1024 * 1024)).toFixed(1)} MB / ${(quotaLimit / (1024 * 1024)).toFixed(0)} MB），无法导入。请在「聊天记录」中删除部分历史后重试。`,
       );
       if (fileInputRef.current) fileInputRef.current.value = "";
       return;
@@ -182,7 +175,7 @@ export function ChatHistoryModal({
       )
         throw new Error("格式不符合本项目聊天记录格式");
       const session: ChatSession = { ...parsed, id: newId() };
-      saveSession(session);
+      await saveSession(session);
       setImportError(null);
       onSessionsChange();
     } catch (err: any) {

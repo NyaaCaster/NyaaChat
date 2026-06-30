@@ -3,7 +3,7 @@
 // ST sources regex scripts from three scopes (global / preset / character) and
 // chains them in a fixed priority order. NyaaChat has no preset system, so we
 // implement two scopes:
-//   - GLOBAL: user-managed scripts in localStorage, applied to every chat.
+//   - GLOBAL: user-managed scripts in IndexedDB, applied to every chat.
 //   - SCOPED: character-card scripts (CharacterSettings.regexScripts), applied
 //     only when that character is active.
 //
@@ -12,12 +12,13 @@
 // getRegexedString consumes the combined array and chains them.
 
 import type { CharacterSettings, RegexScript } from "../../types";
+import { getItem, setItem } from "../../lib/idbStorage";
 
 const STORAGE_KEY = "nyaachat_regex_global";
 
 // In-memory cache of the parsed global scripts. The display pipeline reads this
-// on every message render during streaming, so we avoid a getItem+JSON.parse
-// per render. Invalidated on save and lazily repopulated on next read.
+// on every message render during streaming, so we avoid an IDB get+JSON.parse
+// per render. Populated at bootstrap by hydrateRegexScripts().
 let globalCache: RegexScript[] | null = null;
 
 // Subscribers notified whenever the global scripts change (the management UI
@@ -42,27 +43,31 @@ function notifyRegexChange(): void {
   }
 }
 
-/** Load the user's global regex scripts. Returns [] on missing/corrupt data so
- *  a bad localStorage entry never breaks message rendering. Cached in memory. */
-export function loadGlobalRegexScripts(): RegexScript[] {
-  if (globalCache) return globalCache;
+/** Pre-fill the in-memory cache from IndexedDB.  Called once at bootstrap
+ *  before React mounts so the hot display path never awaits. */
+export async function hydrateRegexScripts(): Promise<void> {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = await getItem(STORAGE_KEY);
     const parsed = raw ? JSON.parse(raw) : [];
     globalCache = Array.isArray(parsed) ? parsed : [];
   } catch {
     globalCache = [];
   }
-  return globalCache;
 }
 
-/** Persist the user's global regex scripts. Quota errors are swallowed with a
- *  console warning — losing a save is recoverable, crashing the UI is not.
+/** Load the user's global regex scripts from the in-memory cache.  Returns []
+ *  on missing/corrupt data so a bad entry never breaks message rendering. */
+export function loadGlobalRegexScripts(): RegexScript[] {
+  return globalCache ?? [];
+}
+
+/** Persist the user's global regex scripts to IndexedDB.  Errors are logged but
+ *  not surfaced — losing a save is recoverable, crashing the UI is not.
  *  Notifies subscribers so the display pipeline refreshes live. */
 export function saveGlobalRegexScripts(scripts: RegexScript[]): void {
   globalCache = scripts;
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(scripts));
+    void setItem(STORAGE_KEY, JSON.stringify(scripts));
   } catch (err) {
     console.error("[compat] failed to persist global regex scripts", err);
   }

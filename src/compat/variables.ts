@@ -32,6 +32,7 @@ import { getChat, getMessageByMesId, commandSetMessageVariables } from "./runtim
 import { getMeta } from "./runtimeStore";
 import { getContext } from "./stContext";
 import { getCharacterExtensions, writeExtensionField } from "./metadataBridge";
+import { getItem, setItem } from "../lib/idbStorage";
 
 export type VariableScope = "global" | "chat" | "script" | "message" | "character" | "preset";
 
@@ -79,9 +80,15 @@ function deepClone<T>(v: T): T {
   }
 }
 
-function loadPersisted(key: string): Record<string, unknown> {
+// ---------------------------------------------------------------------------
+// Persistence helpers — IndexedDB-backed, with in-memory caches for synchronous
+// reads in the hot path (card scripts call getVariables synchronously).
+// Caches are populated at bootstrap / scope-switch before any card runs.
+// ---------------------------------------------------------------------------
+
+async function loadFromIdb(key: string): Promise<Record<string, unknown>> {
   try {
-    const raw = localStorage.getItem(key);
+    const raw = await getItem(key);
     const parsed = raw ? JSON.parse(raw) : {};
     return parsed && typeof parsed === "object" ? parsed : {};
   } catch {
@@ -89,24 +96,30 @@ function loadPersisted(key: string): Record<string, unknown> {
   }
 }
 
-function savePersisted(key: string, value: Record<string, unknown>): void {
+function saveToIdb(key: string, value: Record<string, unknown>): void {
   try {
-    localStorage.setItem(key, JSON.stringify(value));
+    void setItem(key, JSON.stringify(value));
   } catch (err) {
     console.error(`[compat] failed to persist variables (${key})`, err);
   }
 }
 
-// Cache persisted scopes in memory; localStorage is the durable backing.
+// Cache persisted scopes in memory; IndexedDB is the durable backing.
 let globalCache: Record<string, unknown> | null = null;
 let chatCache: Record<string, unknown> | null = null;
 
+/** Pre-fill the global variables cache from IndexedDB.  Called at bootstrap
+ *  before card scripts run. */
+export async function hydrateGlobalVariables(): Promise<void> {
+  globalCache = await loadFromIdb(GLOBAL_KEY);
+}
+
 function getGlobalStore(): Record<string, unknown> {
-  if (!globalCache) globalCache = loadPersisted(GLOBAL_KEY);
+  if (!globalCache) globalCache = {};
   return globalCache;
 }
 function getChatStore(): Record<string, unknown> {
-  if (!chatCache) chatCache = loadPersisted(chatKey(activeChatScope));
+  if (!chatCache) chatCache = {};
   return chatCache;
 }
 
@@ -128,13 +141,13 @@ function commitCharacterStore(store: Record<string, unknown>): void {
  *  the current scope first, then loads the new one. Passing null = draft scope.
  *  Message-scoped vars persist on their messages; only the optimistic overlay
  *  cache is dropped here so stale message ids don't leak across conversations. */
-export function setActiveChatScope(sessionId: string | null): void {
+export async function setActiveChatScope(sessionId: string | null): Promise<void> {
   const next = sessionId || DRAFT_SCOPE;
   if (next === activeChatScope) return;
   // Flush current scope before switching.
-  if (chatCache) savePersisted(chatKey(activeChatScope), chatCache);
+  if (chatCache) saveToIdb(chatKey(activeChatScope), chatCache);
   activeChatScope = next;
-  chatCache = loadPersisted(chatKey(activeChatScope));
+  chatCache = await loadFromIdb(chatKey(activeChatScope));
   // Message vars live on the new session's messages (rehydrated when React
   // loads them); drop the previous conversation's overlay so stale ids don't
   // bleed across.
@@ -195,8 +208,8 @@ function resolveStore(option: VariableOption): Record<string, unknown> {
 }
 
 function persistIfNeeded(option: VariableOption): void {
-  if (option.type === "global") savePersisted(GLOBAL_KEY, getGlobalStore());
-  else if (option.type === "chat") savePersisted(chatKey(activeChatScope), getChatStore());
+  if (option.type === "global") saveToIdb(GLOBAL_KEY, getGlobalStore());
+  else if (option.type === "chat") saveToIdb(chatKey(activeChatScope), getChatStore());
   else if (option.type === "character") commitCharacterStore(getCharacterStore());
 }
 

@@ -12,6 +12,7 @@ import { wordCountTemplates } from "./lib/WordCountTemplates";
 import { COMFYUI_FIXED_NAME, createDefaultImageProviders, createDefaultLlmProviders, defaultComfyFields, inferProvider } from "./lib/providers";
 import { newId } from "./lib/id";
 import { loadLastSessionId, loadSessions, saveLastSessionId } from "./lib/sessionStorage";
+import { getItem, setItem, removeItem } from "./lib/idbStorage";
 import { ChatSession, LlmProvider, ImageProvider, LlmProviderKind } from "./types";
 
 // Modals are rendered only when opened, so each one's chunk loads on-demand
@@ -470,9 +471,10 @@ export default function App() {
     // Read new key first, fall back to legacy `rikkachat_settings` for users
     // who saved settings under the old name. We rewrite to the new key on the
     // next save (handleSaveSettings), so the legacy key fades out naturally.
+    (async () => {
     const saved =
-      localStorage.getItem("nyaachat_settings") ??
-      localStorage.getItem("rikkachat_settings");
+      await getItem("nyaachat_settings") ??
+      await getItem("rikkachat_settings");
     if (saved) {
       try {
         const parsed = migrate(JSON.parse(saved));
@@ -622,6 +624,7 @@ export default function App() {
       }
     }
     setIsLoaded(true);
+    })();
   }, []);
 
   // Persist the active session id so a hard refresh resumes here. Null is a
@@ -656,20 +659,17 @@ export default function App() {
     }
   }, [settings.theme]);
 
-  const handleSaveSettings = (newSettings: AppState) => {
+  const handleSaveSettings = async (newSettings: AppState) => {
     setSettings(newSettings);
     try {
       const payload = { _version: SCHEMA_VERSION, ...newSettings };
-      localStorage.setItem("nyaachat_settings", JSON.stringify(payload));
+      await setItem("nyaachat_settings", JSON.stringify(payload));
       // Drop the legacy key on first save after migration so leftover state
       // can't drift out of sync with the new one.
-      localStorage.removeItem("rikkachat_settings");
+      await removeItem("rikkachat_settings");
     } catch (err: any) {
-      const isQuota = err?.name === "QuotaExceededError" || /quota/i.test(err?.message || "");
       console.error("Failed to persist settings", err);
-      alert(isQuota
-        ? "浏览器存储空间已满，设置未保存。请在「聊天记录」中清理部分历史。"
-        : "保存设置失败：" + (err?.message || String(err)));
+      alert("保存设置失败：" + (err?.message || String(err)));
     }
   };
 

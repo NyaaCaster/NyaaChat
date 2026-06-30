@@ -178,7 +178,7 @@ export function SettingsModal({
 
   const handleCloudUpload = async () => {
     setCloudError(null);
-    const stored = loadStoredAccount();
+    const stored = await loadStoredAccount();
     if (!stored) {
       setIsAccountOpen(true);
       return;
@@ -207,7 +207,7 @@ export function SettingsModal({
 
   const handleCloudDownload = async () => {
     setCloudError(null);
-    const stored = loadStoredAccount();
+    const stored = await loadStoredAccount();
     if (!stored) {
       setIsAccountOpen(true);
       return;
@@ -245,7 +245,7 @@ export function SettingsModal({
     setCloudBusy(true);
     let coverWarning: string | null = null;
     try {
-      const stored = loadStoredAccount();
+      const stored = await loadStoredAccount();
       if (!stored) return;
       const payload = buildExportPayload(settings);
       const res = await uploadCloudSettings(stored.token, payload as unknown as Record<string, unknown>);
@@ -285,7 +285,7 @@ export function SettingsModal({
     try {
       // Download covers before applying settings so IndexedDB is populated
       // by the time the UI re-renders with the new character list.
-      const stored = loadStoredAccount();
+      const stored = await loadStoredAccount();
       if (stored) {
         try {
           const coverRes = await downloadCovers(stored.token);

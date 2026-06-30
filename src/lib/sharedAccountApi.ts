@@ -2,13 +2,15 @@
 //
 // Talks to the SEPARATELY-deployed nyaachat-shared service same-origin through
 // the main nginx at /api/shared/* (see nginx.conf). The login token is kept in
-// localStorage so the session survives reloads; it is sent as a Bearer header.
+// IndexedDB so the session survives reloads; it is sent as a Bearer header.
 //
 // Error model: callers must distinguish "the server said no" (a business error
 // like bad credentials) from "couldn't reach the server at all" (network /
 // proxy down). We encode that as a discriminated result rather than throwing,
 // so the modal can show the right message — the design explicitly requires
 // separating 账号密码错误 from 服务器无法连接.
+
+import { getItem, setItem, removeItem } from "./idbStorage";
 
 const BASE = "/api/shared/account";
 const STORAGE_KEY = "nyaachat_account";
@@ -47,10 +49,10 @@ export type ApiResult<T> =
   | { kind: "error"; ok: false; error: string; status: number }
   | { kind: "network"; ok: false };
 
-// --- localStorage persistence --------------------------------------------
-export function loadStoredAccount(): StoredAccount | null {
+// --- IndexedDB persistence -----------------------------------------------
+export async function loadStoredAccount(): Promise<StoredAccount | null> {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = await getItem(STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as StoredAccount;
     if (!parsed?.token || !parsed?.profile?.account) return null;
@@ -60,18 +62,18 @@ export function loadStoredAccount(): StoredAccount | null {
   }
 }
 
-export function saveStoredAccount(value: StoredAccount): void {
+export async function saveStoredAccount(value: StoredAccount): Promise<void> {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(value));
+    await setItem(STORAGE_KEY, JSON.stringify(value));
   } catch {
     // Quota / private-mode failures are non-fatal: the in-memory session still
     // works for this tab, it just won't persist across reloads.
   }
 }
 
-export function clearStoredAccount(): void {
+export async function clearStoredAccount(): Promise<void> {
   try {
-    localStorage.removeItem(STORAGE_KEY);
+    await removeItem(STORAGE_KEY);
   } catch {
     /* ignore */
   }
