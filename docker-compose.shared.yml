@@ -24,9 +24,10 @@ services:
       - COVERS_DIR=/data/covers
       - USER_STORAGE_DIR=/data/user-storage
     ports:
-      # Direct exposure for debugging / health checks. Primary access is
-      # same-origin through the main nginx at /api/shared/.
-      - "5107:5107"
+      # Bind to localhost only — all external traffic goes through the main
+      # nginx at /api/shared/ (Docker internal nyaachat-shared:5107).  Direct
+      # host access is still available for dev/debug: curl localhost:5107/health
+      - "127.0.0.1:5107:5107"
     volumes:
       - ${SHARED_RES_DIR:-.}/db:/data/db
       - ${SHARED_RES_DIR:-.}/covers:/data/covers
