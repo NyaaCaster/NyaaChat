@@ -12,7 +12,7 @@ import { mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync, unlink
 import { join, extname } from "node:path";
 import { randomBytes } from "node:crypto";
 import { db, USER_STORAGE_DIR } from "../db.js";
-import { createSession, destroySession, requireAuth } from "../auth.js";
+import { createSession, destroySession, requireAuth, touchLastActive } from "../auth.js";
 import { COVER_MAX_BYTES, isWebp } from "../cover-utils.js";
 
 export const accountRouter = Router();
@@ -146,6 +146,7 @@ accountRouter.post("/login", (req, res) => {
     return res.status(401).json({ ok: false, error: "bad_credentials" });
   }
 
+  touchLastActive(account);
   const token = createSession(account);
   return res.json({ ok: true, token, profile: profileOf(user) });
 });
