@@ -1,14 +1,79 @@
-import React, { useRef, useState } from "react";
-import { History, Download, FileText, Trash2, Upload } from "lucide-react";
+import React, { useEffect, useRef, useState } from "react";
+import { History, Download, FileText, Trash2, Upload, HardDrive } from "lucide-react";
 import { ChatSession } from "../types";
 import { newId } from "../lib/id";
-import { loadSessions, saveSession, deleteSession } from "../lib/sessionStorage";
+import { loadSessions, saveSession, deleteSession, LOCAL_STORAGE_QUOTA, getLocalStorageUsage } from "../lib/sessionStorage";
 import { sessionToMarkdown } from "../lib/exportSession";
 import { BaseModal } from "./BaseModal";
 import { ConfirmDialog } from "./ConfirmDialog";
 
 // Re-export so existing call sites keep working without further refactors.
 export { loadSessions, saveSession, deleteSession };
+
+// --- storage quota estimation -----------------------------------------------
+
+interface StorageEstimate {
+  usage: number; // bytes
+  quota: number; // bytes (0 = unknown)
+}
+
+async function getStorageEstimate(): Promise<StorageEstimate | null> {
+  // Prefer the Storage API (covers localStorage + IndexedDB + Cache).
+  try {
+    if (typeof navigator !== "undefined" && navigator.storage?.estimate) {
+      const est = await navigator.storage.estimate();
+      if (est.usage != null) return { usage: est.usage, quota: est.quota ?? 0 };
+    }
+  } catch { /* fall through to manual fallback */ }
+
+  // Fallback: manually sum localStorage keys (doesn't cover IndexedDB, but
+  // still useful when the Storage API is unavailable or permissions-blocked).
+  try {
+    const usage = getLocalStorageUsage();
+    return { usage, quota: LOCAL_STORAGE_QUOTA };
+  } catch {
+    return null;
+  }
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function StorageBar({ estimate }: { estimate: StorageEstimate }) {
+  const pct = estimate.quota > 0 ? Math.min(100, (estimate.usage / estimate.quota) * 100) : 0;
+  const warn = pct >= 80;
+
+  return (
+    <div className="mb-3 px-1">
+      <div className="flex items-center justify-between text-[11px] text-gray-400 dark:text-gray-500 mb-1">
+        <span className="flex items-center gap-1">
+          <HardDrive size={12} />
+          本机用量
+        </span>
+        <span>
+          {formatBytes(estimate.usage)}
+          {estimate.quota > 0 ? ` / ${formatBytes(estimate.quota)}` : " / 未知"}
+        </span>
+      </div>
+      <div className="h-1.5 rounded-full bg-gray-200 dark:bg-white/10 overflow-hidden">
+        <div
+          className={`h-full rounded-full transition-all duration-500 ${
+            warn ? "bg-amber-500" : "bg-blue-500"
+          }`}
+          style={{ width: `${Math.max(pct, 2)}%` }}
+        />
+      </div>
+      {warn && (
+        <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">
+          ⚠ 存储空间紧张，建议清理旧聊天记录后继续使用
+        </p>
+      )}
+    </div>
+  );
+}
 
 function getSessionLabel(session: ChatSession): string {
   const firstUserMsg = session.messages.find((m) => m.role === "user");
@@ -40,6 +105,12 @@ export function ChatHistoryModal({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
+  const [storageEstimate, setStorageEstimate] = useState<StorageEstimate | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    getStorageEstimate().then(setStorageEstimate);
+  }, [isOpen]);
 
   const handleExport = (e: React.MouseEvent, session: ChatSession) => {
     e.stopPropagation();
@@ -85,9 +156,18 @@ export function ChatHistoryModal({
   const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const MAX_IMPORT_BYTES = 10 * 1024 * 1024;
-    if (file.size > MAX_IMPORT_BYTES) {
+    if (file.size > LOCAL_STORAGE_QUOTA) {
       setImportError(`文件过大（${(file.size / 1024 / 1024).toFixed(2)} MB），上限 10 MB`);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+    // Capacity check — refuse import if localStorage is too close to quota.
+    const used = getLocalStorageUsage();
+    const estAfter = used + file.size * 2; // ×2 for UTF-16 after JSON.parse+stringify
+    if (estAfter > LOCAL_STORAGE_QUOTA * 0.95) {
+      setImportError(
+        `存储空间不足（已用 ${(used / (1024 * 1024)).toFixed(1)} MB / ${LOCAL_STORAGE_QUOTA / (1024 * 1024)} MB），无法导入。请在「聊天记录」中删除部分历史后重试。`,
+      );
       if (fileInputRef.current) fileInputRef.current.value = "";
       return;
     }
@@ -145,6 +225,7 @@ export function ChatHistoryModal({
         }
       >
         <div className="p-4 sm:p-5 min-h-[200px]">
+          {storageEstimate && <StorageBar estimate={storageEstimate} />}
           {sessions.length === 0 ? (
             <p className="text-center text-sm text-gray-400 dark:text-gray-500 py-8">暂无聊天记录</p>
           ) : (

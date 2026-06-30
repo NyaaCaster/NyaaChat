@@ -5,7 +5,7 @@ import { fetchChatCompletion, type ApiMessage, type LlmTool, type ToolExecutor }
 import { generateImage } from "../lib/imageApi";
 import { generateComfyImage, type ComfyProgress } from "../lib/comfyuiApi";
 import { newId } from "../lib/id";
-import { saveSession } from "../lib/sessionStorage";
+import { saveSession, getLocalStorageUsage, LOCAL_STORAGE_QUOTA } from "../lib/sessionStorage";
 import { getActiveImageProvider, getActiveLlmProvider, imageProviderToApiSettings, providerToApiSettings } from "../lib/providers";
 import { searchWeb, WebSearchError, WEB_SEARCH_FEATURE_ENABLED } from "../lib/searchApi";
 import { callTool, listTools, mergeUserCity, filterAdvertised } from "../lib/mcpApi";
@@ -105,6 +105,7 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
   // Transient ComfyUI progress for the bubble currently rendering (queue +
   // step %). Keyed by the generating message id; cleared when it finishes.
   const [comfyProgress, setComfyProgress] = useState<{ id: string; p: ComfyProgress } | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const previousMessageIdsRef = useRef<string[]>([]);
@@ -694,6 +695,14 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
         }
       } catch (err: any) {
         console.error("Auto-save failed", err);
+        const isQuota =
+          err?.name === "QuotaExceededError" || /quota/i.test(err?.message || "");
+        const used = (getLocalStorageUsage() / (1024 * 1024)).toFixed(1);
+        setSaveError(
+          isQuota
+            ? `存储空间已满（${used} MB），当前消息未能保存。请在「聊天记录」中删除部分历史后刷新页面。`
+            : "消息保存失败：" + (err?.message || String(err)),
+        );
       }
     }, 800);
     return () => clearTimeout(timer);
@@ -1120,6 +1129,18 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
             `#chat > .welcomePanel` existing (the sentinel ST always keeps in
             #chat). Persisted hidden so the gate passes; never shown to users. */}
         <div className="welcomePanel" hidden aria-hidden="true" />
+        {saveError && (
+          <div className="mx-auto max-w-2xl mb-3 px-3 py-2 rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 text-amber-700 dark:text-amber-400 text-xs flex items-start gap-2">
+            <span className="shrink-0 mt-0.5">⚠</span>
+            <span className="flex-1">{saveError}</span>
+            <button
+              className="shrink-0 text-amber-400 hover:text-amber-600 dark:hover:text-amber-300 ml-1"
+              onClick={() => setSaveError(null)}
+            >
+              ×
+            </button>
+          </div>
+        )}
         {messages.length === 0 ? (
             <motion.div
               initial={{ opacity: 0, y: 20 }}

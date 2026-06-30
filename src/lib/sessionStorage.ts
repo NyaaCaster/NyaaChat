@@ -3,6 +3,28 @@ import { ChatSession } from "../types";
 const STORAGE_KEY = "nyaachat_sessions";
 const LAST_SESSION_KEY = "nyaachat_last_session_id";
 
+/**
+ * Approximate per-origin localStorage capacity floor. Browsers typically
+ * allocate 5–10 MB; we use 10 MB as the safe planning ceiling. When current
+ * usage approaches this number the UI warns and cloud-sync logic treats it as
+ * the "full" threshold.
+ */
+export const LOCAL_STORAGE_QUOTA = 10 * 1024 * 1024; // 10 MB
+
+/** Estimate current localStorage usage in bytes (UTF-16 = 2 bytes per char). */
+export function getLocalStorageUsage(): number {
+  try {
+    let bytes = 0;
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k) bytes += (k.length + (localStorage.getItem(k)?.length ?? 0)) * 2;
+    }
+    return bytes;
+  } catch {
+    return 0;
+  }
+}
+
 export function loadSessions(): ChatSession[] {
   try {
     return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
