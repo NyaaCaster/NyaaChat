@@ -704,7 +704,7 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
         } catch { /* keep "?" */ }
         setSaveError(
           isQuota
-            ? `存储空间已满（${usedMb} MB），当前消息未能保存。请在「聊天记录」中删除部分历史后刷新页面。`
+            ? `存储空间已满（${usedMb} MB），当前消息未能保存。请在「聊天记录」中删除部分历史，或在「角色选择」中删除不常用的角色后刷新页面。`
             : "消息保存失败：" + (err?.message || String(err)),
         );
       }

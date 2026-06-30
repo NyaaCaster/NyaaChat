@@ -12,12 +12,14 @@ import { saveCover, deleteCover, COVER_MARKER } from "../lib/coverStorage";
 import { loadStoredAccount } from "../lib/sharedAccountApi";
 import { fetchVersions, fetchCharacterCard, fetchCoverBlob } from "../lib/sharedLibraryApi";
 import { useCoverObjectUrl } from "../hooks/useCoverObjectUrl";
+import { estimateCharacterStorage, CHARACTER_STORAGE_QUOTA } from "../lib/storageEstimate";
 import { BaseModal } from "./BaseModal";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { CharacterEditModal } from "./CharacterEditModal";
 import { CharacterShareModal, type SharePrefill } from "./CharacterShareModal";
 import { SharedLibraryModal } from "./SharedLibraryModal";
 import { UserAccountModal } from "./UserAccountModal";
+import { StorageBar } from "./StorageBar";
 
 interface CharacterSelectionModalProps {
   isOpen: boolean;
@@ -75,9 +77,15 @@ export function CharacterSelectionModal({
     setTimeout(() => setNotice(null), 3000);
   };
 
+  const [charUsage, setCharUsage] = useState<number>(0);
+  const refreshCharUsage = () => {
+    estimateCharacterStorage(settings.characters || []).then(setCharUsage);
+  };
+
   useEffect(() => {
     if (!isOpen) return;
     setNotice(null);
+    refreshCharUsage();
     (async () => {
     const stored = await loadStoredAccount();
     setAccount(stored?.profile.account ?? null);
@@ -126,6 +134,17 @@ export function CharacterSelectionModal({
     const MAX_IMPORT_BYTES = 5 * 1024 * 1024;
     if (file.size > MAX_IMPORT_BYTES) {
       setImportError(`文件过大（${(file.size / 1024 / 1024).toFixed(2)} MB），上限 5 MB`);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+
+    // Capacity guard — refuse import if character storage is too close to full.
+    const used = await estimateCharacterStorage(settings.characters || []);
+    const estAfter = used + file.size * 2; // ×2 for JSON + cover WebP
+    if (estAfter > CHARACTER_STORAGE_QUOTA * 0.95) {
+      setImportError(
+        `角色卡存储空间不足（已用 ${(used / (1024 * 1024)).toFixed(1)} MB / ${(CHARACTER_STORAGE_QUOTA / (1024 * 1024)).toFixed(0)} MB），无法导入。请在「角色选择」中删除不常用的角色后重试。`,
+      );
       if (fileInputRef.current) fileInputRef.current.value = "";
       return;
     }
@@ -475,6 +494,12 @@ export function CharacterSelectionModal({
         }
       >
         <div className="p-4 sm:p-5 min-h-[200px]">
+          <StorageBar
+            label="角色卡储存"
+            usage={charUsage}
+            quota={CHARACTER_STORAGE_QUOTA}
+            warnMessage="角色卡存储空间紧张，建议删除不常用的角色后继续使用"
+          />
           {notice && (
             <div
               className={`mb-3 px-3 py-2 text-sm rounded-lg ${

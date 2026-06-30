@@ -20,7 +20,7 @@ const MIGRATION_SENTINEL = "__idb_migrated__";
 // Planning ceiling for import guards / storage-bar fallback.  The real limit
 // is the Storage API quota (much larger); this is a conservative guardrail.
 // ---------------------------------------------------------------------------
-export const APP_STORAGE_QUOTA = 25 * 1024 * 1024; // 25 MB
+export const APP_STORAGE_QUOTA = 200 * 1024 * 1024; // 200 MB (100+100 per-category ceilings)
 
 // ---------------------------------------------------------------------------
 // DB helper — follows the exact Promise-wrapping idiom from coverStorage.ts
