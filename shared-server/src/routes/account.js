@@ -60,6 +60,18 @@ const aggStats = db.prepare(`
   WHERE owner = ?
 `);
 
+// --- user cloud settings ---------------------------------------------------
+const stmtGetSettings = db.prepare(
+  "SELECT payload, updated_at FROM user_settings WHERE account = ?",
+);
+const stmtUpsertSettings = db.prepare(`
+  INSERT INTO user_settings (account, payload, updated_at)
+  VALUES (?, ?, ?)
+  ON CONFLICT(account) DO UPDATE SET
+    payload = excluded.payload,
+    updated_at = excluded.updated_at
+`);
+
 /**
  * Shape a user row + derived stats into the public profile payload. Never
  * leaks the password; slot_used is a client-side count (not stored here).
@@ -213,4 +225,47 @@ accountRouter.post("/expand-slot", requireAuth, (req, res) => {
     return res.status(500).json({ ok: false, error: "db_write_failed" });
   }
   return res.json({ ok: true, profile: profileOf(getUser.get(account)) });
+});
+
+// --- cloud settings upload --------------------------------------------------
+// PUT /account/settings (auth) — upsert the user's cloud settings archive.
+// Body: { payload: ExportPayload } where ExportPayload._kind === "nyaachat_settings_export".
+// Only one archive per user; repeated uploads overwrite. Returns the new updated_at.
+accountRouter.put("/settings", requireAuth, (req, res) => {
+  const { payload } = req.body ?? {};
+  if (!payload || typeof payload !== "object") {
+    return badRequest(res, "bad_payload");
+  }
+  if (payload._kind !== "nyaachat_settings_export" || !payload.settings) {
+    return badRequest(res, "bad_payload");
+  }
+  const now = Date.now();
+  try {
+    stmtUpsertSettings.run(req.user.account, JSON.stringify(payload), now);
+  } catch {
+    return res.status(500).json({ ok: false, error: "db_write_failed" });
+  }
+  return res.json({ ok: true, updated_at: now });
+});
+
+// --- cloud settings download ------------------------------------------------
+// GET /account/settings (auth) — fetch the user's cloud settings archive.
+// Returns { exists: false } when no archive has been uploaded yet.
+accountRouter.get("/settings", requireAuth, (req, res) => {
+  const row = stmtGetSettings.get(req.user.account);
+  if (!row) {
+    return res.json({ ok: true, exists: false });
+  }
+  let payload;
+  try {
+    payload = JSON.parse(row.payload);
+  } catch {
+    return res.json({ ok: true, exists: false });
+  }
+  return res.json({
+    ok: true,
+    exists: true,
+    updated_at: row.updated_at,
+    payload,
+  });
 });

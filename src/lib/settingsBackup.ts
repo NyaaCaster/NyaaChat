@@ -13,7 +13,7 @@ const EXPORT_KIND = "nyaachat_settings_export";
 const EXPORT_VERSION = 5;
 const SUPPORTED_IMPORT_VERSIONS = new Set([2, 3, 4, 5]);
 
-interface ExportPayload {
+export interface ExportPayload {
   _kind: typeof EXPORT_KIND;
   _version: number;
   exportedAt: string;
@@ -63,6 +63,24 @@ function formatTimestampForFilename(d: Date): string {
  * Caveat: the JSON contains API keys in plaintext. Caller must surface a
  * warning to the user — this helper trusts the explicit click.
  */
+/**
+ * Build the export payload object without triggering a download. Used by the
+ * cloud-settings upload flow (SettingsModal) so the same stripping + timestamp
+ * logic is shared with the local-download path.
+ */
+export function buildExportPayload(settings: AppState): ExportPayload {
+  return {
+    _kind: EXPORT_KIND,
+    _version: EXPORT_VERSION,
+    exportedAt: new Date().toISOString(),
+    settings: {
+      ...settings,
+      llmProviders: settings.llmProviders.map(stripLlmProvider),
+      imageProviders: settings.imageProviders.map(stripImageProvider),
+    },
+  };
+}
+
 export function exportSettings(settings: AppState): void {
   const payload: ExportPayload = {
     _kind: EXPORT_KIND,

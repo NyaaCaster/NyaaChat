@@ -1,4 +1,5 @@
 import React, { useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   Settings as SettingsIcon,
   ChevronRight,
@@ -10,6 +11,8 @@ import {
   Check,
   Download,
   Upload,
+  CloudUpload,
+  CloudDownload,
   AlertTriangle,
   CornerDownLeft,
   Command,
@@ -18,7 +21,13 @@ import { AppState } from "../types";
 import { BaseModal } from "./BaseModal";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ToggleSwitch } from "./SettingsFormBits";
-import { exportSettings, parseImportText } from "../lib/settingsBackup";
+import { exportSettings, parseImportText, buildExportPayload } from "../lib/settingsBackup";
+import {
+  loadStoredAccount,
+  downloadCloudSettings,
+  uploadCloudSettings,
+} from "../lib/sharedAccountApi";
+import { UserAccountModal } from "./UserAccountModal";
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -87,6 +96,14 @@ export function SettingsModal({
   const [pendingImport, setPendingImport] = useState<AppState | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
 
+  // --- cloud settings state -------------------------------------------------
+  const [isAccountOpen, setIsAccountOpen] = useState(false);
+  const [cloudMeta, setCloudMeta] = useState<{ updated_at: number } | null>(null);
+  const [pendingCloudOp, setPendingCloudOp] = useState<"upload" | "download" | "no_archive" | null>(null);
+  const [pendingCloudPayload, setPendingCloudPayload] = useState<AppState | null>(null);
+  const [cloudBusy, setCloudBusy] = useState(false);
+  const [cloudError, setCloudError] = useState<string | null>(null);
+
   const handleThemeSelect = (theme: AppState["theme"]) => {
     onSave({ ...settings, theme });
   };
@@ -141,6 +158,113 @@ export function SettingsModal({
     if (!pendingImport) return;
     onSave(pendingImport);
     setPendingImport(null);
+    onClose();
+  };
+
+  // --- cloud settings handlers ----------------------------------------------
+
+  /** YY-MM-DD hh:mm in local time from a unix-ms timestamp. */
+  function formatCloudTime(ms: number): string {
+    const d = new Date(ms);
+    const YY = String(d.getFullYear()).slice(2);
+    const MM = String(d.getMonth() + 1).padStart(2, "0");
+    const DD = String(d.getDate()).padStart(2, "0");
+    const hh = String(d.getHours()).padStart(2, "0");
+    const mm = String(d.getMinutes()).padStart(2, "0");
+    return `${YY}-${MM}-${DD} ${hh}:${mm}`;
+  }
+
+  const handleCloudUpload = async () => {
+    setCloudError(null);
+    const stored = loadStoredAccount();
+    if (!stored) {
+      setIsAccountOpen(true);
+      return;
+    }
+    setCloudBusy(true);
+    try {
+      const res = await downloadCloudSettings(stored.token);
+      if (res.kind === "network") {
+        setCloudError("服务器无法连接,请稍后重试");
+        return;
+      }
+      if (res.kind === "error") {
+        setCloudError(`服务器错误:${res.error}`);
+        return;
+      }
+      if (res.data.exists && res.data.updated_at) {
+        setCloudMeta({ updated_at: res.data.updated_at });
+      } else {
+        setCloudMeta(null);
+      }
+      setPendingCloudOp("upload");
+    } finally {
+      setCloudBusy(false);
+    }
+  };
+
+  const handleCloudDownload = async () => {
+    setCloudError(null);
+    const stored = loadStoredAccount();
+    if (!stored) {
+      setIsAccountOpen(true);
+      return;
+    }
+    setCloudBusy(true);
+    try {
+      const res = await downloadCloudSettings(stored.token);
+      if (res.kind === "network") {
+        setCloudError("服务器无法连接,请稍后重试");
+        return;
+      }
+      if (res.kind === "error") {
+        setCloudError(`服务器错误:${res.error}`);
+        return;
+      }
+      if (!res.data.exists) {
+        setPendingCloudOp("no_archive");
+        return;
+      }
+      setCloudMeta({ updated_at: res.data.updated_at! });
+      // Parse & validate the payload through the same import pipeline.
+      const parsed = parseImportText(JSON.stringify(res.data.payload));
+      if (parsed.kind === "error") {
+        setCloudError(`云端存档校验失败:${parsed.error}`);
+        return;
+      }
+      setPendingCloudPayload(parsed.settings);
+      setPendingCloudOp("download");
+    } finally {
+      setCloudBusy(false);
+    }
+  };
+
+  const handleConfirmCloudUpload = async () => {
+    setCloudBusy(true);
+    try {
+      const stored = loadStoredAccount();
+      if (!stored) return;
+      const payload = buildExportPayload(settings);
+      const res = await uploadCloudSettings(stored.token, payload as unknown as Record<string, unknown>);
+      if (res.kind === "network") {
+        setCloudError("上传失败:服务器无法连接");
+      } else if (res.kind === "error") {
+        setCloudError(`上传失败:${res.error}`);
+      }
+      // success — close dialog silently
+      setPendingCloudOp(null);
+      setCloudMeta(null);
+    } finally {
+      setCloudBusy(false);
+    }
+  };
+
+  const handleConfirmCloudDownload = () => {
+    if (!pendingCloudPayload) return;
+    onSave(pendingCloudPayload);
+    setPendingCloudOp(null);
+    setCloudMeta(null);
+    setPendingCloudPayload(null);
     onClose();
   };
 
@@ -279,6 +403,22 @@ export function SettingsModal({
               className="hidden"
               onChange={handleImportFileChosen}
             />
+            {/* Cloud sync buttons — require login */}
+            <div className="grid grid-cols-2 gap-3">
+              <BackupButton
+                onClick={handleCloudUpload}
+                icon={<CloudUpload size={16} />}
+                label="上传设置"
+                disabled={cloudBusy}
+              />
+              <BackupButton
+                onClick={handleCloudDownload}
+                icon={<CloudDownload size={16} />}
+                label="下载设置"
+                disabled={cloudBusy}
+              />
+            </div>
+            {/* Local export/import buttons */}
             <div className="grid grid-cols-2 gap-3">
               <BackupButton
                 onClick={handleExport}
@@ -296,6 +436,11 @@ export function SettingsModal({
               导出文件包含 API Key
               明文与全部供应商配置,请妥善保管;导入会覆盖当前所有设置(角色、Bypass、用户人设、MCP 工具配置等)。
             </p>
+            {cloudError && (
+              <p className="text-[11px] text-red-600 dark:text-red-400 break-all leading-relaxed">
+                {cloudError}
+              </p>
+            )}
             {importError && (
               <p className="text-[11px] text-red-600 dark:text-red-400 break-all leading-relaxed">
                 {importError}
@@ -323,6 +468,73 @@ export function SettingsModal({
         onConfirm={handleConfirmImport}
         onCancel={() => setPendingImport(null)}
       />
+
+      {/* Cloud sync confirm dialog */}
+      <ConfirmDialog
+        isOpen={pendingCloudOp !== null}
+        title={
+          pendingCloudOp === "upload" ? "上传设置" : "下载设置"
+        }
+        destructive={pendingCloudOp === "download"}
+        confirmText={
+          pendingCloudOp === "upload"
+            ? cloudMeta
+              ? "覆盖云端存档"
+              : "创建云端存档"
+            : pendingCloudOp === "download"
+              ? "替换本地设置"
+              : "确定"
+        }
+        message={
+          pendingCloudOp === "upload"
+            ? (
+              cloudMeta
+                ? <>
+                    云端存档最后更新于{" "}
+                    <span className="font-semibold text-gray-900 dark:text-gray-100">
+                      {formatCloudTime(cloudMeta.updated_at)}
+                    </span>
+                    。上传将覆盖云端存档，是否继续？
+                  </>
+                : "云端暂无存档，将创建首个存档。是否继续？"
+            )
+            : pendingCloudOp === "download"
+            ? (
+              cloudMeta
+                ? <>
+                    云端存档最后更新于{" "}
+                    <span className="font-semibold text-gray-900 dark:text-gray-100">
+                      {formatCloudTime(cloudMeta.updated_at)}
+                    </span>
+                    。下载将
+                    <span className="font-semibold text-gray-900 dark:text-gray-100 mx-1">
+                      覆盖当前所有本地设置
+                    </span>
+                    ，是否继续？
+                  </>
+                : "下载将覆盖当前所有本地设置，是否继续？"
+            )
+            : "云端暂无存档，请先上传设置。"
+        }
+        onConfirm={
+          pendingCloudOp === "upload"
+            ? handleConfirmCloudUpload
+            : pendingCloudOp === "download"
+              ? handleConfirmCloudDownload
+              : () => setPendingCloudOp(null)
+        }
+        onCancel={() => {
+          setPendingCloudOp(null);
+          setCloudMeta(null);
+          setPendingCloudPayload(null);
+        }}
+      />
+
+      {/* User account modal — triggered when cloud buttons clicked without login */}
+      {createPortal(
+        <UserAccountModal isOpen={isAccountOpen} onClose={() => setIsAccountOpen(false)} />,
+        document.body,
+      )}
     </>
   );
 }
@@ -426,12 +638,13 @@ interface BackupButtonProps {
   label: string;
 }
 
-function BackupButton({ onClick, icon, label }: BackupButtonProps) {
+function BackupButton({ onClick, icon, label, disabled }: BackupButtonProps & { disabled?: boolean }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="flex items-center justify-center gap-2 p-3 rounded-xl border border-gray-200 dark:border-white/10 bg-white dark:bg-white/5 hover:border-gray-300 dark:hover:border-white/20 hover:bg-gray-50 dark:hover:bg-white/10 text-sm font-medium text-gray-900 dark:text-gray-100 transition-all"
+      disabled={disabled}
+      className="flex items-center justify-center gap-2 p-3 rounded-xl border border-gray-200 dark:border-white/10 bg-white dark:bg-white/5 hover:border-gray-300 dark:hover:border-white/20 hover:bg-gray-50 dark:hover:bg-white/10 text-sm font-medium text-gray-900 dark:text-gray-100 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
     >
       {icon}
       {label}

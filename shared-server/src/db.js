@@ -74,4 +74,17 @@ db.exec(`
     FOREIGN KEY (account)   REFERENCES users(account)            ON DELETE CASCADE,
     FOREIGN KEY (global_id) REFERENCES shared_characters(global_id) ON DELETE CASCADE
   );
+
+  CREATE TABLE IF NOT EXISTS user_settings (
+    account    TEXT PRIMARY KEY,
+    payload    TEXT NOT NULL,
+    updated_at INTEGER NOT NULL,
+    FOREIGN KEY (account) REFERENCES users(account) ON DELETE CASCADE
+  );
 `);
+
+// Ensure the user-storage directory exists for future per-user file storage
+// (character card covers etc.). Currently the settings payload is stored in the
+// user_settings table above; the directory is reserved for later phases.
+const USER_STORAGE_DIR = process.env.USER_STORAGE_DIR || "./data/user-storage";
+mkdirSync(USER_STORAGE_DIR, { recursive: true });

@@ -215,3 +215,30 @@ export function redeem(
     body: { code },
   });
 }
+
+// --- cloud settings ---------------------------------------------------------
+
+export interface CloudSettingsResponse {
+  exists: boolean;
+  updated_at?: number;
+  payload?: Record<string, unknown>;
+}
+
+/** Fetch the user's cloud settings archive. Returns { exists: false } when none uploaded yet. */
+export function downloadCloudSettings(
+  token: string,
+): Promise<ApiResult<CloudSettingsResponse>> {
+  return request<CloudSettingsResponse>("/settings", { token });
+}
+
+/** Upload the full ExportPayload as the user's cloud settings archive (upsert). */
+export function uploadCloudSettings(
+  token: string,
+  payload: Record<string, unknown>,
+): Promise<ApiResult<{ updated_at: number }>> {
+  return request<{ updated_at: number }>("/settings", {
+    method: "PUT",
+    token,
+    body: { payload },
+  });
+}

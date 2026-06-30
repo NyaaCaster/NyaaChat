@@ -22,6 +22,7 @@ services:
       - PORT=5107
       - DB_PATH=/data/db/nyaachat-shared.db
       - COVERS_DIR=/data/covers
+      - USER_STORAGE_DIR=/data/user-storage
     ports:
       # Direct exposure for debugging / health checks. Primary access is
       # same-origin through the main nginx at /api/shared/.
@@ -29,6 +30,7 @@ services:
     volumes:
       - ${SHARED_RES_DIR:-.}/db:/data/db
       - ${SHARED_RES_DIR:-.}/covers:/data/covers
+      - ${USER_STORAGE_DIR:-./user-storage}:/data/user-storage
     networks:
       - nyaachat-net
     restart: unless-stopped
