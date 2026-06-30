@@ -218,7 +218,7 @@ export function ChatHistoryModal({
       const stored = await loadStoredAccount();
       if (!stored) return;
       const all = loadSessions();
-      const encrypted = await encryptChatPayload(all);
+      const encrypted = await encryptChatPayload(all, stored.token);
       const res = await uploadChatSessions(stored.token, encrypted);
       if (res.kind === "network") {
         setCloudError("上传失败：服务器无法连接");
@@ -242,7 +242,9 @@ export function ChatHistoryModal({
     if (!pendingCloudRaw) return;
     setCloudBusy(true);
     try {
-      const sessions = await decryptChatPayload(pendingCloudRaw);
+      const stored = await loadStoredAccount();
+      if (!stored) { setCloudError("登录已过期，请重新登录"); return; }
+      const sessions = await decryptChatPayload(pendingCloudRaw, stored.token);
       await replaceAllSessions(sessions);
       setPendingCloudOp(null);
       setCloudMeta(null);

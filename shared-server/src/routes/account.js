@@ -10,6 +10,7 @@
 import { Router } from "express";
 import { mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync, unlinkSync, renameSync } from "node:fs";
 import { join, extname } from "node:path";
+import { randomBytes } from "node:crypto";
 import { db, USER_STORAGE_DIR } from "../db.js";
 import { createSession, destroySession, requireAuth } from "../auth.js";
 import { COVER_MAX_BYTES, isWebp } from "../cover-utils.js";
@@ -418,4 +419,40 @@ accountRouter.get("/chat-sessions", requireAuth, (req, res) => {
     return res.status(500).json({ ok: false, error: "parse_failed" });
   }
   return res.json({ ok: true, exists: true, ...data });
+});
+
+// --- chat-sessions encryption key -----------------------------------------
+// GET /account/chat-sessions/key (auth) — return the per-account encryption
+// key for chat-session backup.  Auto-generates a 32-byte random key on first
+// access and persists it server-side so every device under the same account
+// shares the same key (cross-device decrypt works).  The server holds the key
+// but never sees plaintext — encrypt/decrypt happens client-side.
+accountRouter.get("/chat-sessions/key", requireAuth, (req, res) => {
+  const account = req.user.account;
+  const dir = join(USER_STORAGE_DIR, account);
+  try { mkdirSync(dir, { recursive: true }); } catch { /* dir exists */ }
+  const keyPath = join(dir, "chat-crypto-key.json");
+
+  let keyB64;
+  if (existsSync(keyPath)) {
+    try {
+      const raw = JSON.parse(readFileSync(keyPath, "utf-8"));
+      if (raw.key && typeof raw.key === "string" && raw.key.length > 0) {
+        keyB64 = raw.key;
+      }
+    } catch { /* corrupt — regenerate below */ }
+  }
+
+  if (!keyB64) {
+    const bytes = randomBytes(32);
+    keyB64 = Buffer.from(bytes).toString("base64");
+    try {
+      writeFileSync(keyPath, JSON.stringify({ key: keyB64 }), "utf-8");
+    } catch (err) {
+      console.error("[chat-sessions] failed to persist crypto key for", account, err);
+      return res.status(500).json({ ok: false, error: "key_write_failed" });
+    }
+  }
+
+  return res.json({ ok: true, key: keyB64 });
 });
