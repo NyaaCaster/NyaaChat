@@ -17,6 +17,14 @@ const findSession = db.prepare(
   "SELECT account FROM sessions WHERE token = ?",
 );
 const findUser = db.prepare("SELECT * FROM users WHERE account = ?");
+const updateLastActive = db.prepare(
+  "UPDATE users SET last_active = ? WHERE account = ?",
+);
+
+// Per-account debounce (ms).  Avoids writing on every single authed request
+// while keeping the granularity useful for data-retention decisions.
+const LAST_ACTIVE_DEBOUNCE_MS = 5 * 60 * 1000; // 5 minutes
+const lastActiveDebounce = new Map();
 
 /** Mint a new session token for an account and persist it. */
 export function createSession(account) {
@@ -79,5 +87,15 @@ export function requireAuth(req, res, next) {
   }
   req.user = user;
   req.token = token;
+
+  // Update last_active with a per-account debounce so we don't hammer
+  // the DB on every single authed request (polling, quick nav, etc.).
+  const now = Date.now();
+  const prev = lastActiveDebounce.get(session.account);
+  if (prev == null || now - prev >= LAST_ACTIVE_DEBOUNCE_MS) {
+    lastActiveDebounce.set(session.account, now);
+    updateLastActive.run(now, session.account);
+  }
+
   next();
 }

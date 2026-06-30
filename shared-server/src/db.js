@@ -33,7 +33,8 @@ db.exec(`
     catfood      INTEGER NOT NULL DEFAULT 0,  -- balance, >= 0, no decimals
     spent_total  INTEGER NOT NULL DEFAULT 0,  -- lifetime spend (consumption only)
     earned_total INTEGER NOT NULL DEFAULT 0,  -- lifetime earnings (income only)
-    slot_max     INTEGER NOT NULL DEFAULT 20  -- shared-slot ceiling
+    slot_max     INTEGER NOT NULL DEFAULT 20, -- shared-slot ceiling
+    last_active  INTEGER NOT NULL DEFAULT 0   -- unix ms, last authed request
   );
 
   CREATE TABLE IF NOT EXISTS sessions (
@@ -82,6 +83,13 @@ db.exec(`
     FOREIGN KEY (account) REFERENCES users(account) ON DELETE CASCADE
   );
 `);
+
+	// Migrations for existing databases (CREATE TABLE IF NOT EXISTS only covers
+	// new installs).  Each migration is wrapped in a try so the schema survives
+	// partial upgrades gracefully.
+	try {
+	  db.exec("ALTER TABLE users ADD COLUMN last_active INTEGER NOT NULL DEFAULT 0");
+	} catch { /* column already exists — harmless */ }
 
 // Ensure the user-storage directory exists for future per-user file storage
 // (character card covers etc.). Currently the settings payload is stored in the
