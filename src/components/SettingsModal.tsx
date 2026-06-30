@@ -21,11 +21,13 @@ import { AppState } from "../types";
 import { BaseModal } from "./BaseModal";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ToggleSwitch } from "./SettingsFormBits";
-import { exportSettings, parseImportText, buildExportPayload } from "../lib/settingsBackup";
+import { exportSettings, parseImportText, buildExportPayload, collectLocalCovers, applyDownloadedCovers } from "../lib/settingsBackup";
 import {
   loadStoredAccount,
   downloadCloudSettings,
   uploadCloudSettings,
+  uploadCovers,
+  downloadCovers,
 } from "../lib/sharedAccountApi";
 import { UserAccountModal } from "./UserAccountModal";
 
@@ -241,6 +243,7 @@ export function SettingsModal({
 
   const handleConfirmCloudUpload = async () => {
     setCloudBusy(true);
+    let coverWarning: string | null = null;
     try {
       const stored = loadStoredAccount();
       if (!stored) return;
@@ -248,24 +251,59 @@ export function SettingsModal({
       const res = await uploadCloudSettings(stored.token, payload as unknown as Record<string, unknown>);
       if (res.kind === "network") {
         setCloudError("上传失败:服务器无法连接");
-      } else if (res.kind === "error") {
-        setCloudError(`上传失败:${res.error}`);
+        return;
       }
-      // success — close dialog silently
+      if (res.kind === "error") {
+        setCloudError(`上传失败:${res.error}`);
+        return;
+      }
+      // Settings saved — also sync covers if any exist locally.
+      try {
+        const covers = await collectLocalCovers(settings);
+        if (Object.keys(covers).length > 0) {
+          const coverRes = await uploadCovers(stored.token, covers);
+          if (coverRes.kind !== "ok") {
+            coverWarning = "设置已保存,但封面上传失败,可稍后重试";
+          }
+        }
+      } catch {
+        // Cover sync is best-effort — settings are already saved.
+        coverWarning = "设置已保存,但封面上传失败,可稍后重试";
+      }
+      // success — close dialog
       setPendingCloudOp(null);
       setCloudMeta(null);
+      setCloudError(coverWarning);
     } finally {
       setCloudBusy(false);
     }
   };
 
-  const handleConfirmCloudDownload = () => {
+  const handleConfirmCloudDownload = async () => {
     if (!pendingCloudPayload) return;
-    onSave(pendingCloudPayload);
-    setPendingCloudOp(null);
-    setCloudMeta(null);
-    setPendingCloudPayload(null);
-    onClose();
+    setCloudBusy(true);
+    try {
+      // Download covers before applying settings so IndexedDB is populated
+      // by the time the UI re-renders with the new character list.
+      const stored = loadStoredAccount();
+      if (stored) {
+        try {
+          const coverRes = await downloadCovers(stored.token);
+          if (coverRes.kind === "ok" && coverRes.data.covers) {
+            await applyDownloadedCovers(coverRes.data.covers);
+          }
+        } catch {
+          // Cover download is best-effort — proceed with settings anyway.
+        }
+      }
+      onSave(pendingCloudPayload);
+      setPendingCloudOp(null);
+      setCloudMeta(null);
+      setPendingCloudPayload(null);
+      onClose();
+    } finally {
+      setCloudBusy(false);
+    }
   };
 
   return (

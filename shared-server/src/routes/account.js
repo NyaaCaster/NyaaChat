@@ -8,8 +8,11 @@
 // service that hasn't shipped its API yet (see that handler + SSOT §6).
 
 import { Router } from "express";
-import { db } from "../db.js";
+import { mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync, unlinkSync } from "node:fs";
+import { join, extname } from "node:path";
+import { db, USER_STORAGE_DIR } from "../db.js";
 import { createSession, destroySession, requireAuth } from "../auth.js";
+import { COVER_MAX_BYTES, isWebp } from "../cover-utils.js";
 
 export const accountRouter = Router();
 
@@ -268,4 +271,90 @@ accountRouter.get("/settings", requireAuth, (req, res) => {
     updated_at: row.updated_at,
     payload,
   });
+});
+
+// --- cloud cover sync -------------------------------------------------------
+// PUT /account/settings/covers (auth) — upload per-user character covers.
+// Body: { covers: { [characterId]: base64Webp } }
+// Each cover is validated as a real WebP, written to
+// USER_STORAGE_DIR/<account>/covers/<characterId>.webp, and counted.
+// Invalid entries are silently skipped; the response count reflects what
+// actually landed on disk.
+const COVER_ID_RE = /^[a-zA-Z0-9_-]{1,64}$/;
+
+accountRouter.put("/settings/covers", requireAuth, (req, res) => {
+  const { covers } = req.body ?? {};
+  if (!covers || typeof covers !== "object" || Array.isArray(covers)) {
+    return badRequest(res, "bad_covers");
+  }
+
+  const account = req.user.account;
+  const dir = join(USER_STORAGE_DIR, account, "covers");
+  mkdirSync(dir, { recursive: true });
+
+  let count = 0;
+  for (const [id, b64] of Object.entries(covers)) {
+    if (!COVER_ID_RE.test(id) || typeof b64 !== "string" || !b64) continue;
+    let buf;
+    try {
+      buf = Buffer.from(b64, "base64");
+    } catch {
+      continue;
+    }
+    if (!buf.length || buf.length > COVER_MAX_BYTES || !isWebp(buf)) continue;
+    try {
+      writeFileSync(join(dir, `${id}.webp`), buf);
+      count++;
+    } catch {
+      // Individual file write failed — skip and continue.
+    }
+  }
+
+  return res.json({ ok: true, count });
+});
+
+// GET /account/settings/covers (auth) — download all covers for this account.
+// Returns { covers: { [characterId]: base64Webp } }. Empty object when
+// the directory doesn't exist or contains no .webp files.
+accountRouter.get("/settings/covers", requireAuth, (req, res) => {
+  const account = req.user.account;
+  const dir = join(USER_STORAGE_DIR, account, "covers");
+  const covers = {};
+
+  try {
+    if (!existsSync(dir)) return res.json({ ok: true, covers });
+    const entries = readdirSync(dir);
+    for (const name of entries) {
+      if (extname(name) !== ".webp") continue;
+      const id = name.slice(0, -5); // strip ".webp"
+      if (!COVER_ID_RE.test(id)) continue;
+      try {
+        const buf = readFileSync(join(dir, name));
+        covers[id] = buf.toString("base64");
+      } catch {
+        // Corrupted / unreadable file — skip.
+      }
+    }
+  } catch {
+    // Directory listing failed — return whatever we have (empty).
+  }
+
+  return res.json({ ok: true, covers });
+});
+
+// DELETE /account/settings/covers/:characterId (auth) — delete a single cover.
+// Idempotent — returns ok whether the file existed or not.
+accountRouter.delete("/settings/covers/:characterId", requireAuth, (req, res) => {
+  const { characterId } = req.params;
+  if (!COVER_ID_RE.test(characterId)) {
+    return badRequest(res, "bad_character_id");
+  }
+  const account = req.user.account;
+  const filePath = join(USER_STORAGE_DIR, account, "covers", `${characterId}.webp`);
+  try {
+    if (existsSync(filePath)) unlinkSync(filePath);
+  } catch {
+    // Best-effort — stale file is harmless.
+  }
+  return res.json({ ok: true });
 });

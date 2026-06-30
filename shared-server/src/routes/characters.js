@@ -18,6 +18,7 @@ import { mkdirSync, writeFileSync, readFileSync, existsSync, unlinkSync } from "
 import { join } from "node:path";
 import { db } from "../db.js";
 import { requireAuth, resolveUser } from "../auth.js";
+import { COVER_MAX_BYTES, isWebp } from "../cover-utils.js";
 
 const COVERS_DIR = process.env.COVERS_DIR || "./data/covers";
 mkdirSync(COVERS_DIR, { recursive: true });
@@ -26,7 +27,6 @@ mkdirSync(COVERS_DIR, { recursive: true });
 const INTRO_MAX = 100; // counted by Unicode code points, per the design
 const TAG_MAX_LEN = 20; // per-tag code points
 const TAGS_MAX = 20; // number of tags
-const COVER_MAX_BYTES = 4 * 1024 * 1024; // generous ceiling for a 512x768 webp
 const CARD_JSON_MAX = 2 * 1024 * 1024; // card json text ceiling
 
 function badRequest(res, error) {
@@ -48,15 +48,6 @@ function escapeLike(str) {
 /** A non-negative integer price (free / not-for-sale is 0). */
 function isPrice(n) {
   return Number.isInteger(n) && n >= 0;
-}
-
-/** Verify a buffer begins with a RIFF....WEBP container header. */
-function isWebp(buf) {
-  return (
-    buf.length > 12 &&
-    buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46 && // "RIFF"
-    buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50 // "WEBP"
-  );
 }
 
 // --- statements -----------------------------------------------------------

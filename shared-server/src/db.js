@@ -86,5 +86,5 @@ db.exec(`
 // Ensure the user-storage directory exists for future per-user file storage
 // (character card covers etc.). Currently the settings payload is stored in the
 // user_settings table above; the directory is reserved for later phases.
-const USER_STORAGE_DIR = process.env.USER_STORAGE_DIR || "./data/user-storage";
+export const USER_STORAGE_DIR = process.env.USER_STORAGE_DIR || "./data/user-storage";
 mkdirSync(USER_STORAGE_DIR, { recursive: true });

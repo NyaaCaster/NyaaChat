@@ -1,6 +1,7 @@
 import { AppState, ImageProvider, LlmProvider, ModelEntry } from "../types";
 import { wordCheckTemplates } from "./WordCheckTemplates";
 import { wordCountTemplates } from "./WordCountTemplates";
+import { COVER_MARKER, loadCover, saveCover } from "./coverStorage";
 import { COMFYUI_FIXED_NAME, defaultComfyFields } from "./providers";
 
 const EXPORT_KIND = "nyaachat_settings_export";
@@ -79,6 +80,66 @@ export function buildExportPayload(settings: AppState): ExportPayload {
       imageProviders: settings.imageProviders.map(stripImageProvider),
     },
   };
+}
+
+/** Convert a Blob to a pure base64 string (no data: prefix). */
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const dataUrl = reader.result as string;
+      // Strip "data:image/webp;base64," prefix.
+      const comma = dataUrl.indexOf(",");
+      resolve(comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+/**
+ * Collect cover images from IndexedDB for every character whose `coverImage`
+ * marker is truthy (COVER_MARKER). Characters whose blob is missing from
+ * IndexedDB are silently skipped.
+ *
+ * Returns a map of characterId → pure base64 WebP (no data: prefix), ready for
+ * upload to the cloud settings cover endpoint.
+ */
+export async function collectLocalCovers(settings: AppState): Promise<Record<string, string>> {
+  const covers: Record<string, string> = {};
+  for (const ch of settings.characters) {
+    if (!ch.coverImage) continue; // COVER_MARKER is "idb" — truthy
+    try {
+      const blob = await loadCover(ch.id);
+      if (!blob) continue;
+      covers[ch.id] = await blobToBase64(blob);
+    } catch {
+      // IndexedDB read or base64 conversion failed — skip this character.
+    }
+  }
+  return covers;
+}
+
+/**
+ * Persist downloaded cover images into IndexedDB so they show up in the UI.
+ * Each value is a pure base64 WebP string (no data: prefix). Entries that fail
+ * to decode are silently skipped.
+ */
+export async function applyDownloadedCovers(covers: Record<string, string>): Promise<void> {
+  for (const [characterId, b64] of Object.entries(covers)) {
+    if (!b64 || typeof b64 !== "string") continue;
+    try {
+      const binary = atob(b64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      const blob = new Blob([bytes], { type: "image/webp" });
+      await saveCover(characterId, blob);
+    } catch {
+      // Bad base64 or IndexedDB write failed — skip this entry.
+    }
+  }
 }
 
 export function exportSettings(settings: AppState): void {

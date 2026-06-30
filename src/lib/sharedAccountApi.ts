@@ -242,3 +242,26 @@ export function uploadCloudSettings(
     body: { payload },
   });
 }
+
+// --- cloud cover sync -------------------------------------------------------
+
+/** Upload per-character cover images (base64 WebP, no data: prefix).
+ *  Returns the count of covers successfully written on the server. */
+export function uploadCovers(
+  token: string,
+  covers: Record<string, string>,
+): Promise<ApiResult<{ count: number }>> {
+  return request<{ count: number }>("/settings/covers", {
+    method: "PUT",
+    token,
+    body: { covers },
+  });
+}
+
+/** Download all cover images for the current account.
+ *  Returns { covers: { [characterId]: base64Webp } } — empty object when none exist. */
+export function downloadCovers(
+  token: string,
+): Promise<ApiResult<{ covers: Record<string, string> }>> {
+  return request<{ covers: Record<string, string> }>("/settings/covers", { token });
+}
