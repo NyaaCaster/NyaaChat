@@ -1,11 +1,17 @@
 import { AppState, ImageProvider, LlmProvider, ModelEntry } from "../types";
+import { wordCheckTemplates } from "./WordCheckTemplates";
+import { wordCountTemplates } from "./WordCountTemplates";
+import { COMFYUI_FIXED_NAME, defaultComfyFields } from "./providers";
 
 const EXPORT_KIND = "nyaachat_settings_export";
 /** Bumped to 3 when the AppState gained MCP fields (`isMcpEnabled`,
  *  `mcpUserCity`, `mcpToolsEnabled`). v4 adds the native front-end renderer
- *  toggle/depth. Older files are still accepted and backfilled during import. */
-const EXPORT_VERSION = 4;
-const SUPPORTED_IMPORT_VERSIONS = new Set([2, 3, 4]);
+ *  toggle/depth. v5 adds bypass sub-fields (opusChecks, wordCount,
+ *  languageConstraint), isWebSearchEnabled / isStreaming validation, and
+ *  ComfyUI image-provider field normalisation. Older files are still accepted
+ *  and backfilled during import. */
+const EXPORT_VERSION = 5;
+const SUPPORTED_IMPORT_VERSIONS = new Set([2, 3, 4, 5]);
 
 interface ExportPayload {
   _kind: typeof EXPORT_KIND;
@@ -197,6 +203,42 @@ function validateImportPayload(raw: unknown): ImportResult {
     }
   }
 
+  // v5 fields: isWebSearchEnabled, isStreaming, bypass sub-fields (opusChecks,
+  // wordCount, languageConstraint). Pre-v5 files may lack them entirely — we
+  // accept and backfill below. v5+ files must carry valid shapes.
+  if (obj._version >= 5) {
+    if (s.isWebSearchEnabled !== undefined && typeof s.isWebSearchEnabled !== "boolean") {
+      issues.push("isWebSearchEnabled 必须是布尔");
+    }
+    if (s.isStreaming !== undefined && typeof s.isStreaming !== "boolean") {
+      issues.push("isStreaming 必须是布尔");
+    }
+    // bypass.opusChecks shape
+    const bp = s.bypass as Record<string, unknown> | undefined;
+    if (bp) {
+      if (bp.opusChecks !== undefined) {
+        if (!bp.opusChecks || typeof bp.opusChecks !== "object" || Array.isArray(bp.opusChecks)) {
+          issues.push("bypass.opusChecks 必须是对象");
+        }
+      }
+      // RosettaStone sub-objects
+      const wc = bp.wordCount as Record<string, unknown> | undefined;
+      if (wc) {
+        if (wc.enabled !== undefined && typeof wc.enabled !== "boolean")
+          issues.push("bypass.wordCount.enabled 必须是布尔");
+        if (wc.template !== undefined && typeof wc.template !== "string")
+          issues.push("bypass.wordCount.template 必须是字符串");
+      }
+      const lc = bp.languageConstraint as Record<string, unknown> | undefined;
+      if (lc) {
+        if (lc.enabled !== undefined && typeof lc.enabled !== "boolean")
+          issues.push("bypass.languageConstraint.enabled 必须是布尔");
+        if (lc.template !== undefined && typeof lc.template !== "string")
+          issues.push("bypass.languageConstraint.template 必须是字符串");
+      }
+    }
+  }
+
   if (issues.length > 0) {
     const shown = issues.slice(0, 5).join("; ");
     const more = issues.length > 5 ? ` (还有 ${issues.length - 5} 项)` : "";
@@ -206,7 +248,7 @@ function validateImportPayload(raw: unknown): ImportResult {
     };
   }
 
-  // Backfill MCP defaults so v2 imports — and v3 imports that omit fields
+  // Backfill defaults so v2–v4 imports — and v5 imports that omit fields
   // — produce a complete AppState. Same defaults the schema migrator uses
   // when loading from localStorage; keeping them in sync is critical or
   // imported settings would behave differently from native ones.
@@ -240,6 +282,59 @@ function validateImportPayload(raw: unknown): ImportResult {
       ...(filled.mcpToolsEnabled as Record<string, boolean>),
       web_search: false,
     };
+  }
+
+  // --- v5 backfills: bypass sub-fields, isWebSearchEnabled, isStreaming, ComfyUI ---
+
+  // isWebSearchEnabled / isStreaming — pre-v5 files may lack them.
+  if (typeof filled.isWebSearchEnabled !== "boolean") {
+    filled.isWebSearchEnabled = false;
+  }
+  if (typeof filled.isStreaming !== "boolean") {
+    filled.isStreaming = false;
+  }
+
+  // Bypass — ensure the object and all its sub-objects exist with defaults
+  // matching App.tsx's DEFAULT_SETTINGS.bypass.
+  if (!filled.bypass || typeof filled.bypass !== "object") {
+    filled.bypass = {};
+  }
+  const bp = filled.bypass as Record<string, unknown>;
+
+  // WordCheck (opusChecks)
+  if (!bp.opusChecks || typeof bp.opusChecks !== "object" || Array.isArray(bp.opusChecks)) {
+    bp.opusChecks = {
+      gemini31Check: wordCheckTemplates.gemini31Check.content,
+      opus48Check: wordCheckTemplates.opus48Check.content,
+      opus47Check: wordCheckTemplates.opus47Check.content,
+    };
+  }
+
+  // RosettaStone wordCount (default off)
+  if (!bp.wordCount || typeof bp.wordCount !== "object") {
+    bp.wordCount = { enabled: false, template: wordCountTemplates.wordCount.content };
+  } else {
+    const wc = bp.wordCount as Record<string, unknown>;
+    if (typeof wc.enabled !== "boolean") wc.enabled = false;
+    if (typeof wc.template !== "string" || !(wc.template as string).trim())
+      wc.template = wordCountTemplates.wordCount.content;
+  }
+
+  // RosettaStone languageConstraint (default on)
+  if (!bp.languageConstraint || typeof bp.languageConstraint !== "object") {
+    bp.languageConstraint = { enabled: true, template: wordCountTemplates.languageConstraint.content };
+  } else {
+    const lc = bp.languageConstraint as Record<string, unknown>;
+    if (typeof lc.enabled !== "boolean") lc.enabled = true;
+    if (typeof lc.template !== "string" || !(lc.template as string).trim())
+      lc.template = wordCountTemplates.languageConstraint.content;
+  }
+
+  // ComfyUI image-provider normalisation
+  if (Array.isArray(filled.imageProviders)) {
+    filled.imageProviders = normalizeImageProvidersForImport(
+      filled.imageProviders as ImageProvider[],
+    );
   }
 
   return { kind: "ok", settings: filled as unknown as AppState };
@@ -310,4 +405,57 @@ function validateImageProviderShape(p: unknown): string[] {
     });
   }
   return issues;
+}
+
+/**
+ * Normalize an imageProviders array for import. Mirrors App.tsx's
+ * normalizeImageProviders but as a pure-function transform (no
+ * cross-module coupling). Three guarantees:
+ *   1. Legacy placeholder `kind: "comfyui"` → `"comfyui-fixed"` with comfy defaults.
+ *   2. Any ComfyUI-kind provider missing comfy fields gets them backfilled.
+ *   3. A `comfyui-fixed` entry always exists (created if absent).
+ */
+function normalizeImageProvidersForImport(list: ImageProvider[]): ImageProvider[] {
+  const normalized = list.map((p) => {
+    if ((p as any)?.kind === "comfyui") {
+      const d = defaultComfyFields();
+      return {
+        ...p,
+        kind: "comfyui-fixed",
+        name: COMFYUI_FIXED_NAME,
+        baseUrl: (p as any).baseUrl || "",
+        ...d,
+        enabled: !!p.enabled,
+      } as ImageProvider;
+    }
+    if (p.kind === "comfyui-fixed" || p.kind === "comfyui-custom") {
+      const d = defaultComfyFields();
+      return {
+        ...p,
+        comfySize: p.comfySize ?? d.comfySize,
+        comfyWorkflowId: p.comfyWorkflowId ?? d.comfyWorkflowId,
+        comfyArtStyle: p.comfyArtStyle ?? d.comfyArtStyle,
+        models: Array.isArray(p.models) && p.models.length > 0 ? p.models : d.models,
+        lastUsedModel: p.lastUsedModel ?? d.lastUsedModel,
+        name: p.kind === "comfyui-fixed" ? COMFYUI_FIXED_NAME : p.name,
+      } as ImageProvider;
+    }
+    return p;
+  });
+  // Guarantee a fixed-ComfyUI entry exists.
+  if (!normalized.some((p) => p.kind === "comfyui-fixed")) {
+    const d = defaultComfyFields();
+    normalized.push({
+      id: "comfyui-fixed",
+      kind: "comfyui-fixed",
+      name: COMFYUI_FIXED_NAME,
+      enabled: false,
+      apiKey: "",
+      baseUrl: "",
+      models: d.models,
+      lastUsedModel: d.lastUsedModel,
+      ...d,
+    } as ImageProvider);
+  }
+  return normalized;
 }

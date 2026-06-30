@@ -22,6 +22,9 @@ import { ExtensionsModal } from "./ExtensionsModal";
 import { RegexModal } from "./RegexModal";
 import { UserAccountModal } from "./UserAccountModal";
 
+/** 扩展面板 UI 入口开关。设为 false 隐藏按钮和弹窗，改为 true 恢复。 */
+const EXTENSIONS_UI_ENABLED = false;
+
 interface ChatHeaderProps {
   characters: CharacterSettings[] | undefined;
   currentCharacterId: string;
@@ -130,13 +133,15 @@ export function ChatHeader({
               className={isBypassActive ? "animate-pulse" : ""}
             />
           </button>
-          <button
-            onClick={() => setIsExtensionsOpen(true)}
-            className="p-2 text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-white/10 rounded-lg transition-all duration-200"
-            title="扩展"
-          >
-            <Puzzle size={18} />
-          </button>
+          {EXTENSIONS_UI_ENABLED && (
+            <button
+              onClick={() => setIsExtensionsOpen(true)}
+              className="p-2 text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-white/10 rounded-lg transition-all duration-200"
+              title="扩展"
+            >
+              <Puzzle size={18} />
+            </button>
+          )}
           <button
             onClick={onOpenSettings}
             className="p-2 text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-white/10 rounded-lg transition-all duration-200"
@@ -204,10 +209,11 @@ export function ChatHeader({
         <VersionModal isOpen={isVersionOpen} onClose={() => setIsVersionOpen(false)} />,
         document.body,
       )}
-      {createPortal(
-        <ExtensionsModal isOpen={isExtensionsOpen} onClose={() => setIsExtensionsOpen(false)} />,
-        document.body,
-      )}
+      {EXTENSIONS_UI_ENABLED &&
+        createPortal(
+          <ExtensionsModal isOpen={isExtensionsOpen} onClose={() => setIsExtensionsOpen(false)} />,
+          document.body,
+        )}
       {createPortal(
         <RegexModal
           isOpen={isRegexOpen}
