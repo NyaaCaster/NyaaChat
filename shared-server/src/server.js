@@ -14,7 +14,7 @@ import { charactersRouter, coversRouter } from "./routes/characters.js";
 const PORT = Number(process.env.PORT) || 5107;
 
 const app = express();
-app.use(express.json({ limit: "6mb" })); // card json + base64 cover headroom
+app.use(express.json({ limit: "120mb" })); // card json + base64 cover + chat-sessions headroom
 
 // Health probe. Public, unauthenticated. Verifies the sqlite handle responds.
 app.get("/health", (_req, res) => {

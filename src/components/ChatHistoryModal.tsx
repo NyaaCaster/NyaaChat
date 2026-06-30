@@ -1,13 +1,17 @@
 import React, { useEffect, useRef, useState } from "react";
-import { History, Download, FileText, Trash2, Upload } from "lucide-react";
+import { History, Download, FileText, Trash2, Upload, CloudUpload, CloudDownload } from "lucide-react";
 import { ChatSession } from "../types";
 import { newId } from "../lib/id";
-import { loadSessions, saveSession, deleteSession } from "../lib/sessionStorage";
+import { loadSessions, saveSession, deleteSession, replaceAllSessions } from "../lib/sessionStorage";
 import { estimateChatStorage, CHAT_STORAGE_QUOTA } from "../lib/storageEstimate";
+import { loadStoredAccount } from "../lib/sharedAccountApi";
+import { uploadChatSessions, downloadChatSessions } from "../lib/sharedAccountApi";
+import { encryptChatPayload, decryptChatPayload } from "../lib/chatCrypto";
 import { sessionToMarkdown } from "../lib/exportSession";
 import { BaseModal } from "./BaseModal";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { StorageBar } from "./StorageBar";
+import { UserAccountModal } from "./UserAccountModal";
 
 function getSessionLabel(session: ChatSession): string {
   const firstUserMsg = session.messages.find((m) => m.role === "user");
@@ -40,6 +44,25 @@ export function ChatHistoryModal({
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const [chatUsage, setChatUsage] = useState<number>(0);
+
+  // --- cloud chat-sessions state --------------------------------------------
+  const [cloudBusy, setCloudBusy] = useState(false);
+  const [cloudError, setCloudError] = useState<string | null>(null);
+  const [cloudMeta, setCloudMeta] = useState<{ updated_at: number; count: number } | null>(null);
+  const [pendingCloudOp, setPendingCloudOp] = useState<"upload" | "download" | "no_archive" | null>(null);
+  const [pendingCloudRaw, setPendingCloudRaw] = useState<Record<string, unknown> | null>(null);
+  const [isAccountOpen, setIsAccountOpen] = useState(false);
+
+  /** YY-MM-DD hh:mm in local time from a unix-ms timestamp. */
+  function formatCloudTime(ms: number): string {
+    const d = new Date(ms);
+    const YY = String(d.getFullYear()).slice(2);
+    const MM = String(d.getMonth() + 1).padStart(2, "0");
+    const DD = String(d.getDate()).padStart(2, "0");
+    const hh = String(d.getHours()).padStart(2, "0");
+    const mm = String(d.getMinutes()).padStart(2, "0");
+    return `${YY}-${MM}-${DD} ${hh}:${mm}`;
+  }
 
   useEffect(() => {
     if (!isOpen) return;
@@ -126,6 +149,113 @@ export function ChatHistoryModal({
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
+  // --- cloud chat-sessions handlers (cf. SettingsModal cloud settings) --------
+
+  const handleCloudUpload = async () => {
+    setCloudError(null);
+    const stored = await loadStoredAccount();
+    if (!stored) {
+      setIsAccountOpen(true);
+      return;
+    }
+    setCloudBusy(true);
+    try {
+      const res = await downloadChatSessions(stored.token);
+      if (res.kind === "network") {
+        setCloudError("服务器无法连接，请稍后重试");
+        return;
+      }
+      if (res.kind === "error") {
+        setCloudError(`服务器错误：${res.error}`);
+        return;
+      }
+      if (res.data.exists && res.data.updated_at) {
+        setCloudMeta({ updated_at: res.data.updated_at, count: res.data.count ?? -1 });
+      } else {
+        setCloudMeta(null);
+      }
+      setPendingCloudOp("upload");
+    } finally {
+      setCloudBusy(false);
+    }
+  };
+
+  const handleCloudDownload = async () => {
+    setCloudError(null);
+    const stored = await loadStoredAccount();
+    if (!stored) {
+      setIsAccountOpen(true);
+      return;
+    }
+    setCloudBusy(true);
+    try {
+      const res = await downloadChatSessions(stored.token);
+      if (res.kind === "network") {
+        setCloudError("服务器无法连接，请稍后重试");
+        return;
+      }
+      if (res.kind === "error") {
+        setCloudError(`服务器错误：${res.error}`);
+        return;
+      }
+      if (!res.data.exists) {
+        setPendingCloudOp("no_archive");
+        return;
+      }
+      setCloudMeta({ updated_at: res.data.updated_at ?? 0, count: res.data.count ?? -1 });
+      // Store the raw server response (encrypted or legacy plaintext) for the
+      // confirm step to decrypt.
+      setPendingCloudRaw(res.data as unknown as Record<string, unknown>);
+      setPendingCloudOp("download");
+    } finally {
+      setCloudBusy(false);
+    }
+  };
+
+  const handleConfirmCloudUpload = async () => {
+    setCloudBusy(true);
+    try {
+      const stored = await loadStoredAccount();
+      if (!stored) return;
+      const all = loadSessions();
+      const encrypted = await encryptChatPayload(all);
+      const res = await uploadChatSessions(stored.token, encrypted);
+      if (res.kind === "network") {
+        setCloudError("上传失败：服务器无法连接");
+        return;
+      }
+      if (res.kind === "error") {
+        setCloudError(`上传失败：${res.error}`);
+        return;
+      }
+      setPendingCloudOp(null);
+      setCloudMeta(null);
+      estimateChatStorage().then(setChatUsage);
+    } catch (err: any) {
+      setCloudError("加密失败：" + (err?.message || String(err)));
+    } finally {
+      setCloudBusy(false);
+    }
+  };
+
+  const handleConfirmCloudDownload = async () => {
+    if (!pendingCloudRaw) return;
+    setCloudBusy(true);
+    try {
+      const sessions = await decryptChatPayload(pendingCloudRaw);
+      await replaceAllSessions(sessions);
+      setPendingCloudOp(null);
+      setCloudMeta(null);
+      setPendingCloudRaw(null);
+      onSessionsChange();
+      estimateChatStorage().then(setChatUsage);
+    } catch (err: any) {
+      setCloudError("解密失败：" + (err?.message || String(err)));
+    } finally {
+      setCloudBusy(false);
+    }
+  };
+
   const pendingSession = pendingDeleteId
     ? sessions.find((s) => s.id === pendingDeleteId)
     : null;
@@ -147,9 +277,28 @@ export function ChatHistoryModal({
               ref={fileInputRef}
               onChange={handleImport}
             />
+            {cloudError && (
+              <p className="text-xs text-red-500 dark:text-red-400 mb-2 break-all">{cloudError}</p>
+            )}
             {importError && (
               <p className="text-xs text-red-500 dark:text-red-400 mb-2 break-all">{importError}</p>
             )}
+            <div className="flex gap-3 mb-2">
+              <button
+                onClick={handleCloudUpload}
+                disabled={cloudBusy}
+                className="flex-1 px-3 py-2 bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 hover:bg-gray-50 dark:hover:bg-white/10 text-gray-700 dark:text-gray-300 text-sm font-medium rounded-xl transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                <CloudUpload size={16} /> 上传记录
+              </button>
+              <button
+                onClick={handleCloudDownload}
+                disabled={cloudBusy}
+                className="flex-1 px-3 py-2 bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 hover:bg-gray-50 dark:hover:bg-white/10 text-gray-700 dark:text-gray-300 text-sm font-medium rounded-xl transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                <CloudDownload size={16} /> 下载记录
+              </button>
+            </div>
             <button
               onClick={() => fileInputRef.current?.click()}
               className="w-full px-4 py-2 bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 hover:bg-gray-50 dark:hover:bg-white/10 text-gray-700 dark:text-gray-300 text-sm font-medium rounded-xl transition-all flex items-center justify-center gap-2"
@@ -238,6 +387,71 @@ export function ChatHistoryModal({
         onConfirm={handleDeleteConfirm}
         onCancel={() => setPendingDeleteId(null)}
       />
+
+      {/* Cloud chat-sessions sync confirm dialog */}
+      <ConfirmDialog
+        isOpen={pendingCloudOp !== null}
+        title={
+          pendingCloudOp === "upload" ? "上传聊天记录" : "下载聊天记录"
+        }
+        destructive={pendingCloudOp === "download"}
+        confirmText={
+          pendingCloudOp === "upload"
+            ? cloudMeta
+              ? "覆盖云端存档"
+              : "创建云端存档"
+            : pendingCloudOp === "download"
+              ? "替换本地记录"
+              : "确定"
+        }
+        message={
+          pendingCloudOp === "upload"
+            ? (
+              cloudMeta
+                ? <>
+                    云端存档最后更新于{" "}
+                    <span className="font-semibold text-gray-900 dark:text-gray-100">
+                      {formatCloudTime(cloudMeta.updated_at)}
+                    </span>
+                    {cloudMeta.count > 0 && <>（{cloudMeta.count} 条记录）</>}
+                    。上传将覆盖云端存档，是否继续？
+                  </>
+                : "云端暂无存档，将创建首个存档。是否继续？"
+            )
+            : pendingCloudOp === "download"
+            ? (
+              cloudMeta
+                ? <>
+                    云端存档最后更新于{" "}
+                    <span className="font-semibold text-gray-900 dark:text-gray-100">
+                      {formatCloudTime(cloudMeta.updated_at)}
+                    </span>
+                    {cloudMeta.count > 0 && <>（{cloudMeta.count} 条记录）</>}
+                    。下载将
+                    <span className="font-semibold text-gray-900 dark:text-gray-100 mx-1">
+                      覆盖当前所有本地聊天记录
+                    </span>
+                    ，是否继续？
+                  </>
+                : "下载将覆盖当前所有本地聊天记录，是否继续？"
+            )
+            : "云端暂无存档，请先上传聊天记录。"
+        }
+        onConfirm={
+          pendingCloudOp === "upload"
+            ? handleConfirmCloudUpload
+            : pendingCloudOp === "download"
+              ? handleConfirmCloudDownload
+              : () => setPendingCloudOp(null)
+        }
+        onCancel={() => {
+          setPendingCloudOp(null);
+          setCloudMeta(null);
+          setPendingCloudRaw(null);
+        }}
+      />
+
+      <UserAccountModal isOpen={isAccountOpen} onClose={() => setIsAccountOpen(false)} />
     </>
   );
 }

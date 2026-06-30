@@ -75,3 +75,14 @@ export async function saveLastSessionId(id: string | null): Promise<void> {
     // Non-fatal — losing the resume hint just falls back to new-chat on reload.
   }
 }
+
+/** Replace ALL local sessions at once (used by cloud chat-session download). */
+export async function replaceAllSessions(sessions: ChatSession[]): Promise<void> {
+  sessionsCache = sessions;
+  try {
+    await setItem(STORAGE_KEY, JSON.stringify(sessionsCache));
+  } catch (err) {
+    console.error("Failed to persist bulk session replacement", err);
+    throw err;
+  }
+}

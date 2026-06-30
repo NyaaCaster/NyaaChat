@@ -11,6 +11,8 @@
 // separating 账号密码错误 from 服务器无法连接.
 
 import { getItem, setItem, removeItem } from "./idbStorage";
+import type { ChatSession } from "../types";
+import type { EncryptedChatPayload } from "./chatCrypto";
 
 const BASE = "/api/shared/account";
 const STORAGE_KEY = "nyaachat_account";
@@ -266,4 +268,41 @@ export function downloadCovers(
   token: string,
 ): Promise<ApiResult<{ covers: Record<string, string> }>> {
   return request<{ covers: Record<string, string> }>("/settings/covers", { token });
+}
+
+// --- cloud chat-sessions ----------------------------------------------------
+
+/** Shape returned by GET (encrypted or legacy plaintext). */
+export interface CloudChatSessionsResponse {
+  exists: boolean;
+  updated_at?: number;
+  // Encrypted payload fields (Nyaa-HMAC-XOR-V1 or legacy AES-256-GCM):
+  alg?: string;
+  salt?: string;
+  iv?: string;
+  data?: string;
+  tag?: string;
+  // Legacy plaintext fields:
+  sessions?: ChatSession[];
+  count?: number;
+}
+
+/** Fetch the user's cloud chat-sessions archive. Returns { exists: false } when none uploaded yet.
+ *  The response may be encrypted (alg === "AES-256-GCM") or legacy plaintext ({ sessions: [...] }). */
+export function downloadChatSessions(
+  token: string,
+): Promise<ApiResult<CloudChatSessionsResponse>> {
+  return request<CloudChatSessionsResponse>("/chat-sessions", { token });
+}
+
+/** Upload an encrypted chat-session payload (AES-256-GCM). */
+export function uploadChatSessions(
+  token: string,
+  payload: EncryptedChatPayload,
+): Promise<ApiResult<{ updated_at: number; count: number }>> {
+  return request<{ updated_at: number; count: number }>("/chat-sessions", {
+    method: "PUT",
+    token,
+    body: payload,
+  });
 }

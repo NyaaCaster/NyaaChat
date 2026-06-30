@@ -8,7 +8,7 @@
 // service that hasn't shipped its API yet (see that handler + SSOT §6).
 
 import { Router } from "express";
-import { mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync, unlinkSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync, unlinkSync, renameSync } from "node:fs";
 import { join, extname } from "node:path";
 import { db, USER_STORAGE_DIR } from "../db.js";
 import { createSession, destroySession, requireAuth } from "../auth.js";
@@ -357,4 +357,65 @@ accountRouter.delete("/settings/covers/:characterId", requireAuth, (req, res) =>
     // Best-effort — stale file is harmless.
   }
   return res.json({ ok: true });
+});
+
+// --- chat-sessions upload ---------------------------------------------------
+// PUT /account/chat-sessions (auth) — upload the user's full chat-session list
+// as an encrypted JSON payload.  Body: { alg:"AES-256-GCM", iv, data, tag } —
+// the server stores the ciphertext verbatim and never sees plaintext.
+// Also accepts legacy plaintext { sessions: [...] } for backward compatibility.
+// Atomic write via temp-file + rename so concurrent readers never see a half-written file.
+accountRouter.put("/chat-sessions", requireAuth, (req, res) => {
+  const body = req.body ?? {};
+  // Accept encrypted payload (Nyaa-HMAC-XOR-V1 or legacy AES-256-GCM) …
+  const isEncrypted =
+    (body.alg === "Nyaa-HMAC-XOR-V1" && typeof body.salt === "string" && typeof body.iv === "string" && typeof body.data === "string" && typeof body.tag === "string") ||
+    (body.alg === "AES-256-GCM" && typeof body.iv === "string" && typeof body.data === "string" && typeof body.tag === "string");
+  // … or legacy plaintext.
+  const isLegacy = Array.isArray(body.sessions);
+  if (!isEncrypted && !isLegacy) {
+    return badRequest(res, "bad_payload");
+  }
+  const account = req.user.account;
+  const dir = join(USER_STORAGE_DIR, account);
+  try { mkdirSync(dir, { recursive: true }); } catch { /* dir exists */ }
+  const filePath = join(dir, "chat-sessions.json");
+  const tmpPath = filePath + ".tmp." + Date.now();
+  const now = Date.now();
+  const count = isEncrypted ? -1 : body.sessions.length; // -1 = encrypted, count unknown to server
+  try {
+    writeFileSync(tmpPath, JSON.stringify({ ...body, updated_at: now }), "utf-8");
+    renameSync(tmpPath, filePath);
+  } catch (err) {
+    try { if (existsSync(tmpPath)) unlinkSync(tmpPath); } catch { /* best-effort */ }
+    console.error("[chat-sessions] write failed for", account, err);
+    return res.status(500).json({ ok: false, error: "write_failed" });
+  }
+  return res.json({ ok: true, updated_at: now, count });
+});
+
+// --- chat-sessions download -------------------------------------------------
+// GET /account/chat-sessions (auth) — fetch the user's full chat-session list.
+// Returns the stored payload verbatim (encrypted or legacy plaintext) — the
+// client decrypts.  { exists: false } when no archive has been uploaded yet.
+accountRouter.get("/chat-sessions", requireAuth, (req, res) => {
+  const account = req.user.account;
+  const filePath = join(USER_STORAGE_DIR, account, "chat-sessions.json");
+  if (!existsSync(filePath)) {
+    return res.json({ ok: true, exists: false });
+  }
+  let raw;
+  try {
+    raw = readFileSync(filePath, "utf-8");
+  } catch (err) {
+    console.error("[chat-sessions] read failed for", account, err);
+    return res.status(500).json({ ok: false, error: "read_failed" });
+  }
+  let data;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    return res.status(500).json({ ok: false, error: "parse_failed" });
+  }
+  return res.json({ ok: true, exists: true, ...data });
 });
