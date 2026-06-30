@@ -1,6 +1,7 @@
 # query-users
 
-查询 NyaaChat 共享后端 SQLite 数据库中的用户账号信息。
+查询 NyaaChat 共享后端 SQLite 数据库中的用户账号信息。跨平台（Windows/Linux/macOS），
+仅依赖 Python 3 标准库。
 
 ## 触发条件
 
@@ -12,31 +13,39 @@
 
 ## 执行方式
 
-运行项目根目录下的查询脚本：
+运行项目根目录下的 Python 查询脚本：
 
 ```
-powershell -ExecutionPolicy Bypass -File .\scripts\query-users.ps1
+python scripts/query-users.py
 ```
 
 ### 可选参数
 
 | 参数 | 作用 | 示例 |
 |------|------|------|
-| `-ActiveOnly` | 只显示 `last_active > 0`（有过活跃记录）的用户 | `-ActiveOnly` |
-| `-Account <name>` | 精确匹配某个账号 | `-Account nyaa` |
-| `-DbPath <path>` | 覆盖默认数据库路径 | `-DbPath "E:\..."` |
+| `--account` / `-a` | 精确匹配某个账号 | `--account nyaa` |
+| `--username` / `-u` | 用户名模糊搜索（LIKE `%xxx%`，大小写不敏感） | `--username alex` |
+| `--active-only` / `-A` | 只显示 `last_active > 0`（有过活跃记录）的用户 | `--active-only` |
+| `--db-path` / `-d` | 覆盖默认数据库路径 | `--db-path /path/to/db` |
 
 ### 示例
 
-```powershell
+```bash
 # 全部用户
-powershell -ExecutionPolicy Bypass -File .\scripts\query-users.ps1
+python scripts/query-users.py
 
 # 只看有活跃记录的用户
-powershell -ExecutionPolicy Bypass -File .\scripts\query-users.ps1 -ActiveOnly
+python scripts/query-users.py --active-only
 
 # 查特定账号
-powershell -ExecutionPolicy Bypass -File .\scripts\query-users.ps1 -Account nyaa
+python scripts/query-users.py --account nyaa
+
+# 按用户名模糊搜索（支持中英文）
+python scripts/query-users.py --username alex
+python scripts/query-users.py -u 吃货
+
+# 指定数据库路径（Linux 等非默认路径时）
+python scripts/query-users.py --db-path /home/nyaacaster/DockerRes/nyaachat-shared/db/nyaachat-shared.db
 ```
 
 ## 输出
@@ -47,5 +56,9 @@ powershell -ExecutionPolicy Bypass -File .\scripts\query-users.ps1 -Account nyaa
 
 ## 数据库位置
 
-默认路径：`E:\DockerRes\nyaachat-shared\db\nyaachat-shared.db`
-（由 docker-compose.shared.yml 的 bind mount 映射到宿主机）
+脚本自动探测数据库路径，优先级：
+
+1. 环境变量 `NYAACHAT_SHARED_DB`（显式覆盖）
+2. 环境变量 `SHARED_RES_DIR` + `/db/nyaachat-shared.db`
+3. 平台默认值：Windows → `E:\DockerRes\nyaachat-shared\db\nyaachat-shared.db`，Linux/macOS → `~/DockerRes/nyaachat-shared/db/nyaachat-shared.db`
+4. `--db-path` 命令行参数可覆盖以上所有
