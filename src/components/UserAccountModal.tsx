@@ -73,6 +73,8 @@ function messageFor(result: Extract<ApiResult<unknown>, { ok: false }>): string 
       return "用户名不合法（最多 24 字）";
     case "wrong_password":
       return "当前密码不正确";
+    case "account_service_unavailable":
+      return "账号服务暂不可用，请稍后再试";
     case "insufficient":
       return "猫粮余额不足";
     case "slot_max_reached":

@@ -3,8 +3,9 @@
 // One synchronous better-sqlite3 connection for the whole process (the addon
 // is fast and serializes internally; this backend is low-concurrency). The DB
 // file lives on a host bind mount (DB_PATH) so it survives container rebuilds
-// and can be opened directly by Navicat for SQLite for manual maintenance —
-// hence plaintext passwords, by deliberate product decision.
+// and can be opened directly by Navicat for SQLite for manual maintenance.
+// Credentials moved to the NyaaAcount unified account platform in P7-3 — the
+// local password column is retired (kept as '' for the NOT NULL constraint).
 
 import Database from "better-sqlite3";
 import { mkdirSync } from "node:fs";
@@ -28,13 +29,14 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS users (
     account      TEXT PRIMARY KEY,            -- GUID, ascii letters/digits/symbols
     username     TEXT NOT NULL,               -- display only
-    password     TEXT NOT NULL,               -- PLAINTEXT (manual maintenance)
+    password     TEXT NOT NULL DEFAULT '',    -- RETIRED (P7-3): auth lives in NyaaAcount; kept '' for NOT NULL
     created_at   INTEGER NOT NULL,            -- unix ms
     catfood      INTEGER NOT NULL DEFAULT 0,  -- balance, >= 0, no decimals
     spent_total  INTEGER NOT NULL DEFAULT 0,  -- lifetime spend (consumption only)
     earned_total INTEGER NOT NULL DEFAULT 0,  -- lifetime earnings (income only)
     slot_max     INTEGER NOT NULL DEFAULT 20, -- shared-slot ceiling
-    last_active  INTEGER NOT NULL DEFAULT 0   -- unix ms, last authed request
+    last_active  INTEGER NOT NULL DEFAULT 0,  -- unix ms, last authed request
+    nyaa_uid     INTEGER                      -- NyaaAcount uid (P7-3 unified accounts)
   );
 
   CREATE TABLE IF NOT EXISTS sessions (
@@ -90,6 +92,14 @@ db.exec(`
 	try {
 	  db.exec("ALTER TABLE users ADD COLUMN last_active INTEGER NOT NULL DEFAULT 0");
 	} catch { /* column already exists — harmless */ }
+
+	// P7-3: link local users to the NyaaAcount unified account platform. The
+	// unique index doubles as the JIT-provisioning lookup key (login resolves
+	// the local row by nyaa_uid, not by account).
+	try {
+	  db.exec("ALTER TABLE users ADD COLUMN nyaa_uid INTEGER");
+	} catch { /* column already exists — harmless */ }
+	db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_nyaa_uid ON users(nyaa_uid)");
 
 // Ensure the user-storage directory exists for future per-user file storage
 // (character card covers etc.). Currently the settings payload is stored in the

@@ -1,11 +1,15 @@
 // Account endpoints for the shared-character backend (phase 1).
 //
 // Mounted at /account by server.js; reached from the browser same-origin via
-// the main nginx as /api/shared/account/*. Passwords are PLAINTEXT by product
-// decision (manual maintenance through Navicat) — see db.js. Shared-slot
-// expansion (POST /expand-slot) is real this phase; catfood redemption
-// (POST /redeem) stays a 501 because it is fulfilled by a third-party top-up
-// service that hasn't shipped its API yet (see that handler + SSOT §6).
+// the main nginx as /api/shared/account/*. Since P7-3, credentials live in the
+// NyaaAcount unified account platform: register / login / password-change are
+// forwarded to /api/project/* (see ../nyaacount-client.js) and the local
+// password column is retired (kept as '' for the NOT NULL constraint). The
+// local users row anchors business data (catfood, slots, FK targets) and is
+// JIT-provisioned on first login of a cross-platform NyaaAcount user.
+// Catfood redemption (POST /redeem) stays a 501 because it is fulfilled by a
+// third-party top-up service that hasn't shipped its API yet (see that handler
+// + SSOT §6).
 
 import { Router } from "express";
 import { mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync, unlinkSync, renameSync } from "node:fs";
@@ -14,6 +18,7 @@ import { randomBytes } from "node:crypto";
 import { db, USER_STORAGE_DIR } from "../db.js";
 import { createSession, destroySession, requireAuth, touchLastActive } from "../auth.js";
 import { COVER_MAX_BYTES, isWebp } from "../cover-utils.js";
+import * as nyaacount from "../nyaacount-client.js";
 
 export const accountRouter = Router();
 
@@ -38,15 +43,15 @@ const SLOT_MAX_CEILING = 200; // hard ceiling on slot_max
 
 // --- statements -----------------------------------------------------------
 const getUser = db.prepare("SELECT * FROM users WHERE account = ?");
+const getUserByNyaaUid = db.prepare("SELECT * FROM users WHERE nyaa_uid = ?");
+// password is retired (P7-3) — new rows carry '' to satisfy the NOT NULL
+// constraint; the real credential lives in NyaaAcount, keyed by nyaa_uid.
 const insertUser = db.prepare(`
-  INSERT INTO users (account, username, password, created_at)
-  VALUES (@account, @username, @password, @created_at)
+  INSERT INTO users (account, username, password, created_at, nyaa_uid)
+  VALUES (@account, @username, '', @created_at, @nyaa_uid)
 `);
 const updateUsername = db.prepare(
   "UPDATE users SET username = ? WHERE account = ?",
-);
-const updatePassword = db.prepare(
-  "UPDATE users SET password = ? WHERE account = ?",
 );
 // Expand the shared-slot ceiling: charge catfood (counted as spend, matching
 // the phase-4 acquisition model where every catfood debit lands in spent_total)
@@ -101,7 +106,9 @@ function profileOf(user) {
 
 // --- register -------------------------------------------------------------
 // POST /account/register { account, password, username? }
-accountRouter.post("/register", (req, res) => {
+// P7-3: the credential is created in NyaaAcount (unified login name = the
+// NyaaChat account); the local row only anchors business data + nyaa_uid.
+accountRouter.post("/register", async (req, res) => {
   const account = String(req.body?.account ?? "").trim();
   const password = String(req.body?.password ?? "");
   let username = String(req.body?.username ?? "").trim();
@@ -123,31 +130,76 @@ accountRouter.post("/register", (req, res) => {
   }
   if (!username) username = account; // default display name = login id
 
+  // Fast local precheck; NyaaAcount's 409 below is the authoritative one.
   if (getUser.get(account)) {
     return res.status(409).json({ ok: false, error: "account_taken" });
   }
 
-  insertUser.run({ account, username, password, created_at: Date.now() });
+  const r = await nyaacount.registerUser(account, password);
+  if (r.status === 409) {
+    return res.status(409).json({ ok: false, error: "account_taken" });
+  }
+  if (!r.ok || !r.data?.uid) {
+    return res.status(503).json({ ok: false, error: "account_service_unavailable" });
+  }
+
+  try {
+    insertUser.run({ account, username, created_at: Date.now(), nyaa_uid: r.data.uid });
+  } catch {
+    return res.status(500).json({ ok: false, error: "db_write_failed" });
+  }
   const token = createSession(account);
   return res.json({ ok: true, token, profile: profileOf(getUser.get(account)) });
 });
 
 // --- login ----------------------------------------------------------------
 // POST /account/login { account, password }
-accountRouter.post("/login", (req, res) => {
+// P7-3: credentials are verified by NyaaAcount; the local row is resolved by
+// nyaa_uid (not by account) so a NyaaAcount-side rename can't orphan it. A
+// cross-platform user logging in here for the first time gets a local row
+// JIT-provisioned with platform defaults.
+accountRouter.post("/login", async (req, res) => {
   const account = String(req.body?.account ?? "").trim();
   const password = String(req.body?.password ?? "");
 
-  const user = getUser.get(account);
+  const r = await nyaacount.verifyUser(account, password);
   // Same response for unknown account and wrong password — the frontend only
   // needs to distinguish "bad credentials" (this 401) from "can't reach
-  // server" (a thrown fetch error), per the design.
-  if (!user || user.password !== password) {
+  // server" (a thrown fetch error / the 503 below), per the design.
+  if (r.status === 401) {
     return res.status(401).json({ ok: false, error: "bad_credentials" });
   }
+  if (!r.ok || !r.data?.uid) {
+    return res.status(503).json({ ok: false, error: "account_service_unavailable" });
+  }
 
-  touchLastActive(account);
-  const token = createSession(account);
+  const nyaaUid = r.data.uid;
+  const nyaaName = r.data.username;
+
+  let user = getUserByNyaaUid.get(nyaaUid);
+  if (!user) {
+    // JIT provision: no local row for this NyaaAcount user yet. The local
+    // account normally equals the unified login name; on a PK collision with
+    // an unlinked legacy row, fall back to a suffixed account — harmless,
+    // since login resolves by nyaa_uid and account is only an FK anchor.
+    let localAccount = nyaaName;
+    if (getUser.get(localAccount)) localAccount = `${nyaaName}_nyaa${nyaaUid}`;
+    try {
+      insertUser.run({
+        account: localAccount,
+        username: nyaaName,
+        created_at: Date.now(),
+        nyaa_uid: nyaaUid,
+      });
+    } catch {
+      return res.status(500).json({ ok: false, error: "db_write_failed" });
+    }
+    user = getUser.get(localAccount);
+    console.log(`[NyaaAcount] JIT provision: ${localAccount} (nyaa_uid=${nyaaUid})`);
+  }
+
+  touchLastActive(user.account);
+  const token = createSession(user.account);
   return res.json({ ok: true, token, profile: profileOf(user) });
 });
 
@@ -177,16 +229,25 @@ accountRouter.post("/rename", requireAuth, (req, res) => {
 
 // --- change password ------------------------------------------------------
 // POST /account/password { oldPassword, newPassword } (auth)
-accountRouter.post("/password", requireAuth, (req, res) => {
+// P7-3: forwarded to NyaaAcount by nyaa_uid; the local password column is
+// retired and never read or written here.
+accountRouter.post("/password", requireAuth, async (req, res) => {
   const oldPassword = String(req.body?.oldPassword ?? "");
   const newPassword = String(req.body?.newPassword ?? "");
-  if (req.user.password !== oldPassword) {
-    return res.status(403).json({ ok: false, error: "wrong_password" });
-  }
   if (newPassword.length < PASSWORD_MIN || newPassword.length > PASSWORD_MAX) {
     return badRequest(res, "invalid_password");
   }
-  updatePassword.run(newPassword, req.user.account);
+  if (!req.user.nyaa_uid) {
+    // Unlinked legacy row (should not exist after the P7-3 backfill).
+    return res.status(503).json({ ok: false, error: "account_service_unavailable" });
+  }
+  const r = await nyaacount.changePassword(req.user.nyaa_uid, oldPassword, newPassword);
+  if (r.status === 401) {
+    return res.status(403).json({ ok: false, error: "wrong_password" });
+  }
+  if (!r.ok) {
+    return res.status(503).json({ ok: false, error: "account_service_unavailable" });
+  }
   return res.json({ ok: true });
 });
 

@@ -23,6 +23,11 @@ services:
       - DB_PATH=/data/db/nyaachat-shared.db
       - COVERS_DIR=/data/covers
       - USER_STORAGE_DIR=/data/user-storage
+      # NyaaAcount unified account platform (P7-3 credential forwarding).
+      # Values come from .env in this compose project's root (git-ignored).
+      - NYAAACOUNT_PUBLIC_URL=${NYAAACOUNT_PUBLIC_URL}
+      - NYAAACOUNT_API_TOKEN=${NYAAACOUNT_API_TOKEN}
+      - NYAAACOUNT_ENCRYPTION_KEY=${NYAAACOUNT_ENCRYPTION_KEY}
     ports:
       # Bind to localhost only — all external traffic goes through the main
       # nginx at /api/shared/ (Docker internal nyaachat-shared:5107).  Direct
