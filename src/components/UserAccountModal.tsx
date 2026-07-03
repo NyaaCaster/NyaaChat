@@ -174,11 +174,11 @@ function AuthForm({
     if (busy) return;
     setError(null);
     if (!account.trim() || !password) {
-      setError("请填写账号和密码");
+      setError(view === "login" ? "请填写用户名/邮箱和密码" : "请填写账号和密码");
       return;
     }
-    // 禁止用邮箱注册/登录：账号不得包含 @ 符号（后端 ACCOUNT_RE 也已限制）。
-    if (account.includes("@")) {
+    // 注册时禁止用邮箱地址作为账号；登录允许邮箱（由 NyaaAcount 验证）。
+    if (view === "register" && account.includes("@")) {
       setError("账号不能使用邮箱地址（不能包含 @ 符号）");
       return;
     }
@@ -203,7 +203,7 @@ function AuthForm({
       <div className="space-y-3">
         <div>
           <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1.5">
-            账号
+            {view === "login" ? "用户名或邮箱" : "账号"}
           </label>
           <input
             type="text"
@@ -215,7 +215,7 @@ function AuthForm({
               reset();
             }}
             onKeyDown={(e) => e.key === "Enter" && view === "login" && submit()}
-            placeholder="字母 / 数字 / . _ -，3-32 位"
+            placeholder={view === "login" ? "用户名或邮箱" : "字母 / 数字 / . _ -，3-32 位"}
           />
         </div>
         {view === "register" && (
