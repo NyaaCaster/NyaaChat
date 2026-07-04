@@ -6,7 +6,7 @@
 > 必读前置：`审计报告.md`（决策登记、prompt 合规、安全边界、命名规约）、`用户使用交互要点设计.md`（UI 交互要点、方案决策）、`NyaaChat 用户级知识库方案 · 重新评估.md`（可行性论证）。
 > 全局标准：`C:\Users\honyw\.docs\llm-chat-prompt-architecture-standard.md`
 > 创建：2026-07-05
-> 状态：计划就绪，等待实施 · 全部 P 阶段 ⬜ 未开始
+> 状态：实施中 · P0 ✅ · P1-P7 ⬜ 未开始
 
 ---
 
@@ -113,14 +113,14 @@ sqlite-vec vec0 建表即锁死维度。**每个 owner 的所有知识库共用�
 > 状态符号：⬜ 未开始 · 🟡 进行中 · ✅ 已完成
 > 每个 P 独立可验证、可独立提交；收尾必做：独立 rebuild + 真机验证 + 测试清理 + commit/push + 交接文档 + memory。
 
-### P0 — 子服务脚手架　⬜
+### P0 — 子服务脚手架　✅ _完成于 2026-07-05_
 - `nyaachat-knowledge/`：Express + better-sqlite3 + sqlite-vec + Dockerfile + package.json
 - schema 初始化（§2.1 全表）+ `/health`（无表现页）
 - `docker-compose.knowledge.yml`（project 名 `nyaachat-knowledge`，5108，external `nyaachat-net`，DB/向量库 bind mount 到 `E:\DockerRes\nyaachat-knowledge\`）
 - 主 `docker-compose.yml` + `nginx.conf` 加 `/api/knowledge/` 反代（仿 `nginx.conf:241-245`）
-- `rebuild-knowledge.py`（Python，仿 `rebuild-shared.py`）+ `.claude/skills/rebuild-knowledge/`（可选）
+- `rebuild-knowledge.py`（Python，仿 `rebuild-shared.py`）+ `.claude/skills/rebuild-knowledge/`
 - NyaaAcount 鉴权外壳（`auth.js` + `nyaacount-client.js` 移植）
-- **验收**：`:5108/health` 与同源 `/api/knowledge/health` 均 `{ok:true}`，DB 落盘宿主 bind mount，鉴权中间件生效
+- **验收**：✅ `:5108/health` 与同源 `/api/knowledge/health` 均 `{ok:true}`，✅ DB 落盘宿主 bind mount，✅ 鉴权中间件生效
 
 ### P1 — 检索核心移植　⬜
 - 移植重写 `chunk` / `ingest` / `embedding` / `retrieval` 四 service（RRF 混合检索）
