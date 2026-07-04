@@ -10,7 +10,7 @@ export interface StorageBarProps {
   label: string;
   /** Current usage in bytes */
   usage: number;
-  /** Quota ceiling in bytes (the "100 MB" limit) */
+  /** Quota ceiling in bytes (the "64 MB" limit) */
   quota: number;
   /** Optional custom warning message shown when usage >= 80 % of quota */
   warnMessage?: string;

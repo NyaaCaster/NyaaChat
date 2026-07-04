@@ -1,6 +1,6 @@
 // Per-category storage estimation for the two UI storage bars:
-//   ChatHistoryModal  → "聊天记录储存"  (100 MB ceiling)
-//   CharacterSelectionModal → "角色卡储存"  (100 MB ceiling)
+//   ChatHistoryModal  → "聊天记录储存"  (64 MB ceiling)
+//   CharacterSelectionModal → "角色卡储存"  (64 MB ceiling)
 //
 // Both categories live in IndexedDB (the main kv store + the character-covers
 // database).  The Storage API (navigator.storage.estimate()) reports the whole
@@ -12,14 +12,14 @@ import { getItem, getAllKeys } from "./idbStorage";
 import { loadCover, COVER_MARKER } from "./coverStorage";
 
 // ---------------------------------------------------------------------------
-// Per-category quota ceilings (100 MB each)
+// Per-category quota ceilings (64 MB each)
 // ---------------------------------------------------------------------------
 
-export const CHAT_STORAGE_QUOTA = 100 * 1024 * 1024; // 100 MB
-export const CHARACTER_STORAGE_QUOTA = 100 * 1024 * 1024; // 100 MB
+export const CHAT_STORAGE_QUOTA = 64 * 1024 * 1024; // 64 MB
+export const CHARACTER_STORAGE_QUOTA = 64 * 1024 * 1024; // 64 MB
 
 // Total guardrail kept as a fallback for paths that still reference it.
-export const APP_STORAGE_QUOTA = 200 * 1024 * 1024; // 200 MB
+export const APP_STORAGE_QUOTA = 128 * 1024 * 1024; // 128 MB (64+64)
 
 // Key constants — must match sessionStorage.ts & metadataBridge.ts
 const SESSIONS_KEY = "nyaachat_sessions";
