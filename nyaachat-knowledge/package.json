@@ -10,6 +10,8 @@
   "dependencies": {
     "better-sqlite3": "^11.8.1",
     "express": "^4.21.2",
+    "p-limit": "^6.2.0",
+    "pdf-parse": "^1.1.4",
     "sqlite-vec": "^0.1.6"
   },
   "engines": {

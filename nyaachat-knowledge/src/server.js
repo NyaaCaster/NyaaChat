@@ -3,12 +3,14 @@
 // Deliberately headless: no presentation pages, only a /health probe. The
 // frontend reaches this service same-origin through the main nginx at
 // /api/knowledge/* — see nginx.conf and docker-compose.knowledge.yml.
-// Routes for KB CRUD, embedding config, document ingestion, and search are
-// added in later phases (P1–P7).
 
 import express from "express";
 import { db } from "./db.js";
 import { requireAuth } from "./auth.js";
+import { embeddingRouter } from "./routes/embedding.js";
+import { kbRouter } from "./routes/kb.js";
+import { documentsRouter } from "./routes/documents.js";
+import { searchRouter } from "./routes/search.js";
 
 const PORT = Number(process.env.PORT) || 5108;
 
@@ -30,6 +32,14 @@ app.get("/health", (_req, res) => {
 app.get("/auth-check", requireAuth, (req, res) => {
   res.json({ ok: true, account: req.user.account, username: req.user.username });
 });
+
+// ---- P1 routes (all require auth) -----------------------------------------
+
+app.use("/embedding-config", embeddingRouter);
+app.use("/kb", kbRouter);
+// Documents router handles /kb/:kbId/documents, /documents/:docId, /chunks/:chunkId
+app.use("/", documentsRouter);
+app.use("/search", searchRouter);
 
 app.listen(PORT, () => {
   console.log(`[nyaachat-knowledge] listening on :${PORT}`);
