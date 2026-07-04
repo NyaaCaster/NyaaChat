@@ -9,6 +9,30 @@ const BATCH_SIZE = 32;
 const CONCURRENCY_LIMIT = 3;
 const MAX_RETRIES = 3;
 
+// ---- SSRF guard (audit report §5.3) ----------------------------------------
+// Only https:// (always) or http://localhost (local dev). Rejects private /
+// loopback IPs even over https to prevent exfiltration to internal services.
+
+function assertSafeBaseUrl(baseUrl) {
+  let parsed;
+  try {
+    parsed = new URL(baseUrl);
+  } catch {
+    throw new Error(`无效的 API Base URL: ${baseUrl}`);
+  }
+  const host = parsed.hostname.toLowerCase();
+  const isLoopback =
+    host === "localhost" ||
+    host === "127.0.0.1" ||
+    host === "[::1]" ||
+    host === "::1";
+  if (parsed.protocol === "https:") return parsed;
+  if (parsed.protocol === "http:" && isLoopback) return parsed;
+  throw new Error(
+    `不允许的 API 协议: ${parsed.protocol}。仅支持 https://，本地调试可使用 http://localhost`,
+  );
+}
+
 function endpoint(baseUrl) {
   const trimmed = baseUrl.replace(/\/+$/, "");
   return /\/embeddings$/.test(trimmed) ? trimmed : `${trimmed}/embeddings`;
@@ -20,7 +44,10 @@ export async function embedTexts(texts, config) {
   if (!base_url || !model) {
     throw new Error("嵌入模型未配置（缺少 Base URL 或模型名称）");
   }
-  const res = await fetch(endpoint(base_url), {
+  const url = endpoint(base_url);
+  assertSafeBaseUrl(url);
+
+  const res = await fetch(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -28,6 +55,7 @@ export async function embedTexts(texts, config) {
     },
     body: JSON.stringify({ model, input: texts }),
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    redirect: "error",   // refuse to follow redirects (SSRF guard)
   });
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
