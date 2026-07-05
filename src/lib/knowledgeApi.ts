@@ -202,3 +202,29 @@ export function expandKb(
 ): Promise<ApiResult<{ profile: AccountProfile }>> {
   return request("/expand-kb", { method: "POST", token });
 }
+
+// --- Search (hybrid RRF retrieval) -------------------------------------------
+
+export interface KbSearchResult {
+  chunk_id: number;
+  doc_id: string;
+  document_name: string;
+  seq: number;
+  content: string;
+  char_count: number;
+  score: number;
+}
+
+/** Hybrid RRF search within a knowledge base. Requires authentication. */
+export function searchKb(
+  token: string,
+  kbId: string,
+  query: string,
+  topK = 5,
+): Promise<ApiResult<{ count: number; results: KbSearchResult[] }>> {
+  return request("/search", {
+    method: "POST",
+    body: { kb_id: kbId, query, top_k: topK },
+    token,
+  });
+}

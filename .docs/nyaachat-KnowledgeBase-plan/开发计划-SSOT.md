@@ -6,7 +6,7 @@
 > 必读前置：`审计报告.md`（决策登记、prompt 合规、安全边界、命名规约）、`用户使用交互要点设计.md`（UI 交互要点、方案决策）、`NyaaChat 用户级知识库方案 · 重新评估.md`（可行性论证）。
 > 全局标准：`C:\Users\honyw\.docs\llm-chat-prompt-architecture-standard.md`
 > 创建：2026-07-05
-> 状态：实施中 · P0 ✅ · P1 ✅ · P2 ✅ · P3 ✅ · P4 ✅ · P5-P7 ⬜ 未开始
+> 状态：实施中 · P0 ✅ · P1 ✅ · P2 ✅ · P3 ✅ · P4 ✅ · P5 ✅ · P6-P7 ⬜ 未开始
 
 ---
 
@@ -147,7 +147,7 @@ sqlite-vec vec0 建表即锁死维度。**每个 owner 的所有知识库共用�
 - 失效处理（D4）：仅 404 已删红色 tag 且阻断保存 + 弹窗提示清理；网络 / API 不可达不阻断
 - **验收**：多选关联、失效 tag 三态、404 阻断保存、网络抖动不误阻断
 
-### P5 — 检索注入链路（方案A）　⬜
+### P5 — 检索注入链路（方案A）　✅
 - `chatPipeline.ts`：条目激活后收集 `linkedKbIds` → 调 `/api/knowledge/search` → 结果并入 latest user `<search_context>` volatile part（合规审计 §2.1）
 - 每条目注入 token 预算（默认 800）+ 多库结果合并 rerank/截断
 - 包裹文案为数据陈述（可忽略无关项）

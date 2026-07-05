@@ -8,14 +8,19 @@ import { newId } from "../lib/id";
 import { saveSession } from "../lib/sessionStorage";
 import { getActiveImageProvider, getActiveLlmProvider, imageProviderToApiSettings, providerToApiSettings } from "../lib/providers";
 import { searchWeb, WebSearchError, WEB_SEARCH_FEATURE_ENABLED } from "../lib/searchApi";
+import { searchKb } from "../lib/knowledgeApi";
+import { loadStoredAccount } from "../lib/sharedAccountApi";
 import { callTool, listTools, mergeUserCity, filterAdvertised } from "../lib/mcpApi";
 import {
   applyPlaceholders,
   buildComfyPromptRequest,
   buildImagePrompt,
+  buildKbSearchContext,
   buildMessageContent,
   buildRequestMessages,
   buildSearchContext,
+  collectLinkedKbIds,
+  getActivatedKeywordRules,
 } from "../lib/chatPipeline";
 import { MessageItem } from "./MessageItem";
 import { ChatHeader } from "./ChatHeader";
@@ -426,6 +431,104 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
       }
     }
 
+    // KB search — runs after web search, before buildRequestMessages.
+    // We pre-compute which world-info keyword rules would activate so we can
+    // collect their linkedKbIds and fetch KB search results for injection into
+    // the same turn's <search_context> block.
+    let kbSearchContext: string | null = null;
+    if (currentCharacter?.worldInfo) {
+      try {
+        const activatedRules = getActivatedKeywordRules(
+          processedInput,
+          currentCharacter.worldInfo,
+        );
+        const linkedKbIds = collectLinkedKbIds(activatedRules);
+        if (linkedKbIds.length > 0) {
+          const stored = await loadStoredAccount();
+          if (stored) {
+            onAddLog({
+              direction: "info",
+              content: `KB search: querying ${linkedKbIds.length} linked knowledge base(s)`,
+              meta: { kbIds: linkedKbIds, query: processedInput },
+            });
+            const results = await Promise.all(
+              linkedKbIds.map(async (kbId) => {
+                try {
+                  const res = await searchKb(stored.token, kbId, processedInput, 5);
+                  if (res.kind === "ok") {
+                    return { kbId, kbName: res.data.results[0]?.document_name ?? kbId, results: res.data.results };
+                  }
+                  if (res.kind === "error") {
+                    onAddLog({
+                      direction: "info",
+                      content: `KB search: ${kbId} returned error (${res.error}), skipping`,
+                    });
+                  } else {
+                    onAddLog({
+                      direction: "info",
+                      content: `KB search: ${kbId} unreachable, skipping`,
+                    });
+                  }
+                } catch {
+                  // per-kb failure is non-fatal
+                }
+                return null;
+              }),
+            );
+            const valid = results.filter(
+              (r): r is { kbId: string; kbName: string; results: NonNullable<typeof r>["results"] } => r !== null && r.results.length > 0,
+            );
+            if (valid.length > 0) {
+              // Try to resolve KB names from the API responses. The first
+              // chunk's document_name is a fallback; we really want the KB
+              // name. For now we use the kbId as a label if we can't get
+              // a better name (the search endpoint doesn't return kb name
+              // directly, but we can infer from context).
+              const grouped = valid.map((g) => ({
+                kbName: g.kbName || g.kbId,
+                results: g.results,
+              }));
+              kbSearchContext = buildKbSearchContext(processedInput, grouped);
+              onAddLog({
+                direction: "response",
+                content: `KB search: got results from ${valid.length} knowledge base(s)`,
+                meta: {
+                  kbIds: valid.map((v) => v.kbId),
+                  totalChunks: valid.reduce((s, v) => s + v.results.length, 0),
+                },
+              });
+            }
+          }
+        }
+      } catch (err: any) {
+        // Silent degrade — chat runs without KB context on any error.
+        if (err?.name === "AbortError" || abortControllerRef.current?.signal.aborted) {
+          setIsLoading(false);
+          abortControllerRef.current = null;
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === botMessageId
+                ? { ...m, content: m.content + "\n\n**[已停止生成]**" }
+                : m,
+            ),
+          );
+          return;
+        }
+        onAddLog({
+          direction: "error",
+          content: "KB search failed; continuing without KB context",
+          meta: { error: err?.message || String(err) },
+        });
+      }
+    }
+
+    // Merge web-search and KB-search contexts into one block.
+    // Both ride the same <search_context> volatile part in the latest user turn;
+    // the protocol anchor treats all <search_context> content as reference-only.
+    const mergedSearchContext = [searchContext, kbSearchContext]
+      .filter(Boolean)
+      .join("\n\n") || undefined;
+
     // Declared outside the try so the catch can report elapsed time too.
     let chatStartedAt = Date.now();
     try {
@@ -550,7 +653,7 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
         currentCharacter,
         userName,
         charName,
-        searchContext: searchContext ?? undefined,
+        searchContext: mergedSearchContext,
         mcpAdvertisedToolNames: advertisedToolNames,
       });
 
