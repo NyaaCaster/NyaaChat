@@ -198,6 +198,7 @@ export function convertSillyTavernCharacter(parsed: any): CharacterSettings {
           : [];
         return ids.length > 0 ? ids : undefined;
       })(),
+      _linkedKbCache: (e.extensions?._linkedKbCache as Record<string, { name: string; charTotal: number }>) ?? undefined,
     }));
 
   const regexScripts = convertRegexScripts(data);

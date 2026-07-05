@@ -54,6 +54,9 @@ export function WorldInfoRuleModal({
   const [kbValidation, setKbValidation] = useState<Map<string, KbStatus>>(new Map());
   const [linkedKbIds, setLinkedKbIds] = useState<string[]>([]);
   const [loadingKbs, setLoadingKbs] = useState(false);
+  // Offline-safe KB name cache: populated from initialRule on load and from
+  // kbMap on save, so names survive page refreshes & network blips.
+  const [kbNameCache, setKbNameCache] = useState<Record<string, { name: string; charTotal: number }>>({});
 
   // --- sub-modals ---
   const [isKbSelectOpen, setIsKbSelectOpen] = useState(false);
@@ -76,6 +79,7 @@ export function WorldInfoRuleModal({
       setAllowRecursion(initialRule.allowRecursion === true);
       setContent(initialRule.content);
       setLinkedKbIds(initialRule.linkedKbIds ?? []);
+      setKbNameCache(initialRule._linkedKbCache ?? {});
     } else {
       setName("");
       setTriggerType("permanent");
@@ -86,6 +90,7 @@ export function WorldInfoRuleModal({
       setAllowRecursion(false);
       setContent("");
       setLinkedKbIds([]);
+      setKbNameCache({});
     }
     // Don't reset kbMap / kbValidation here — keep the previously loaded
     // cache so KB names stay resolved while Effect 2 refreshes. If Effect 2
@@ -95,6 +100,10 @@ export function WorldInfoRuleModal({
   }, [initialRule, isOpen]);
 
   // --- hydrate session + KB data on open ---
+  // Name display is handled by the offline-safe _linkedKbCache (populated when
+  // the user selected KBs in the picker). This effect runs in the background to
+  // validate each linked KB's current status. It never downgrades a name that
+  // the cache already provides.
   useEffect(() => {
     if (!isOpen || hydrated) return;
     let cancelled = false;
@@ -106,70 +115,47 @@ export function WorldInfoRuleModal({
       const token = stored?.token ?? "";
 
       if (!stored || !token) {
-        // No active session — try to resolve KB names individually if possible.
         setSession(null);
         setHydrated(true);
-        if (ids.length > 0) {
-          setKbValidation(new Map(ids.map((id) => [id, "network_error"] as const)));
-        }
         return;
       }
 
       setSession(stored);
       setHydrated(true);
 
-      // Fetch KB list for name resolution + validation
-      setLoadingKbs(true);
-      const res = await listKb(token);
-      if (cancelled) { setLoadingKbs(false); return; }
-      setLoadingKbs(false);
-
-      if (res.kind === "ok") {
-        const map = new Map<string, KnowledgeBase>();
-        for (const kb of res.data.items) map.set(kb.id, kb);
-        setKbMap(map);
-
-        // Validate each linked KB against the loaded map
-        const validation = new Map<string, KbStatus>();
-        for (const id of ids) {
-          if (map.has(id)) {
-            validation.set(id, "ok");
-          } else {
-            // Two-level check: getKb to distinguish 404 from network
-            const single = await getKb(token, id);
-            if (cancelled) return;
-            if (single.kind === "ok") {
-              validation.set(id, "ok");
-              // Also add to map for name display
-              map.set(id, single.data.kb);
-              setKbMap(new Map(map));
-            } else if (single.kind === "error" && single.status === 404) {
-              validation.set(id, "not_found");
-            } else {
-              validation.set(id, "network_error");
-            }
-          }
+      // Pre-seed validation from cache: if we have a cached name the KB was
+      // valid at save time, so start with "ok" and only downgrade on API error.
+      const cache = initialRule?._linkedKbCache ?? {};
+      const map = new Map<string, KnowledgeBase>();
+      const validation = new Map<string, KbStatus>();
+      for (const id of ids) {
+        const cached = cache[id];
+        validation.set(id, cached ? "ok" : "network_error");
+        if (cached) {
+          map.set(id, { id, name: cached.name, charTotal: cached.charTotal } as KnowledgeBase);
         }
-        setKbValidation(validation);
-      } else {
-        // Network error on listKb — try individual getKb for name resolution.
-        const validation = new Map<string, KbStatus>();
-        const map = new Map<string, KnowledgeBase>();
-        for (const id of ids) {
-          const single = await getKb(token, id);
-          if (cancelled) return;
-          if (single.kind === "ok") {
-            validation.set(id, "ok");
-            map.set(id, single.data.kb);
-          } else if (single.kind === "error" && single.status === 404) {
-            validation.set(id, "not_found");
-          } else {
-            validation.set(id, "network_error");
-          }
-        }
-        if (map.size > 0) setKbMap(map);
-        setKbValidation(validation);
       }
+      if (map.size > 0) setKbMap(map);
+      if (ids.length > 0) setKbValidation(new Map(validation));
+
+      // Background refresh: verify each linked KB is still accessible.
+      for (const id of ids) {
+        if (cancelled) return;
+        const single = await getKb(token, id);
+        if (cancelled) return;
+        if (single.kind === "ok") {
+          validation.set(id, "ok");
+          map.set(id, single.data.kb);
+        } else if (single.kind === "error" && single.status === 404) {
+          validation.set(id, "not_found");
+        } else {
+          // Keep existing status — don't downgrade from "ok" on transient errors.
+          if (!validation.has(id)) validation.set(id, "network_error");
+        }
+      }
+      if (map.size > 0) setKbMap(new Map(map));
+      setKbValidation(new Map(validation));
+      setLoadingKbs(false);
     })();
     return () => { cancelled = true; };
   }, [isOpen, hydrated, initialRule]);
@@ -216,7 +202,8 @@ export function WorldInfoRuleModal({
     content: content.trim(),
     enabled: initialRule ? initialRule.enabled : true,
     linkedKbIds: linkedKbIds.length > 0 ? linkedKbIds : undefined,
-  }), [initialRule, name, triggerType, keywords, position, hard, allowRecursion, content, linkedKbIds]);
+    _linkedKbCache: Object.keys(kbNameCache).length > 0 ? kbNameCache : undefined,
+  }), [initialRule, name, triggerType, keywords, position, hard, allowRecursion, content, linkedKbIds, kbNameCache]);
 
   // --- save handler with stale-KB blocking ---
   const handleSave = () => {
@@ -291,6 +278,14 @@ export function WorldInfoRuleModal({
   // --- KB select confirm ---
   const handleKbSelectConfirm = (selectedIds: string[]) => {
     setLinkedKbIds(selectedIds);
+    // Persist KB names into the offline-safe cache so names survive page
+    // refreshes even when the hydration API call hasn't completed yet.
+    const cache: Record<string, { name: string; charTotal: number }> = {};
+    for (const id of selectedIds) {
+      const kb = kbMap.get(id);
+      if (kb) cache[id] = { name: kb.name, charTotal: kb.charTotal };
+    }
+    setKbNameCache(cache);
     // Incrementally validate new selections
     const validation = new Map(kbValidation);
     for (const id of selectedIds) {
@@ -317,13 +312,21 @@ export function WorldInfoRuleModal({
 
   // --- resolve display info for a KB id ---
   const resolveKbInfo = (id: string): { name: string; tokenStr: string } => {
+    // 1) Offline-safe cache (written on save, survives page refresh).
+    const cached = kbNameCache[id];
+    if (cached) {
+      const chars = cached.charTotal;
+      const tokenStr = chars < 1000 ? `${chars} 字符` : chars < 10000 ? `${(chars / 1000).toFixed(1)}k` : `${(chars / 1000).toFixed(0)}k`;
+      return { name: cached.name, tokenStr };
+    }
+    // 2) Live kbMap (from hydration or KB selector).
     const kb = kbMap.get(id);
     if (kb) {
       const chars = kb.charTotal;
       const tokenStr = chars < 1000 ? `${chars} 字符` : chars < 10000 ? `${(chars / 1000).toFixed(1)}k` : `${(chars / 1000).toFixed(0)}k`;
       return { name: kb.name, tokenStr };
     }
-    // Fallback: show truncated id
+    // 3) Fallback: show truncated id.
     return { name: id.length > 12 ? `${id.slice(0, 10)}…` : id, tokenStr: "" };
   };
 

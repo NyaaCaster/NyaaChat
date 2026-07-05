@@ -135,6 +135,10 @@ export interface WorldInfoRule {
   /** 关联的知识库 ID 列表。规则条目编辑时可关联/取消关联 KB；
    *  此处仅存储软引用，绝不级联硬删。 */
   linkedKbIds?: string[];
+  /** 本地 KB 名称缓存，{ kbId: { name, charTotal } }。
+   *  保存规则时从已加载的 KB 列表中抓取，下次编辑即可离线显示名称。
+   *  仅前端读写，不传给后端。 */
+  _linkedKbCache?: Record<string, { name: string; charTotal: number }>;
 }
 
 export interface CharacterSettings {

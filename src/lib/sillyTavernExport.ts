@@ -68,6 +68,7 @@ function buildEntryExtensions(
     triggers: [],
     ignore_budget: false,
     linkedKbIds: rule.linkedKbIds ?? [],
+    _linkedKbCache: rule._linkedKbCache ?? {},
   };
 }
 
