@@ -12,12 +12,23 @@ const getKb = db.prepare("SELECT * FROM knowledge_bases WHERE id = ?");
 
 /**
  * Verify the authenticated user has access to this KB.
- * P1: owner-only path. P6 will add shared-card binding path (audit §5.1).
+ *
+ * Path 1 (P1): owner — the user created this KB.
+ * Path 2 (P2): shared-card binding — via character_kb_bindings table.
+ *   Binding rows are populated during card publish (P6). Until then, this
+ *   path correctly returns "forbidden" for non-owners because no bindings
+ *   exist yet.
  */
 function checkKbAccess(kb, account) {
   if (!kb) return "not_found";
   if (kb.owner === account) return null; // path 1: owner
-  // P6: path 2 — character_kb_bindings check
+
+  // path 2: character_kb_bindings — shared-card read-only access
+  const binding = db.prepare(
+    "SELECT 1 FROM character_kb_bindings WHERE kb_id = ? LIMIT 1",
+  ).get(kb.id);
+  if (binding) return null; // authorized via shared-card binding
+
   return "forbidden";
 }
 

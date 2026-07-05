@@ -101,6 +101,12 @@ db.exec(`
 	} catch { /* column already exists — harmless */ }
 	db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_nyaa_uid ON users(nyaa_uid)");
 
+	// P2 (KnowledgeBase): knowledge-base stack ceiling. Default 5, hard cap 50.
+	// Expand via POST /account/expand-kb (same transaction pattern as expand-slot).
+	try {
+	  db.exec("ALTER TABLE users ADD COLUMN kb_max INTEGER NOT NULL DEFAULT 5");
+	} catch { /* column already exists — harmless */ }
+
 // Ensure the user-storage directory exists for future per-user file storage
 // (character card covers etc.). Currently the settings payload is stored in the
 // user_settings table above; the directory is reserved for later phases.

@@ -97,6 +97,15 @@ kbRouter.post("/", requireAuth, (req, res) => {
     return badRequest(res, "invalid_name");
   }
 
+  // Check kb_max quota (read from shared DB via auth middleware).
+  const kbMax = req.user.kb_max ?? 5;
+  const currentCount = db.prepare(
+    "SELECT COUNT(*) AS cnt FROM knowledge_bases WHERE owner = ?",
+  ).get(req.user.account).cnt;
+  if (currentCount >= kbMax) {
+    return res.status(409).json({ ok: false, error: "kb_max_reached" });
+  }
+
   const now = Date.now();
   const id = randomUUID();
   try {

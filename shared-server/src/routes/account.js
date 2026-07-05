@@ -41,6 +41,11 @@ const SLOT_STEP = 5; // slots added per expansion
 const SLOT_COST = 5; // catfood charged per expansion
 const SLOT_MAX_CEILING = 200; // hard ceiling on slot_max
 
+// --- KB expansion limits (P2 KnowledgeBase) --------------------------------
+const KB_EXPAND_STEP = 1;  // KB slots added per expansion
+const KB_EXPAND_COST = 5;  // catfood charged per expansion
+const KB_EXPAND_MAX = 50;  // hard ceiling on kb_max
+
 // --- statements -----------------------------------------------------------
 const getUser = db.prepare("SELECT * FROM users WHERE account = ?");
 const getUserByNyaaUid = db.prepare("SELECT * FROM users WHERE nyaa_uid = ?");
@@ -58,6 +63,10 @@ const updateUsername = db.prepare(
 // and raise slot_max, in one transaction. Caller verifies balance + ceiling.
 const expandSlot = db.prepare(
   "UPDATE users SET catfood = catfood - @cost, spent_total = spent_total + @cost, slot_max = slot_max + @step WHERE account = @account",
+);
+// Expand the knowledge-base ceiling: same transaction pattern as expand-slot.
+const expandKb = db.prepare(
+  "UPDATE users SET catfood = catfood - @cost, spent_total = spent_total + @cost, kb_max = kb_max + @step WHERE account = @account",
 );
 const aggStats = db.prepare(`
   SELECT
@@ -95,6 +104,7 @@ function profileOf(user) {
     spentTotal: user.spent_total,
     earnedTotal: user.earned_total,
     slotMax: user.slot_max,
+    kbMax: user.kb_max,
     stats: {
       sharedCount: stats.shared_count,
       totalDownloads: stats.total_downloads,
@@ -281,6 +291,35 @@ accountRouter.post("/expand-slot", requireAuth, (req, res) => {
         return { error: "insufficient", status: 402 };
       }
       expandSlot.run({ account, cost: SLOT_COST, step: SLOT_STEP });
+      return { ok: true };
+    });
+    const result = apply();
+    if (result.error) {
+      return res.status(result.status).json({ ok: false, error: result.error });
+    }
+  } catch {
+    return res.status(500).json({ ok: false, error: "db_write_failed" });
+  }
+  return res.json({ ok: true, profile: profileOf(getUser.get(account)) });
+});
+
+// --- expand knowledge-base ceiling (P2) ------------------------------------
+// POST /account/expand-kb (auth) — spend KB_EXPAND_COST catfood to raise
+// kb_max by KB_EXPAND_STEP, capped at KB_EXPAND_MAX. Same transactional
+// pattern as expand-slot: balance + ceiling checked inside the transaction
+// so concurrent calls can't overshoot.
+accountRouter.post("/expand-kb", requireAuth, (req, res) => {
+  const account = req.user.account;
+  try {
+    const apply = db.transaction(() => {
+      const user = getUser.get(account);
+      if (user.kb_max + KB_EXPAND_STEP > KB_EXPAND_MAX) {
+        return { error: "kb_max_reached", status: 409 };
+      }
+      if (user.catfood < KB_EXPAND_COST) {
+        return { error: "insufficient", status: 402 };
+      }
+      expandKb.run({ account, cost: KB_EXPAND_COST, step: KB_EXPAND_STEP });
       return { ok: true };
     });
     const result = apply();

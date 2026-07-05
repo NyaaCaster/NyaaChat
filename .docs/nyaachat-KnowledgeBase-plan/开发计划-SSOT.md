@@ -6,7 +6,7 @@
 > 必读前置：`审计报告.md`（决策登记、prompt 合规、安全边界、命名规约）、`用户使用交互要点设计.md`（UI 交互要点、方案决策）、`NyaaChat 用户级知识库方案 · 重新评估.md`（可行性论证）。
 > 全局标准：`C:\Users\honyw\.docs\llm-chat-prompt-architecture-standard.md`
 > 创建：2026-07-05
-> 状态：实施中 · P0 ✅ · P1 ✅ · P2-P7 ⬜ 未开始
+> 状态：实施中 · P0 ✅ · P1 ✅ · P2 ✅ · P3-P7 ⬜ 未开始
 
 ---
 
@@ -128,7 +128,7 @@ sqlite-vec vec0 建表即锁死维度。**每个 owner 的所有知识库共用�
 - 文档解析：txt / md / pdf（P1 定稿最终清单）
 - **验收**：单账号建库→配置嵌入→上传文档→切片入库→search 返回合理 chunks（后端 API 直测）
 
-### P2 — 知识库管理后端　⬜
+### P2 — 知识库管理后端　✅
 - KB CRUD（owner 隔离）、文档 CRUD、char_total 计量
 - `kb_max` 额度落位（§2.1 方案②定稿）+ `POST /api/knowledge/expand-kb`（仿 `expand-slot` 事务，5 猫粮 +1，硬上限）
 - 检索归属校验双路径（审计 §5.1）：私有库属主 + 共享卡登记绑定
