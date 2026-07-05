@@ -14,6 +14,7 @@ import {
   Puzzle,
   Regex,
   IdCard,
+  Book,
 } from "lucide-react";
 import { motion } from "motion/react";
 import type { CharacterSettings, RegexScript } from "../types";
@@ -21,6 +22,7 @@ import { VersionModal } from "./VersionModal";
 import { ExtensionsModal } from "./ExtensionsModal";
 import { RegexModal } from "./RegexModal";
 import { UserAccountModal } from "./UserAccountModal";
+import { KnowledgeBaseModal } from "./KnowledgeBaseModal";
 
 /** 扩展面板 UI 入口开关。设为 false 隐藏按钮和弹窗，改为 true 恢复。 */
 const EXTENSIONS_UI_ENABLED = false;
@@ -69,6 +71,7 @@ export function ChatHeader({
   const [isExtensionsOpen, setIsExtensionsOpen] = useState(false);
   const [isRegexOpen, setIsRegexOpen] = useState(false);
   const [isAccountOpen, setIsAccountOpen] = useState(false);
+  const [isKnowledgeBaseOpen, setIsKnowledgeBaseOpen] = useState(false);
 
   return (
     <div data-app-header className="flex-shrink-0 bg-white/70 dark:bg-[#0A0A0A]/70 backdrop-blur-xl border-b border-gray-200/60 dark:border-white/5 sticky top-0 z-20 flex flex-col">
@@ -179,6 +182,13 @@ export function ChatHeader({
             <User size={16} />
           </button>
           <button
+            onClick={() => setIsKnowledgeBaseOpen(true)}
+            className="p-1.5 text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100 hover:bg-gray-200 dark:hover:bg-white/10 rounded-md transition-all duration-200"
+            title="知识库"
+          >
+            <Book size={16} />
+          </button>
+          <button
             onClick={() => setIsRegexOpen(true)}
             className="p-1.5 text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100 hover:bg-gray-200 dark:hover:bg-white/10 rounded-md transition-all duration-200"
             title="正则"
@@ -225,6 +235,13 @@ export function ChatHeader({
       )}
       {createPortal(
         <UserAccountModal isOpen={isAccountOpen} onClose={() => setIsAccountOpen(false)} />,
+        document.body,
+      )}
+      {createPortal(
+        <KnowledgeBaseModal
+          isOpen={isKnowledgeBaseOpen}
+          onClose={() => setIsKnowledgeBaseOpen(false)}
+        />,
         document.body,
       )}
     </div>

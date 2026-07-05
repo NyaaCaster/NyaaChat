@@ -33,6 +33,7 @@ export interface AccountProfile {
   spentTotal: number;
   earnedTotal: number;
   slotMax: number;
+  kbMax: number; // knowledge base stack limit (default 5, expandable)
   stats: AccountStats;
 }
 
