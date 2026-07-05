@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from "react";
-import { Save, Plus, Download, Upload, Edit2, Trash2, FileJson, Cat, ImagePlus, X, CloudUpload } from "lucide-react";
+import { Save, Plus, Download, Upload, Edit2, Trash2, FileJson, Cat, ImagePlus, X, CloudUpload, Book } from "lucide-react";
 import { CharacterSettings, WorldInfoRule } from "../types";
 import { newId } from "../lib/id";
 import { convertToSillyTavernCharacter } from "../lib/sillyTavernExport";
@@ -155,7 +155,14 @@ export function CharacterEditModal({
     if (!name.trim()) return;
 
     const id = initialCharacter?.id || cardIdRef.current;
-    const coverImage = await commitCover(id);
+    // Cover persistence is non-fatal — a failure here should never silently
+    // discard character edits (worldInfo, linkedKbIds, etc.).
+    let coverImage: Blob | undefined;
+    try {
+      coverImage = await commitCover(id);
+    } catch {
+      // commitCover failed; proceed without a cover update.
+    }
 
     onSave({
       id,
@@ -543,6 +550,11 @@ export function CharacterEditModal({
                           {rule.hard && (
                             <span className="text-[10px] px-1 rounded bg-red-100 dark:bg-red-900/30 text-red-600">
                               硬约束
+                            </span>
+                          )}
+                          {rule.linkedKbIds && rule.linkedKbIds.length > 0 && (
+                            <span className="text-[10px] px-1 rounded bg-purple-100 dark:bg-purple-900/30 text-purple-600 flex items-center gap-0.5">
+                              <Book size={10} />{rule.linkedKbIds.length}
                             </span>
                           )}
                         </div>

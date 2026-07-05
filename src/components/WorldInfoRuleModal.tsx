@@ -87,9 +87,9 @@ export function WorldInfoRuleModal({
       setContent("");
       setLinkedKbIds([]);
     }
-    // Reset KB state on every open
-    setKbMap(new Map());
-    setKbValidation(new Map());
+    // Don't reset kbMap / kbValidation here — keep the previously loaded
+    // cache so KB names stay resolved while Effect 2 refreshes. If Effect 2
+    // fails, the stale-but-usable cache is better than yellow tags + UUIDs.
     setLoadingKbs(false);
     setHydrated(false);
   }, [initialRule, isOpen]);
@@ -101,17 +101,26 @@ export function WorldInfoRuleModal({
     (async () => {
       const stored = await loadStoredAccount();
       if (cancelled) return;
-      if (!stored) {
+
+      const ids = initialRule?.linkedKbIds ?? [];
+      const token = stored?.token ?? "";
+
+      if (!stored || !token) {
+        // No active session — try to resolve KB names individually if possible.
         setSession(null);
         setHydrated(true);
+        if (ids.length > 0) {
+          setKbValidation(new Map(ids.map((id) => [id, "network_error"] as const)));
+        }
         return;
       }
+
       setSession(stored);
       setHydrated(true);
 
       // Fetch KB list for name resolution + validation
       setLoadingKbs(true);
-      const res = await listKb(stored.token);
+      const res = await listKb(token);
       if (cancelled) { setLoadingKbs(false); return; }
       setLoadingKbs(false);
 
@@ -121,14 +130,13 @@ export function WorldInfoRuleModal({
         setKbMap(map);
 
         // Validate each linked KB against the loaded map
-        const ids = initialRule?.linkedKbIds ?? [];
         const validation = new Map<string, KbStatus>();
         for (const id of ids) {
           if (map.has(id)) {
             validation.set(id, "ok");
           } else {
             // Two-level check: getKb to distinguish 404 from network
-            const single = await getKb(stored.token, id);
+            const single = await getKb(token, id);
             if (cancelled) return;
             if (single.kind === "ok") {
               validation.set(id, "ok");
@@ -144,10 +152,22 @@ export function WorldInfoRuleModal({
         }
         setKbValidation(validation);
       } else {
-        // Network error on listKb — mark all as network_error (don't block save)
-        const ids = initialRule?.linkedKbIds ?? [];
+        // Network error on listKb — try individual getKb for name resolution.
         const validation = new Map<string, KbStatus>();
-        for (const id of ids) validation.set(id, "network_error");
+        const map = new Map<string, KnowledgeBase>();
+        for (const id of ids) {
+          const single = await getKb(token, id);
+          if (cancelled) return;
+          if (single.kind === "ok") {
+            validation.set(id, "ok");
+            map.set(id, single.data.kb);
+          } else if (single.kind === "error" && single.status === 404) {
+            validation.set(id, "not_found");
+          } else {
+            validation.set(id, "network_error");
+          }
+        }
+        if (map.size > 0) setKbMap(map);
         setKbValidation(validation);
       }
     })();

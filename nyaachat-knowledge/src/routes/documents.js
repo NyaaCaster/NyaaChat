@@ -108,6 +108,11 @@ documentsRouter.post("/kb/:kbId/documents", requireAuth, async (req, res) => {
   if (!Array.isArray(files) || files.length === 0) {
     return badRequest(res, "missing_files");
   }
+  if (files.length > 10) {
+    return badRequest(res, "一次最多只接受 10 个文档");
+  }
+
+  const MAX_FILE_BYTES = 10 * 1024 * 1024; // 10 MB per file
 
   const results = [];
   for (const file of files) {
@@ -135,6 +140,15 @@ documentsRouter.post("/kb/:kbId/documents", requireAuth, async (req, res) => {
       continue;
     }
 
+    if (buffer.length > MAX_FILE_BYTES) {
+      results.push({
+        filename,
+        ok: false,
+        error: `文件过大（${(buffer.length / 1024 / 1024).toFixed(1)} MB），单个文档上限为 10 MB`,
+      });
+      continue;
+    }
+
     try {
       const { document, chunk_count } = await ingestDocument({
         kbId: kb.id,
@@ -151,7 +165,11 @@ documentsRouter.post("/kb/:kbId/documents", requireAuth, async (req, res) => {
   }
 
   const anyOk = results.some((r) => r.ok);
-  return res.status(anyOk ? 201 : 400).json({ ok: anyOk, results });
+  if (!anyOk) {
+    const firstError = results.find((r) => !r.ok)?.error ?? "unknown";
+    return res.status(400).json({ ok: false, error: firstError, results });
+  }
+  return res.status(201).json({ ok: true, results });
 });
 
 // --- GET /documents/:docId (auth) — get a single document ------------------

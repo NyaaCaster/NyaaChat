@@ -127,6 +127,27 @@ export function KnowledgeBaseEditModal({
       if (!files || files.length === 0) return;
 
       setUploading(true);
+
+      const MAX_FILE_BYTES = 10 * 1024 * 1024; // 10 MB
+
+      // Validate file count before sending to server (backend also rejects >10).
+      if (files.length > 10) {
+        flash("err", "一次最多只接受 10 个文档");
+        setUploading(false);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+        return;
+      }
+
+      // Validate file sizes before reading/encoding.
+      const oversized = Array.from(files).filter((f) => f.size > MAX_FILE_BYTES);
+      if (oversized.length > 0) {
+        const names = oversized.map((f) => `${f.name}（${(f.size / 1024 / 1024).toFixed(1)} MB）`).join("、");
+        flash("err", `以下文件超过 10 MB 上限：${names}`);
+        setUploading(false);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+        return;
+      }
+
       const allowedExts = [".txt", ".md", ".pdf"];
       const items = await Promise.all(
         Array.from(files).map(async (file) => {

@@ -42,7 +42,7 @@ export function KnowledgeBaseModal({ isOpen, onClose }: KnowledgeBaseModalProps)
 
   // data
   const [kbs, setKbs] = useState<KnowledgeBase[]>([]);
-  const [kbMax, setKbMax] = useState(5);
+  const [kbMax, setKbMax] = useState(3);
   const [catfood, setCatfood] = useState(0);
   const [embedConfigured, setEmbedConfigured] = useState(true);
   const [loading, setLoading] = useState(false);
@@ -77,8 +77,17 @@ export function KnowledgeBaseModal({ isOpen, onClose }: KnowledgeBaseModalProps)
     }
     setSession(stored);
     setHydrated(true);
-    setCatfood(stored.profile.catfood ?? 0);
-    setKbMax(stored.profile.kbMax ?? 5);
+
+    // Fetch live profile to get current kbMax / catfood from server
+    // (may have changed since the IDB-cached login, e.g. migration 5→3).
+    const profileRes = await fetchProfile(stored.token);
+    if (profileRes.kind === "ok") {
+      setCatfood(profileRes.data.profile.catfood ?? 0);
+      setKbMax(profileRes.data.profile.kbMax ?? 3);
+    } else {
+      setCatfood(stored.profile.catfood ?? 0);
+      setKbMax(stored.profile.kbMax ?? 3);
+    }
 
     setLoading(true);
     const [kbRes, cfgRes] = await Promise.all([
@@ -117,7 +126,7 @@ export function KnowledgeBaseModal({ isOpen, onClose }: KnowledgeBaseModalProps)
       if (stored && (!session || stored.token !== session.token)) {
         setSession(stored);
         setCatfood(stored.profile.catfood ?? 0);
-        setKbMax(stored.profile.kbMax ?? 5);
+        setKbMax(stored.profile.kbMax ?? 3);
         // re-load data with new token
         const [kbRes, cfgRes] = await Promise.all([
           listKb(stored.token),

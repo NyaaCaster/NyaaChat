@@ -103,9 +103,15 @@ db.exec(`
 
 	// P2 (KnowledgeBase): knowledge-base stack ceiling. Default 5, hard cap 50.
 	// Expand via POST /account/expand-kb (same transaction pattern as expand-slot).
-	try {
-	  db.exec("ALTER TABLE users ADD COLUMN kb_max INTEGER NOT NULL DEFAULT 5");
-	} catch { /* column already exists — harmless */ }
+		try {
+		  db.exec("ALTER TABLE users ADD COLUMN kb_max INTEGER NOT NULL DEFAULT 3");
+		} catch { /* column already exists - harmless */ }
+
+		// KB-V1 post-launch: reduce default kb_max from 5 to 3.
+		// Only affects users who never expanded (still at the old default of 5).
+		try {
+		  db.exec("UPDATE users SET kb_max = 3 WHERE kb_max = 5");
+		} catch { /* harmless */ }
 
 // Ensure the user-storage directory exists for future per-user file storage
 // (character card covers etc.). Currently the settings payload is stored in the

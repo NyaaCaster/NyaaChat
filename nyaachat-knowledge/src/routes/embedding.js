@@ -91,6 +91,11 @@ embeddingRouter.post("/health-check", requireAuth, async (req, res) => {
 
   try {
     const result = await healthCheck(row);
+    // Persist detected dimension so document ingestion works immediately
+    // after a successful health check (D13 / KB-V1 dimension lock).
+    db.prepare(
+      "UPDATE embedding_configs SET dim = ?, updated_at = ? WHERE owner = ?"
+    ).run(result.dim, Date.now(), owner);
     return res.json({ ok: true, dim: result.dim });
   } catch (err) {
     return res.status(502).json({ ok: false, error: err.message });

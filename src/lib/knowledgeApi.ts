@@ -10,7 +10,7 @@
 import type { AccountProfile } from "./sharedAccountApi";
 
 const BASE = "/api/knowledge";
-const REQUEST_TIMEOUT_MS = 12_000;
+const REQUEST_TIMEOUT_MS = 120_000;
 
 // Re-export the same discriminated-result shape used everywhere.
 export type ApiResult<T> =

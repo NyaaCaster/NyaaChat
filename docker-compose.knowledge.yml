@@ -41,7 +41,7 @@ services:
       # Read-only mount of shared-server's DB for session-token auth validation.
       # Requires shared-server to have been deployed at least once (so the db
       # file exists). If absent, auth fails closed (all protected routes 401).
-      - ${SHARED_RES_DIR:-.}/db/nyaachat-shared.db:/shared-db/nyaachat-shared.db:ro
+      - ${SHARED_RES_DIR:-.}/db:/shared-db:ro
     networks:
       - nyaachat-net
     restart: unless-stopped

@@ -98,7 +98,7 @@ kbRouter.post("/", requireAuth, (req, res) => {
   }
 
   // Check kb_max quota (read from shared DB via auth middleware).
-  const kbMax = req.user.kb_max ?? 5;
+  const kbMax = req.user.kb_max ?? 3;
   const currentCount = db.prepare(
     "SELECT COUNT(*) AS cnt FROM knowledge_bases WHERE owner = ?",
   ).get(req.user.account).cnt;
