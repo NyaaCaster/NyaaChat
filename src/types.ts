@@ -132,6 +132,9 @@ export interface WorldInfoRule {
   allowRecursion?: boolean;
   content: string;
   enabled: boolean;
+  /** 关联的知识库 ID 列表。规则条目编辑时可关联/取消关联 KB；
+   *  此处仅存储软引用，绝不级联硬删。 */
+  linkedKbIds?: string[];
 }
 
 export interface CharacterSettings {

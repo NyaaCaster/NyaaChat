@@ -6,7 +6,7 @@
 > 必读前置：`审计报告.md`（决策登记、prompt 合规、安全边界、命名规约）、`用户使用交互要点设计.md`（UI 交互要点、方案决策）、`NyaaChat 用户级知识库方案 · 重新评估.md`（可行性论证）。
 > 全局标准：`C:\Users\honyw\.docs\llm-chat-prompt-architecture-standard.md`
 > 创建：2026-07-05
-> 状态：实施中 · P0 ✅ · P1 ✅ · P2 ✅ · P3 ✅ · P4-P7 ⬜ 未开始
+> 状态：实施中 · P0 ✅ · P1 ✅ · P2 ✅ · P3 ✅ · P4 ✅ · P5-P7 ⬜ 未开始
 
 ---
 
@@ -141,7 +141,7 @@ sqlite-vec vec0 建表即锁死维度。**每个 owner 的所有知识库共用�
 - 库编辑界面：沿用 NyaaLibrary-MCP 结构（文档管理 + 库内 token 计数 + 改名位置）
 - **验收**：登录用户完整走通 配置→建库→传文档→检索测试；未配置引导；额度上限提示窗
 
-### P4 — 规则条目关联 UI　⬜
+### P4 — 规则条目关联 UI　✅
 - `types.ts` 加 `WorldInfoRule.linkedKbIds`
 - `WorldInfoRuleModal.tsx`：`已关联知识库` 标签列表（KB 徽标 book 图标）+ `关联知识库` 按钮（列库卡多选，显 token 量）+ 无库时「创建知识库」引导
 - 失效处理（D4）：仅 404 已删红色 tag 且阻断保存 + 弹窗提示清理；网络 / API 不可达不阻断

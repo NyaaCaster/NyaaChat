@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useCallback } from "react";
 import { Save, Plus, Download, Upload, Edit2, Trash2, FileJson, Cat, ImagePlus, X, CloudUpload } from "lucide-react";
 import { CharacterSettings, WorldInfoRule } from "../types";
 import { newId } from "../lib/id";
@@ -13,6 +13,7 @@ import { exportCharacterPng, imageBlobToCoverWebp } from "../lib/pngCard";
 import { loadCover, saveCover, deleteCover, COVER_MARKER } from "../lib/coverStorage";
 import { BaseModal } from "./BaseModal";
 import { WorldInfoRuleModal } from "./WorldInfoRuleModal";
+import { KnowledgeBaseModal } from "./KnowledgeBaseModal";
 import { ImageCropModal } from "./ImageCropModal";
 
 interface CharacterEditModalProps {
@@ -47,6 +48,7 @@ export function CharacterEditModal({
   const [isRuleModalOpen, setIsRuleModalOpen] = useState(false);
   const [editingRule, setEditingRule] = useState<WorldInfoRule | null>(null);
   const [isExportChooserOpen, setIsExportChooserOpen] = useState(false);
+  const [isKbManagerOpen, setIsKbManagerOpen] = useState(false);
 
   // Cover image. `cardId` is fixed for the lifetime of this open editor so a
   // brand-new character can key its cover blob before it has been saved into
@@ -344,6 +346,15 @@ export function CharacterEditModal({
     }
   };
 
+  /** Persist the character (without closing the modal). Used before opening
+   *  login or KB manager from within WorldInfoRuleModal, so rule edits aren't
+   *  lost. Uses buildCurrentCharacter which assembles the full character from
+   *  current editor state. */
+  const persistCharacter = useCallback(() => {
+    if (!name.trim()) return;
+    onSave(buildCurrentCharacter());
+  }, [name, description, firstMes, worldInfo, onSave]);
+
   return (
     <>
       <BaseModal
@@ -574,6 +585,8 @@ export function CharacterEditModal({
         onClose={() => setIsRuleModalOpen(false)}
         onSave={handleSaveRule}
         initialRule={editingRule}
+        onPersistCharacter={persistCharacter}
+        onOpenKnowledgeBase={() => setIsKbManagerOpen(true)}
       />
 
       <ImageCropModal
@@ -581,6 +594,11 @@ export function CharacterEditModal({
         src={cropSrc}
         onCancel={handleCropCancel}
         onCrop={handleCropped}
+      />
+
+      <KnowledgeBaseModal
+        isOpen={isKbManagerOpen}
+        onClose={() => setIsKbManagerOpen(false)}
       />
 
       <BaseModal
