@@ -16,6 +16,7 @@ import {
   ThumbsDown,
   HardDrive,
   Book,
+  Gift,
 } from "lucide-react";
 import { BaseModal } from "./BaseModal";
 import { CatCanIcon } from "./icons/CatCanIcon";
@@ -449,17 +450,19 @@ function AccountPanel({
       {/* economy */}
       <div className="space-y-3">
         <Row label="猫粮余额">
-          <span className="inline-flex items-center gap-1 text-sm font-semibold text-orange-500">
-            <CatCanIcon size={16} /> {profile.catfood != null ? profile.catfood : "—"}
-          </span>
-          <a
-            href="http://h.nyaa.host:5110/?view=recharge"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center px-2.5 py-1 text-xs font-medium text-amber-400 border border-amber-500/30 rounded-lg hover:bg-amber-500/10 transition-colors"
-          >
-            充值
-          </a>
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-1 text-sm font-semibold text-orange-500">
+              <CatCanIcon size={16} /> {profile.catfood != null ? profile.catfood : "—"}
+            </span>
+            <a
+              href="http://h.nyaa.host:5110/?view=recharge"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-amber-400 border border-amber-500/30 hover:bg-amber-500/10 rounded-lg transition-colors"
+            >
+              <Gift size={13} /> 充值
+            </a>
+          </div>
         </Row>
 
         <Row label="历史消耗">
