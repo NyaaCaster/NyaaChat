@@ -29,8 +29,8 @@ export interface AccountProfile {
   account: string;
   username: string;
   createdAt: number; // unix ms
-  catfood: number;
-  spentTotal: number;
+  catfood: number | null; // V4.1: live from NyaaAcount; null when unreachable
+  spentTotal: number | null;
   slotMax: number;
   kbMax: number; // knowledge base stack limit (default 3, expandable)
   charStorageMax: number; // character card storage ceiling (bytes, default 32 MB)

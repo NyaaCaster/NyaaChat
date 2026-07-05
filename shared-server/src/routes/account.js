@@ -64,22 +64,21 @@ const insertUser = db.prepare(`
 const updateUsername = db.prepare(
   "UPDATE users SET username = ? WHERE account = ?",
 );
-// Expand the shared-slot ceiling: charge catfood (counted as spend, matching
-// the phase-4 acquisition model where every catfood debit lands in spent_total)
-// and raise slot_max, in one transaction. Caller verifies balance + ceiling.
+// Expand the shared-slot ceiling: charged via NyaaAcount /project/consume (V4.1).
+// This prepared statement only raises the ceiling — the consume call runs first.
 const expandSlot = db.prepare(
-  "UPDATE users SET catfood = catfood - @cost, spent_total = spent_total + @cost, slot_max = slot_max + @step WHERE account = @account",
+  "UPDATE users SET slot_max = slot_max + @step WHERE account = @account",
 );
-// Expand the knowledge-base ceiling: same transaction pattern as expand-slot.
+// Expand the knowledge-base ceiling: charged via NyaaAcount (V4.1).
 const expandKb = db.prepare(
-  "UPDATE users SET catfood = catfood - @cost, spent_total = spent_total + @cost, kb_max = kb_max + @step WHERE account = @account",
+  "UPDATE users SET kb_max = kb_max + @step WHERE account = @account",
 );
-// Expand per-user storage ceilings (character cards / chat history).
+// Expand per-user storage ceilings: charged via NyaaAcount (V4.1).
 const expandCharStorage = db.prepare(
-  "UPDATE users SET catfood = catfood - @cost, spent_total = spent_total + @cost, char_storage_max = char_storage_max + @step WHERE account = @account",
+  "UPDATE users SET char_storage_max = char_storage_max + @step WHERE account = @account",
 );
 const expandChatStorage = db.prepare(
-  "UPDATE users SET catfood = catfood - @cost, spent_total = spent_total + @cost, chat_storage_max = chat_storage_max + @step WHERE account = @account",
+  "UPDATE users SET chat_storage_max = chat_storage_max + @step WHERE account = @account",
 );
 const aggStats = db.prepare(`
   SELECT
@@ -106,15 +105,28 @@ const stmtUpsertSettings = db.prepare(`
 /**
  * Shape a user row + derived stats into the public profile payload. Never
  * leaks the password; slot_used is a client-side count (not stored here).
+ * V4.1: catfood / spentTotal are fetched live from NyaaAcount getBalance;
+ * fall back to null when the account service is unreachable (fail-closed).
  */
-function profileOf(user) {
+async function profileOf(user) {
   const stats = aggStats.get(user.account);
+  let catfood = null;
+  let spentTotal = null;
+  if (user.nyaa_uid) {
+    try {
+      const bal = await nyaacount.getBalance(user.nyaa_uid);
+      if (bal.ok && bal.data) {
+        catfood = bal.data.balance;
+        spentTotal = bal.data.total_spent;
+      }
+    } catch { /* fail-closed — catfood/spentTotal stay null */ }
+  }
   return {
     account: user.account,
     username: user.username,
     createdAt: user.created_at,
-    catfood: user.catfood,
-    spentTotal: user.spent_total,
+    catfood,
+    spentTotal,
     slotMax: user.slot_max,
     kbMax: user.kb_max,
     charStorageMax: user.char_storage_max,
@@ -173,7 +185,7 @@ accountRouter.post("/register", async (req, res) => {
     return res.status(500).json({ ok: false, error: "db_write_failed" });
   }
   const token = createSession(account);
-  return res.json({ ok: true, token, profile: profileOf(getUser.get(account)) });
+  return res.json({ ok: true, token, profile: await profileOf(getUser.get(account)) });
 });
 
 // --- login ----------------------------------------------------------------
@@ -224,7 +236,7 @@ accountRouter.post("/login", async (req, res) => {
 
   touchLastActive(user.account);
   const token = createSession(user.account);
-  return res.json({ ok: true, token, profile: profileOf(user) });
+  return res.json({ ok: true, token, profile: await profileOf(user) });
 });
 
 // --- logout ---------------------------------------------------------------
@@ -236,19 +248,19 @@ accountRouter.post("/logout", requireAuth, (req, res) => {
 
 // --- profile --------------------------------------------------------------
 // GET /account/profile (auth) — also the "is my stored token still valid?" probe
-accountRouter.get("/profile", requireAuth, (req, res) => {
-  return res.json({ ok: true, profile: profileOf(req.user) });
+accountRouter.get("/profile", requireAuth, async (req, res) => {
+  return res.json({ ok: true, profile: await profileOf(req.user) });
 });
 
 // --- rename ---------------------------------------------------------------
 // POST /account/rename { username } (auth)
-accountRouter.post("/rename", requireAuth, (req, res) => {
+accountRouter.post("/rename", requireAuth, async (req, res) => {
   const username = String(req.body?.username ?? "").trim();
   if (!username || username.length > USERNAME_MAX) {
     return badRequest(res, "invalid_username");
   }
   updateUsername.run(username, req.user.account);
-  return res.json({ ok: true, profile: profileOf(getUser.get(req.user.account)) });
+  return res.json({ ok: true, profile: await profileOf(getUser.get(req.user.account)) });
 });
 
 // --- change password ------------------------------------------------------
@@ -288,111 +300,122 @@ accountRouter.post("/redeem", requireAuth, (_req, res) => {
   return res.status(501).json({ ok: false, error: "not_implemented" });
 });
 
-// --- expand shared-slot ceiling -------------------------------------------
-// POST /account/expand-slot (auth) — spend SLOT_COST catfood to raise slot_max
-// by SLOT_STEP, capped at SLOT_MAX_CEILING. Balance + ceiling are checked
-// inside the transaction so concurrent calls can't overshoot. Returns the fresh
-// profile so the client can reflect the new balance and ceiling immediately.
-accountRouter.post("/expand-slot", requireAuth, (req, res) => {
+// --- expand shared-slot ceiling (V4.1 — via NyaaAcount) ------------------
+// POST /account/expand-slot (auth)
+// 1. Read-only ceiling check (don't call NyaaAcount if already at cap).
+// 2. Call NyaaAcount /project/consume (amount checker via pricing.json).
+// 3. On success, raise slot_max locally only — catfood is owned by NyaaAcount.
+// 4. If the local write fails, refund the charge via /project/balance/recharge.
+accountRouter.post("/expand-slot", requireAuth, async (req, res) => {
   const account = req.user.account;
-  try {
-    const apply = db.transaction(() => {
-      const user = getUser.get(account);
-      if (user.slot_max + SLOT_STEP > SLOT_MAX_CEILING) {
-        return { error: "slot_max_reached", status: 409 };
-      }
-      if (user.catfood < SLOT_COST) {
-        return { error: "insufficient", status: 402 };
-      }
-      expandSlot.run({ account, cost: SLOT_COST, step: SLOT_STEP });
-      return { ok: true };
-    });
-    const result = apply();
-    if (result.error) {
-      return res.status(result.status).json({ ok: false, error: result.error });
+  const user = getUser.get(account);
+  if (!user.nyaa_uid) {
+    return res.status(400).json({ ok: false, error: "not_linked", detail: "账号未关联 NyaaAcount" });
+  }
+  if (user.slot_max + SLOT_STEP > SLOT_MAX_CEILING) {
+    return res.status(409).json({ ok: false, error: "slot_max_reached" });
+  }
+  const ref = `nyaachat:${account}:expand_slot:${Date.now()}`;
+  const charge = await nyaacount.consume(user.nyaa_uid, "expand_slot", SLOT_COST, ref);
+  if (!charge.ok) {
+    if (charge.data?.error === "insufficient_balance") {
+      return res.status(402).json({ ok: false, error: "insufficient" });
     }
-  } catch {
+    console.error("[expand-slot] NyaaAcount consume failed:", charge.status, charge.data);
+    return res.status(503).json({ ok: false, error: "account_service_unavailable" });
+  }
+  try {
+    expandSlot.run({ account, step: SLOT_STEP });
+  } catch (err) {
+    console.error(`[expand-slot] local write failed, refunding ${SLOT_COST} catfood:`, err.message);
+    await nyaacount.rechargeBalance(user.nyaa_uid, SLOT_COST, `${ref}:refund`);
     return res.status(500).json({ ok: false, error: "db_write_failed" });
   }
-  return res.json({ ok: true, profile: profileOf(getUser.get(account)) });
+  return res.json({ ok: true, profile: await profileOf(getUser.get(account)) });
 });
 
-// --- expand knowledge-base ceiling (P2) ------------------------------------
-// POST /account/expand-kb (auth) — spend KB_EXPAND_COST catfood to raise
-// kb_max by KB_EXPAND_STEP, capped at KB_EXPAND_MAX. Same transactional
-// pattern as expand-slot: balance + ceiling checked inside the transaction
-// so concurrent calls can't overshoot.
-accountRouter.post("/expand-kb", requireAuth, (req, res) => {
+// --- expand knowledge-base ceiling (V4.1 — via NyaaAcount) -----------------
+// POST /account/expand-kb (auth) — same pattern as expand-slot.
+accountRouter.post("/expand-kb", requireAuth, async (req, res) => {
   const account = req.user.account;
-  try {
-    const apply = db.transaction(() => {
-      const user = getUser.get(account);
-      if (user.kb_max + KB_EXPAND_STEP > KB_EXPAND_MAX) {
-        return { error: "kb_max_reached", status: 409 };
-      }
-      if (user.catfood < KB_EXPAND_COST) {
-        return { error: "insufficient", status: 402 };
-      }
-      expandKb.run({ account, cost: KB_EXPAND_COST, step: KB_EXPAND_STEP });
-      return { ok: true };
-    });
-    const result = apply();
-    if (result.error) {
-      return res.status(result.status).json({ ok: false, error: result.error });
+  const user = getUser.get(account);
+  if (!user.nyaa_uid) {
+    return res.status(400).json({ ok: false, error: "not_linked", detail: "账号未关联 NyaaAcount" });
+  }
+  if (user.kb_max + KB_EXPAND_STEP > KB_EXPAND_MAX) {
+    return res.status(409).json({ ok: false, error: "kb_max_reached" });
+  }
+  const ref = `nyaachat:${account}:expand_kb:${Date.now()}`;
+  const charge = await nyaacount.consume(user.nyaa_uid, "expand_kb", KB_EXPAND_COST, ref);
+  if (!charge.ok) {
+    if (charge.data?.error === "insufficient_balance") {
+      return res.status(402).json({ ok: false, error: "insufficient" });
     }
-  } catch {
+    console.error("[expand-kb] NyaaAcount consume failed:", charge.status, charge.data);
+    return res.status(503).json({ ok: false, error: "account_service_unavailable" });
+  }
+  try {
+    expandKb.run({ account, step: KB_EXPAND_STEP });
+  } catch (err) {
+    console.error(`[expand-kb] local write failed, refunding ${KB_EXPAND_COST} catfood:`, err.message);
+    await nyaacount.rechargeBalance(user.nyaa_uid, KB_EXPAND_COST, `${ref}:refund`);
     return res.status(500).json({ ok: false, error: "db_write_failed" });
   }
-  return res.json({ ok: true, profile: profileOf(getUser.get(account)) });
+  return res.json({ ok: true, profile: await profileOf(getUser.get(account)) });
 });
 
-// --- expand character-card storage ceiling ----------------------------------
-// POST /account/expand-char-storage (auth) — spend CHAR_STORAGE_COST catfood
-// to raise char_storage_max by CHAR_STORAGE_STEP. No hard ceiling (only bounded
-// by catfood balance). Same transactional pattern as expand-slot.
-accountRouter.post("/expand-char-storage", requireAuth, (req, res) => {
+// --- expand character-card storage ceiling (V4.1 — via NyaaAcount) ----------
+// POST /account/expand-char-storage (auth) — no hard ceiling.
+accountRouter.post("/expand-char-storage", requireAuth, async (req, res) => {
   const account = req.user.account;
-  try {
-    const apply = db.transaction(() => {
-      const user = getUser.get(account);
-      if (user.catfood < CHAR_STORAGE_COST) {
-        return { error: "insufficient", status: 402 };
-      }
-      expandCharStorage.run({ account, cost: CHAR_STORAGE_COST, step: CHAR_STORAGE_STEP });
-      return { ok: true };
-    });
-    const result = apply();
-    if (result.error) {
-      return res.status(result.status).json({ ok: false, error: result.error });
+  const user = getUser.get(account);
+  if (!user.nyaa_uid) {
+    return res.status(400).json({ ok: false, error: "not_linked", detail: "账号未关联 NyaaAcount" });
+  }
+  const ref = `nyaachat:${account}:expand_char_storage:${Date.now()}`;
+  const charge = await nyaacount.consume(user.nyaa_uid, "expand_char_storage", CHAR_STORAGE_COST, ref);
+  if (!charge.ok) {
+    if (charge.data?.error === "insufficient_balance") {
+      return res.status(402).json({ ok: false, error: "insufficient" });
     }
-  } catch {
+    console.error("[expand-char-storage] NyaaAcount consume failed:", charge.status, charge.data);
+    return res.status(503).json({ ok: false, error: "account_service_unavailable" });
+  }
+  try {
+    expandCharStorage.run({ account, step: CHAR_STORAGE_STEP });
+  } catch (err) {
+    console.error(`[expand-char-storage] local write failed, refunding ${CHAR_STORAGE_COST} catfood:`, err.message);
+    await nyaacount.rechargeBalance(user.nyaa_uid, CHAR_STORAGE_COST, `${ref}:refund`);
     return res.status(500).json({ ok: false, error: "db_write_failed" });
   }
-  return res.json({ ok: true, profile: profileOf(getUser.get(account)) });
+  return res.json({ ok: true, profile: await profileOf(getUser.get(account)) });
 });
 
-// --- expand chat-history storage ceiling -------------------------------------
-// POST /account/expand-chat-storage (auth) — spend CHAT_STORAGE_COST catfood
-// to raise chat_storage_max by CHAT_STORAGE_STEP. No hard ceiling.
-accountRouter.post("/expand-chat-storage", requireAuth, (req, res) => {
+// --- expand chat-history storage ceiling (V4.1 — via NyaaAcount) ------------
+// POST /account/expand-chat-storage (auth) — no hard ceiling.
+accountRouter.post("/expand-chat-storage", requireAuth, async (req, res) => {
   const account = req.user.account;
-  try {
-    const apply = db.transaction(() => {
-      const user = getUser.get(account);
-      if (user.catfood < CHAT_STORAGE_COST) {
-        return { error: "insufficient", status: 402 };
-      }
-      expandChatStorage.run({ account, cost: CHAT_STORAGE_COST, step: CHAT_STORAGE_STEP });
-      return { ok: true };
-    });
-    const result = apply();
-    if (result.error) {
-      return res.status(result.status).json({ ok: false, error: result.error });
+  const user = getUser.get(account);
+  if (!user.nyaa_uid) {
+    return res.status(400).json({ ok: false, error: "not_linked", detail: "账号未关联 NyaaAcount" });
+  }
+  const ref = `nyaachat:${account}:expand_chat_storage:${Date.now()}`;
+  const charge = await nyaacount.consume(user.nyaa_uid, "expand_chat_storage", CHAT_STORAGE_COST, ref);
+  if (!charge.ok) {
+    if (charge.data?.error === "insufficient_balance") {
+      return res.status(402).json({ ok: false, error: "insufficient" });
     }
-  } catch {
+    console.error("[expand-chat-storage] NyaaAcount consume failed:", charge.status, charge.data);
+    return res.status(503).json({ ok: false, error: "account_service_unavailable" });
+  }
+  try {
+    expandChatStorage.run({ account, step: CHAT_STORAGE_STEP });
+  } catch (err) {
+    console.error(`[expand-chat-storage] local write failed, refunding ${CHAT_STORAGE_COST} catfood:`, err.message);
+    await nyaacount.rechargeBalance(user.nyaa_uid, CHAT_STORAGE_COST, `${ref}:refund`);
     return res.status(500).json({ ok: false, error: "db_write_failed" });
   }
-  return res.json({ ok: true, profile: profileOf(getUser.get(account)) });
+  return res.json({ ok: true, profile: await profileOf(getUser.get(account)) });
 });
 
 // --- cloud settings upload --------------------------------------------------

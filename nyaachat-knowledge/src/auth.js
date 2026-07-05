@@ -16,7 +16,7 @@
 import Database from "better-sqlite3";
 import { existsSync } from "node:fs";
 
-const SHARED_DB_PATH = "/shared-db/nyaachat-shared.db";
+const SHARED_DB_PATH = "/shared-db/nyaachat-shared-v4.db";
 
 // Lazy-init the shared-DB connection (container may start before shared-server).
 let _sharedDb = null;

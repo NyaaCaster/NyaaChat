@@ -450,13 +450,21 @@ function AccountPanel({
       <div className="space-y-3">
         <Row label="猫粮余额">
           <span className="inline-flex items-center gap-1 text-sm font-semibold text-orange-500">
-            <CatCanIcon size={16} /> {profile.catfood}
+            <CatCanIcon size={16} /> {profile.catfood != null ? profile.catfood : "—"}
           </span>
+          <a
+            href="http://h.nyaa.host:5110/?view=recharge"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center px-2.5 py-1 text-xs font-medium text-amber-400 border border-amber-500/30 rounded-lg hover:bg-amber-500/10 transition-colors"
+          >
+            充值
+          </a>
         </Row>
 
         <Row label="历史消耗">
           <span className="inline-flex items-center gap-1 text-sm text-gray-600 dark:text-gray-400">
-            <TrendingDown size={14} className="text-red-400" /> {profile.spentTotal}
+            <TrendingDown size={14} className="text-red-400" /> {profile.spentTotal != null ? profile.spentTotal : "—"}
           </span>
         </Row>
         <Row label="共享卡槽">
@@ -467,7 +475,6 @@ function AccountPanel({
             <button
               onClick={() => {
                 if (atSlotCeiling) { flash("err", "共享卡槽已达上限（200）"); return; }
-                if (profile.catfood < SLOT_COST) { flash("err", "猫粮余额不足"); return; }
                 setPendingExpand({
                   type: "共享卡槽",
                   cost: SLOT_COST,
@@ -492,7 +499,6 @@ function AccountPanel({
             <button
               onClick={() => {
                 if (atKbCeiling) { flash("err", "知识库栈已达上限（50）"); return; }
-                if (profile.catfood < KB_COST) { flash("err", "猫粮余额不足"); return; }
                 setPendingExpand({
                   type: "知识库栈",
                   cost: KB_COST,
@@ -516,7 +522,6 @@ function AccountPanel({
             </span>
             <button
               onClick={() => {
-                if (profile.catfood < STORAGE_COST) { flash("err", "猫粮余额不足"); return; }
                 setPendingExpand({
                   type: "角色卡储存",
                   cost: STORAGE_COST,
@@ -540,7 +545,6 @@ function AccountPanel({
             </span>
             <button
               onClick={() => {
-                if (profile.catfood < STORAGE_COST) { flash("err", "猫粮余额不足"); return; }
                 setPendingExpand({
                   type: "聊天记录储存",
                   cost: STORAGE_COST,

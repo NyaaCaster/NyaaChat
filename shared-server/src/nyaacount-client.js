@@ -114,3 +114,35 @@ export function changePassword(nyaaUid, oldPassword, newPassword) {
 export function getUidByUsername(username) {
   return callNyaaAcount("GET", `/project/uid?username=${encodeURIComponent(username)}`);
 }
+
+// ----------------- 余额/消费（V4.1） -----------------
+
+/** 查询 NyaaAcount 余额；成功 → data = { uid, balance, total_recharge, total_spent } */
+export async function getBalance(uid) {
+  return callNyaaAcount("GET", `/project/balance?uid=${encodeURIComponent(uid)}`);
+}
+
+/**
+ * 消费扣费（按 project+action 查表核定金额）。
+ * P-A2 /project/consume — 金额裁决权在 NyaaAcount pricing.json。
+ * @param {number} uid
+ * @param {string} action  — 如 "expand_slot"
+ * @param {number} amount  — 本地成本常量（作一致性校验，不符则 409）
+ * @param {string} reference — 幂等键
+ * @returns {Promise<{ok:boolean, status:number, data:any}>}
+ *   200 → data.uid/balance/deducted/action/reference/replayed
+ *   402 → insufficient_balance；400 → unknown_action；409 → amount_mismatch
+ */
+export async function consume(uid, action, amount, reference) {
+  return callNyaaAcount("POST", "/project/consume", { uid, action, amount, reference });
+}
+
+/**
+ * 退款补偿（扩容路由本地写失败时回退猫粮）。
+ * @param {number} uid
+ * @param {number} amount
+ * @param {string} reference — 派生自消费 reference（如 `{ref}:refund`）
+ */
+export async function rechargeBalance(uid, amount, reference) {
+  return callNyaaAcount("POST", "/project/balance/recharge", { uid, amount, reference });
+}

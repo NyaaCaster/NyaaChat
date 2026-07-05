@@ -22,6 +22,12 @@ export const db = new Database(DB_PATH);
 // reader (Navicat) attached to the same file.
 db.pragma("journal_mode = WAL");
 db.pragma("foreign_keys = ON");
+// Force aggressive WAL checkpointing — every write flushed to main DB file.
+// Required because Docker Desktop Windows bind mounts do NOT propagate
+// WAL/SHM files to the host. Without this, uncheckpointed data lives only
+// in the WAL and is lost on container restart, which can leave the main DB
+// file in an unrecoverable state (SQLITE_CANTOPEN).
+db.pragma("wal_autocheckpoint = 1");
 
 // Full schema is created up front (all phases) so the on-disk DB is stable and
 // Navicat-inspectable from day one, even though account endpoints land first.
@@ -31,8 +37,7 @@ db.exec(`
     username     TEXT NOT NULL,               -- display only
     password     TEXT NOT NULL DEFAULT '',    -- RETIRED (P7-3): auth lives in NyaaAcount; kept '' for NOT NULL
     created_at   INTEGER NOT NULL,            -- unix ms
-    catfood      INTEGER NOT NULL DEFAULT 0,  -- balance, >= 0, no decimals
-    spent_total  INTEGER NOT NULL DEFAULT 0,  -- lifetime spend (consumption only)
+    -- catfood / spent_total REMOVED (V4.1): balance and spend now live in NyaaAcount.
     earned_total INTEGER NOT NULL DEFAULT 0,  -- lifetime earnings (income only)
     slot_max           INTEGER NOT NULL DEFAULT 10, -- shared-slot ceiling
     char_storage_max   INTEGER NOT NULL DEFAULT 33554432, -- character card storage ceiling (bytes, 32 MB)
@@ -130,6 +135,16 @@ db.exec(`
 		try {
 		  db.exec("UPDATE users SET slot_max = 10 WHERE slot_max = 20");
 		} catch { /* harmless */ }
+
+		// V4.1: drop legacy balance columns. Catfood balance and total_spent now
+		// live in NyaaAcount via /project/balance and /project/consume.
+		// SQLite ≥3.35 supports ALTER TABLE DROP COLUMN.
+		try {
+		  db.exec("ALTER TABLE users DROP COLUMN catfood");
+		} catch { /* column already dropped or never existed — harmless */ }
+		try {
+		  db.exec("ALTER TABLE users DROP COLUMN spent_total");
+		} catch { /* column already dropped or never existed — harmless */ }
 
 // Ensure the user-storage directory exists for future per-user file storage
 // (character card covers etc.). Currently the settings payload is stored in the

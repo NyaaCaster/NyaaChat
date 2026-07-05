@@ -231,10 +231,6 @@ export function KnowledgeBaseModal({ isOpen, onClose }: KnowledgeBaseModalProps)
   // expand — open confirm dialog first
   const handleExpand = useCallback(async () => {
     if (expanding || kbMax >= KB_HARD_LIMIT) return;
-    if (catfood < KB_COST) {
-      flash("err", "猫粮余额不足");
-      return;
-    }
     setExpandPrompt(false);
     setPendingExpandKb(true);
   }, [expanding, kbMax, catfood]);

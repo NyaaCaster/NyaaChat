@@ -20,7 +20,7 @@ services:
     environment:
       - TZ=Asia/Shanghai
       - PORT=5107
-      - DB_PATH=/data/db/nyaachat-shared.db
+      - DB_PATH=/data/db/nyaachat-shared-v4.db
       - COVERS_DIR=/data/covers
       - USER_STORAGE_DIR=/data/user-storage
       # NyaaAcount unified account platform (P7-3 credential forwarding).
