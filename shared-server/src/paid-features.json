@@ -1,0 +1,43 @@
+{
+  "_comment": "NyaaChat 付费功能项目 SSOT。新用户注册时以此文件 initialFree 作为默认值。",
+
+  "sharedSlots": {
+    "key": "sharedSlots",
+    "label": "共享卡槽",
+    "initialFree": 10,
+    "costPerExpansion": 15,
+    "effectPerExpansion": 5,
+    "displayUnit": "个",
+    "hardCap": 200
+  },
+
+  "knowledgeBase": {
+    "key": "knowledgeBase",
+    "label": "知识库栈",
+    "initialFree": 3,
+    "costPerExpansion": 10,
+    "effectPerExpansion": 2,
+    "displayUnit": "个",
+    "hardCap": 50
+  },
+
+  "characterStorage": {
+    "key": "characterStorage",
+    "label": "角色卡储存",
+    "initialFree": 33554432,
+    "costPerExpansion": 5,
+    "effectPerExpansion": 12582912,
+    "displayUnit": "MB",
+    "displayStep": "12 MB"
+  },
+
+  "chatStorage": {
+    "key": "chatStorage",
+    "label": "聊天记录储存",
+    "initialFree": 33554432,
+    "costPerExpansion": 5,
+    "effectPerExpansion": 12582912,
+    "displayUnit": "MB",
+    "displayStep": "12 MB"
+  }
+}

@@ -15,6 +15,7 @@ import {
   Download,
   ThumbsUp,
   ThumbsDown,
+  HardDrive,
 } from "lucide-react";
 import { BaseModal } from "./BaseModal";
 import { CatCanIcon } from "./icons/CatCanIcon";
@@ -24,6 +25,8 @@ import {
   type StoredAccount,
   clearStoredAccount,
   expandSlot as apiExpandSlot,
+  expandCharStorage as apiExpandCharStorage,
+  expandChatStorage as apiExpandChatStorage,
   fetchProfile,
   loadStoredAccount,
   login as apiLogin,
@@ -32,6 +35,7 @@ import {
   saveStoredAccount,
 } from "../lib/sharedAccountApi";
 import { expandKb as apiExpandKb } from "../lib/knowledgeApi";
+import { ConfirmDialog } from "./ConfirmDialog";
 
 interface UserAccountModalProps {
   isOpen: boolean;
@@ -72,6 +76,12 @@ function formatRegisteredAt(ms: number): string {
   const d = new Date(ms);
   const p = (n: number) => String(n).padStart(2, "0");
   return `${p(d.getFullYear() % 100)}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 export function UserAccountModal({ isOpen, onClose }: UserAccountModalProps) {
@@ -283,56 +293,72 @@ function AccountPanel({
     }
   };
 
-  // Expand the shared-slot ceiling: +5 slots for 5 catfood, capped at 200.
-  // The server settles atomically and returns the fresh profile.
-  const SLOT_COST = 5;
+  // --- expansion constants (paid-feature adjustment 2026-07) ---
+  const SLOT_COST = 15;
+  const SLOT_STEP = 5;
   const SLOT_CEILING = 200;
-  const atSlotCeiling = profile.slotMax >= SLOT_CEILING;
+  const KB_COST = 10;
+  const KB_STEP = 2;
+  const KB_HARD_LIMIT = 50;
+  const STORAGE_COST = 5;
+  const STORAGE_STEP = 12 * 1024 * 1024; // 12 MB
 
-  const expand = async () => {
+  const atSlotCeiling = profile.slotMax >= SLOT_CEILING;
+  const atKbCeiling = profile.kbMax >= KB_HARD_LIMIT;
+
+  // Pending expand confirmation: null = none, otherwise { type, cost, stepLabel, handler }
+  const [pendingExpand, setPendingExpand] = useState<{
+    type: string;
+    cost: number;
+    stepLabel: string;
+    handler: () => Promise<void>;
+  } | null>(null);
+
+  const executeExpand = async (handler: () => Promise<void>) => {
     if (expanding) return;
-    if (atSlotCeiling) {
-      flash("err", "共享卡槽已达上限（200）");
-      return;
-    }
-    if (profile.catfood < SLOT_COST) {
-      flash("err", "猫粮余额不足");
-      return;
-    }
     setExpanding(true);
-    const r = await apiExpandSlot(token);
+    setPendingExpand(null);
+    await handler();
     setExpanding(false);
+  };
+
+  const expandSlot = async () => {
+    const r = await apiExpandSlot(token);
     if (r.kind === "ok") {
       onProfile(r.data.profile);
-      flash("ok", "已扩容 +5，扣除 5 猫粮");
+      flash("ok", `已扩容 +${SLOT_STEP} 卡槽，扣除 ${SLOT_COST} 猫粮`);
     } else {
       flash("err", messageFor(r));
     }
   };
 
-  // Expand the KB stack ceiling: +1 KB for 5 catfood, capped at 50.
-  const KB_COST = 5;
-  const KB_HARD_LIMIT = 50;
-  const atKbCeiling = profile.kbMax >= KB_HARD_LIMIT;
-
   const expandKbStack = async () => {
-    if (expanding) return;
-    if (atKbCeiling) {
-      flash("err", "知识库栈已达上限（50）");
-      return;
-    }
-    if (profile.catfood < KB_COST) {
-      flash("err", "猫粮余额不足");
-      return;
-    }
-    setExpanding(true);
     const r = await apiExpandKb(token);
-    setExpanding(false);
     if (r.kind === "ok") {
       onProfile(r.data.profile);
-      flash("ok", `已扩容 +1，扣除 ${KB_COST} 猫粮`);
+      flash("ok", `已扩容 +${KB_STEP} 知识库栈，扣除 ${KB_COST} 猫粮`);
     } else {
       flash("err", r.kind === "network" ? "服务器无法连接" : (r.error || "扩容失败"));
+    }
+  };
+
+  const expandCharStorage = async () => {
+    const r = await apiExpandCharStorage(token);
+    if (r.kind === "ok") {
+      onProfile(r.data.profile);
+      flash("ok", `已扩容 +12 MB，扣除 ${STORAGE_COST} 猫粮`);
+    } else {
+      flash("err", messageFor(r));
+    }
+  };
+
+  const expandChatStorage = async () => {
+    const r = await apiExpandChatStorage(token);
+    if (r.kind === "ok") {
+      onProfile(r.data.profile);
+      flash("ok", `已扩容 +12 MB，扣除 ${STORAGE_COST} 猫粮`);
+    } else {
+      flash("err", messageFor(r));
     }
   };
 
@@ -443,9 +469,18 @@ function AccountPanel({
               <Wallet size={14} /> 上限 {profile.slotMax}
             </span>
             <button
-              onClick={expand}
+              onClick={() => {
+                if (atSlotCeiling) { flash("err", "共享卡槽已达上限（200）"); return; }
+                if (profile.catfood < SLOT_COST) { flash("err", "猫粮余额不足"); return; }
+                setPendingExpand({
+                  type: "共享卡槽",
+                  cost: SLOT_COST,
+                  stepLabel: `+${SLOT_STEP} 卡槽`,
+                  handler: expandSlot,
+                });
+              }}
               disabled={expanding || atSlotCeiling}
-              title={atSlotCeiling ? "已达上限 200" : "花费 5 猫粮 +5 卡槽"}
+              title={atSlotCeiling ? "已达上限 200" : `花费 ${SLOT_COST} 猫粮 +${SLOT_STEP} 卡槽`}
               className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-blue-600 dark:text-blue-400 border border-blue-500/30 hover:bg-blue-500/10 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {expanding ? <Loader2 size={13} className="animate-spin" /> : <PackagePlus size={13} />}{" "}
@@ -459,9 +494,66 @@ function AccountPanel({
               <Wallet size={14} /> 上限 {profile.kbMax}
             </span>
             <button
-              onClick={expandKbStack}
+              onClick={() => {
+                if (atKbCeiling) { flash("err", "知识库栈已达上限（50）"); return; }
+                if (profile.catfood < KB_COST) { flash("err", "猫粮余额不足"); return; }
+                setPendingExpand({
+                  type: "知识库栈",
+                  cost: KB_COST,
+                  stepLabel: `+${KB_STEP} 知识库栈`,
+                  handler: expandKbStack,
+                });
+              }}
               disabled={expanding || atKbCeiling}
-              title={atKbCeiling ? "已达上限 50" : "花费 5 猫粮 +1 知识库栈"}
+              title={atKbCeiling ? "已达上限 50" : `花费 ${KB_COST} 猫粮 +${KB_STEP} 知识库栈`}
+              className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-blue-600 dark:text-blue-400 border border-blue-500/30 hover:bg-blue-500/10 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {expanding ? <Loader2 size={13} className="animate-spin" /> : <PackagePlus size={13} />}{" "}
+              扩容
+            </button>
+          </div>
+        </Row>
+        <Row label="角色卡储存">
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-1 text-sm text-gray-700 dark:text-gray-300">
+              <HardDrive size={14} /> 上限 {formatBytes(profile.charStorageMax)}
+            </span>
+            <button
+              onClick={() => {
+                if (profile.catfood < STORAGE_COST) { flash("err", "猫粮余额不足"); return; }
+                setPendingExpand({
+                  type: "角色卡储存",
+                  cost: STORAGE_COST,
+                  stepLabel: "+12 MB",
+                  handler: expandCharStorage,
+                });
+              }}
+              disabled={expanding}
+              title={`花费 ${STORAGE_COST} 猫粮 +12 MB`}
+              className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-blue-600 dark:text-blue-400 border border-blue-500/30 hover:bg-blue-500/10 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {expanding ? <Loader2 size={13} className="animate-spin" /> : <PackagePlus size={13} />}{" "}
+              扩容
+            </button>
+          </div>
+        </Row>
+        <Row label="聊天记录储存">
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-1 text-sm text-gray-700 dark:text-gray-300">
+              <HardDrive size={14} /> 上限 {formatBytes(profile.chatStorageMax)}
+            </span>
+            <button
+              onClick={() => {
+                if (profile.catfood < STORAGE_COST) { flash("err", "猫粮余额不足"); return; }
+                setPendingExpand({
+                  type: "聊天记录储存",
+                  cost: STORAGE_COST,
+                  stepLabel: "+12 MB",
+                  handler: expandChatStorage,
+                });
+              }}
+              disabled={expanding}
+              title={`花费 ${STORAGE_COST} 猫粮 +12 MB`}
               className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-blue-600 dark:text-blue-400 border border-blue-500/30 hover:bg-blue-500/10 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {expanding ? <Loader2 size={13} className="animate-spin" /> : <PackagePlus size={13} />}{" "}
@@ -501,6 +593,31 @@ function AccountPanel({
       >
         <LogOut size={15} /> 退出登录
       </button>
+
+      {/* Expansion confirm dialog */}
+      <ConfirmDialog
+        isOpen={pendingExpand !== null}
+        title="扩容确认"
+        message={
+          <div className="space-y-2">
+            <p>
+              确认花费 <span className="inline-flex items-center gap-0.5 font-semibold text-orange-500"><CatCanIcon size={14} /> {pendingExpand?.cost}</span> 猫粮
+              为「{pendingExpand?.type}」扩容 <span className="font-semibold">{pendingExpand?.stepLabel}</span>？
+            </p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              本次扩容后，{pendingExpand?.type}上限将增加 {pendingExpand?.stepLabel}
+            </p>
+          </div>
+        }
+        confirmText={`确认支付 ${pendingExpand?.cost ?? 0} 猫粮`}
+        cancelText="取消"
+        onConfirm={() => {
+          if (pendingExpand) {
+            executeExpand(pendingExpand.handler);
+          }
+        }}
+        onCancel={() => setPendingExpand(null)}
+      />
     </div>
   );
 }

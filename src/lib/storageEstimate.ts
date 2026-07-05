@@ -12,14 +12,16 @@ import { getItem, getAllKeys } from "./idbStorage";
 import { loadCover, COVER_MARKER } from "./coverStorage";
 
 // ---------------------------------------------------------------------------
-// Per-category quota ceilings (64 MB each)
+// Per-category quota ceilings — DEFAULT values (32 MB each, initial free tier).
+// When the user is logged in, the account profile's charStorageMax / chatStorageMax
+// take precedence (expandable via catfood). These defaults apply when logged out.
 // ---------------------------------------------------------------------------
 
-export const CHAT_STORAGE_QUOTA = 64 * 1024 * 1024; // 64 MB
-export const CHARACTER_STORAGE_QUOTA = 64 * 1024 * 1024; // 64 MB
+export const DEFAULT_CHAT_STORAGE_QUOTA = 32 * 1024 * 1024; // 32 MB
+export const DEFAULT_CHARACTER_STORAGE_QUOTA = 32 * 1024 * 1024; // 32 MB
 
 // Total guardrail kept as a fallback for paths that still reference it.
-export const APP_STORAGE_QUOTA = 128 * 1024 * 1024; // 128 MB (64+64)
+export const APP_STORAGE_QUOTA = 64 * 1024 * 1024; // 64 MB (32+32)
 
 // Key constants — must match sessionStorage.ts & metadataBridge.ts
 const SESSIONS_KEY = "nyaachat_sessions";

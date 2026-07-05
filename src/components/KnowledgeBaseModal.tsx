@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { Book, Plus, Settings, Edit2, Trash2, Loader2, AlertTriangle, IdCard } from "lucide-react";
+import { CatCanIcon } from "./icons/CatCanIcon";
 import { BaseModal } from "./BaseModal";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { UserAccountModal } from "./UserAccountModal";
@@ -25,7 +26,8 @@ interface KnowledgeBaseModalProps {
   onClose: () => void;
 }
 
-const KB_COST = 5;
+const KB_COST = 10;
+const KB_STEP = 2;
 const KB_HARD_LIMIT = 50;
 
 function formatTokenCount(charTotal: number): string {
@@ -55,10 +57,13 @@ export function KnowledgeBaseModal({ isOpen, onClose }: KnowledgeBaseModalProps)
   const [expanding, setExpanding] = useState(false);
   const [creating, setCreating] = useState(false);
   const [autoOpenedConfig, setAutoOpenedConfig] = useState(false);
+  const [pendingExpandKb, setPendingExpandKb] = useState(false);
 
   // ui
   const [notice, setNotice] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
   const [expandPrompt, setExpandPrompt] = useState(false);
+  // When user hits the KB limit while trying to create, show a dialog offering expansion.
+  const [kbCreateBlocked, setKbCreateBlocked] = useState(false);
 
   const flash = (kind: "ok" | "err", text: string) => {
     setNotice({ kind, text });
@@ -148,15 +153,20 @@ export function KnowledgeBaseModal({ isOpen, onClose }: KnowledgeBaseModalProps)
   // create KB
   const handleCreate = useCallback(async () => {
     if (creating) return;
-    // P7: client-side pre-check before hitting the API
+    // Paid-feature guard: if at KB limit, show confirm dialog offering expansion.
     if (kbs.length >= kbMax) {
       if (kbMax >= KB_HARD_LIMIT) {
         flash("err", `知识库数量已达最大值（${KB_HARD_LIMIT}）`);
       } else {
-        setExpandPrompt(true);
+        setKbCreateBlocked(true);
       }
       return;
     }
+    await doCreateKb();
+  }, [token, creating, kbs.length, kbMax]);
+
+  // execute KB creation (called directly or after expand+confirm)
+  const doCreateKb = useCallback(async () => {
     setCreating(true);
     const res = await createKb(token, { name: "未命名知识库", description: "" });
     setCreating(false);
@@ -164,14 +174,45 @@ export function KnowledgeBaseModal({ isOpen, onClose }: KnowledgeBaseModalProps)
     if (res.kind === "ok") {
       setKbs((prev) => [res.data.kb, ...prev]);
       flash("ok", "知识库已创建");
-      // auto-open edit
       setEditingKb(res.data.kb);
     } else if (res.kind === "error" && res.error === "kb_max_reached") {
-      setExpandPrompt(true);
+      // Server also says limit reached — offer expansion
+      if (kbMax < KB_HARD_LIMIT) setKbCreateBlocked(true);
+      else flash("err", `知识库数量已达最大值（${KB_HARD_LIMIT}）`);
     } else {
       flash("err", res.kind === "network" ? "服务器无法连接" : "创建失败");
     }
-  }, [token, creating]);
+  }, [token, creating, kbMax]);
+
+  // Expand-after-create-blocked: expand, then auto-create
+  const handleExpandThenCreate = useCallback(async () => {
+    setKbCreateBlocked(false);
+    setExpanding(true);
+    const res = await expandKb(token);
+    setExpanding(false);
+    if (res.kind === "ok") {
+      const profile = res.data.profile;
+      setKbMax(profile.kbMax);
+      setCatfood(profile.catfood);
+      if (session) {
+        const next = { token: session.token, profile };
+        setSession(next);
+        await saveStoredAccount(next);
+      }
+      flash("ok", `已扩容 +${KB_STEP}，扣除 ${KB_COST} 猫粮`);
+      // Auto-create the KB now that we have room
+      await doCreateKb();
+    } else {
+      flash(
+        "err",
+        res.kind === "network"
+          ? "服务器无法连接"
+          : res.error === "insufficient"
+            ? "猫粮余额不足"
+            : res.error || "扩容失败",
+      );
+    }
+  }, [expanding, token, session, doCreateKb]);
 
   // delete KB
   const handleDeleteConfirm = useCallback(async () => {
@@ -187,15 +228,21 @@ export function KnowledgeBaseModal({ isOpen, onClose }: KnowledgeBaseModalProps)
     }
   }, [token, pendingDeleteKb]);
 
-  // expand
+  // expand — open confirm dialog first
   const handleExpand = useCallback(async () => {
     if (expanding || kbMax >= KB_HARD_LIMIT) return;
     if (catfood < KB_COST) {
       flash("err", "猫粮余额不足");
       return;
     }
-    setExpanding(true);
     setExpandPrompt(false);
+    setPendingExpandKb(true);
+  }, [expanding, kbMax, catfood]);
+
+  // execute expansion after confirm
+  const executeExpand = useCallback(async () => {
+    setExpanding(true);
+    setPendingExpandKb(false);
     const res = await expandKb(token);
     setExpanding(false);
     if (res.kind === "ok") {
@@ -207,7 +254,7 @@ export function KnowledgeBaseModal({ isOpen, onClose }: KnowledgeBaseModalProps)
         setSession(next);
         await saveStoredAccount(next);
       }
-      flash("ok", `已扩容 +1，扣除 ${KB_COST} 猫粮`);
+      flash("ok", `已扩容 +${KB_STEP}，扣除 ${KB_COST} 猫粮`);
     } else {
       flash(
         "err",
@@ -218,7 +265,7 @@ export function KnowledgeBaseModal({ isOpen, onClose }: KnowledgeBaseModalProps)
             : res.error || "扩容失败",
       );
     }
-  }, [expanding, kbMax, catfood, token, session]);
+  }, [expanding, token, session]);
 
   const handleEmbeddingSaved = useCallback(() => {
     setEmbedConfigured(true);
@@ -328,7 +375,7 @@ export function KnowledgeBaseModal({ isOpen, onClose }: KnowledgeBaseModalProps)
                 ) : kbMax >= KB_HARD_LIMIT ? (
                   "已达最大上限"
                 ) : (
-                  `扩容 +1（${KB_COST} 猫粮）`
+                  `扩容 +${KB_STEP}（${KB_COST} 猫粮）`
                 )}
               </button>
             </div>
@@ -343,7 +390,7 @@ export function KnowledgeBaseModal({ isOpen, onClose }: KnowledgeBaseModalProps)
               知识库数量已达上限（{kbMax}个）
               {kbMax >= KB_HARD_LIMIT
                 ? "，已达最大值（50）"
-                : `，是否扩容？（${KB_COST} 猫粮 / +1）`}
+                : `，是否扩容？（${KB_COST} 猫粮 / +${KB_STEP}）`}
             </span>
             {kbMax < KB_HARD_LIMIT && (
               <div className="flex gap-2 flex-shrink-0">
@@ -501,6 +548,47 @@ export function KnowledgeBaseModal({ isOpen, onClose }: KnowledgeBaseModalProps)
         confirmText="删除"
         onConfirm={handleDeleteConfirm}
         onCancel={() => setPendingDeleteKb(null)}
+      />
+
+      <ConfirmDialog
+        isOpen={pendingExpandKb}
+        title="扩容确认"
+        message={
+          <div className="space-y-2">
+            <p>
+              确认花费 <span className="inline-flex items-center gap-0.5 font-semibold text-orange-500"><CatCanIcon size={14} /> {KB_COST}</span> 猫粮
+              为「知识库栈」扩容 <span className="font-semibold">+{KB_STEP}</span>？
+            </p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              本次扩容后，知识库栈上限将从 {kbMax} 增加到 {kbMax + KB_STEP}
+            </p>
+          </div>
+        }
+        confirmText={`确认支付 ${KB_COST} 猫粮`}
+        cancelText="取消"
+        onConfirm={executeExpand}
+        onCancel={() => setPendingExpandKb(false)}
+      />
+
+      {/* KB create blocked — offer to expand then auto-create */}
+      <ConfirmDialog
+        isOpen={kbCreateBlocked}
+        title="知识库数量已达上限"
+        message={
+          <div className="space-y-2">
+            <p>
+              当前知识库数量已达上限（{kbs.length} / {kbMax} 个），无法创建新知识库。
+            </p>
+            <p>
+              是否花费 <span className="inline-flex items-center gap-0.5 font-semibold text-orange-500"><CatCanIcon size={14} /> {KB_COST}</span> 猫粮
+              扩容 <span className="font-semibold">+{KB_STEP}</span> 后自动创建？
+            </p>
+          </div>
+        }
+        confirmText={`扩容 +${KB_STEP}（${KB_COST} 猫粮）并创建`}
+        cancelText="取消"
+        onConfirm={handleExpandThenCreate}
+        onCancel={() => setKbCreateBlocked(false)}
       />
     </>
   );

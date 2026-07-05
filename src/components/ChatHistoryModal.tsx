@@ -3,7 +3,7 @@ import { History, Download, FileText, Trash2, Upload, CloudUpload, CloudDownload
 import { ChatSession } from "../types";
 import { newId } from "../lib/id";
 import { loadSessions, saveSession, deleteSession, replaceAllSessions } from "../lib/sessionStorage";
-import { estimateChatStorage, CHAT_STORAGE_QUOTA } from "../lib/storageEstimate";
+import { estimateChatStorage, DEFAULT_CHAT_STORAGE_QUOTA } from "../lib/storageEstimate";
 import { loadStoredAccount } from "../lib/sharedAccountApi";
 import { uploadChatSessions, downloadChatSessions } from "../lib/sharedAccountApi";
 import { encryptChatPayload, decryptChatPayload } from "../lib/chatCrypto";
@@ -43,6 +43,11 @@ export function ChatHistoryModal({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
+  const [storageLimitDialog, setStorageLimitDialog] = useState<{
+    label: string;
+    usage: number;
+    quota: number;
+  } | null>(null);
   const [chatUsage, setChatUsage] = useState<number>(0);
 
   // --- cloud chat-sessions state --------------------------------------------
@@ -52,6 +57,7 @@ export function ChatHistoryModal({
   const [pendingCloudOp, setPendingCloudOp] = useState<"upload" | "download" | "no_archive" | null>(null);
   const [pendingCloudRaw, setPendingCloudRaw] = useState<Record<string, unknown> | null>(null);
   const [isAccountOpen, setIsAccountOpen] = useState(false);
+  const [chatStorageQuota, setChatStorageQuota] = useState<number>(DEFAULT_CHAT_STORAGE_QUOTA);
 
   /** YY-MM-DD hh:mm in local time from a unix-ms timestamp. */
   function formatCloudTime(ms: number): string {
@@ -67,6 +73,10 @@ export function ChatHistoryModal({
   useEffect(() => {
     if (!isOpen) return;
     estimateChatStorage().then(setChatUsage);
+    // Sync storage ceiling from account profile (fallback to default when logged out).
+    loadStoredAccount().then((stored) => {
+      setChatStorageQuota(stored?.profile.chatStorageMax ?? DEFAULT_CHAT_STORAGE_QUOTA);
+    });
   }, [isOpen]);
 
   const handleExport = (e: React.MouseEvent, session: ChatSession) => {
@@ -115,17 +125,19 @@ export function ChatHistoryModal({
     if (!file) return;
     // Re-estimate to avoid stale-closure usage value.
     const used = await estimateChatStorage();
-    if (file.size > CHAT_STORAGE_QUOTA) {
-      setImportError(`文件过大（${(file.size / 1024 / 1024).toFixed(2)} MB），上限 ${(CHAT_STORAGE_QUOTA / (1024 * 1024)).toFixed(0)} MB`);
+    if (file.size > chatStorageQuota) {
+      setImportError(`文件过大（${(file.size / 1024 / 1024).toFixed(2)} MB），上限 ${(chatStorageQuota / (1024 * 1024)).toFixed(0)} MB`);
       if (fileInputRef.current) fileInputRef.current.value = "";
       return;
     }
-    // Capacity check — refuse import if chat storage is too close to full.
+    // Capacity check — if import would exceed quota, offer expansion instead of hard-blocking.
     const estAfter = used + file.size * 2; // ×2 for UTF-16 after JSON.parse+stringify
-    if (estAfter > CHAT_STORAGE_QUOTA * 0.95) {
-      setImportError(
-        `聊天记录存储空间不足（已用 ${(used / (1024 * 1024)).toFixed(1)} MB / ${(CHAT_STORAGE_QUOTA / (1024 * 1024)).toFixed(0)} MB），无法导入。请在「聊天记录」中删除部分历史后重试。`,
-      );
+    if (estAfter > chatStorageQuota * 0.95) {
+      setStorageLimitDialog({
+        label: "聊天记录储存",
+        usage: used,
+        quota: chatStorageQuota,
+      });
       if (fileInputRef.current) fileInputRef.current.value = "";
       return;
     }
@@ -314,7 +326,7 @@ export function ChatHistoryModal({
           <StorageBar
             label="聊天记录储存"
             usage={chatUsage}
-            quota={CHAT_STORAGE_QUOTA}
+            quota={chatStorageQuota}
             warnMessage="聊天记录存储空间紧张，建议清理旧聊天记录后继续使用"
           />
           {sessions.length === 0 ? (
@@ -454,6 +466,24 @@ export function ChatHistoryModal({
       />
 
       <UserAccountModal isOpen={isAccountOpen} onClose={() => setIsAccountOpen(false)} />
+
+      {/* Storage limit dialog — offer to expand instead of hard-blocking */}
+      <ConfirmDialog
+        isOpen={storageLimitDialog !== null}
+        title="储存空间不足"
+        message={
+          storageLimitDialog
+            ? `您的「${storageLimitDialog.label}」已用 ${(storageLimitDialog.usage / (1024 * 1024)).toFixed(1)} MB / 上限 ${(storageLimitDialog.quota / (1024 * 1024)).toFixed(0)} MB，无法继续增加。是否前往扩容？`
+            : ""
+        }
+        confirmText="前往扩容"
+        cancelText="取消"
+        onConfirm={() => {
+          setStorageLimitDialog(null);
+          setIsAccountOpen(true);
+        }}
+        onCancel={() => setStorageLimitDialog(null)}
+      />
     </>
   );
 }

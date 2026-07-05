@@ -68,7 +68,7 @@ import {
 
 const SEARCH_DEBOUNCE_MS = 400;
 const ALL_TAGS = "__all__"; // sentinel for the default "全部" selection
-const DEFAULT_SLOT_MAX = 20; // when logged out, the design's initial slot ceiling
+const DEFAULT_SLOT_MAX = 10; // when logged out, the design's initial slot ceiling
 
 const SORTS: Array<{ key: LibrarySort; label: string }> = [
   { key: "updated", label: "更新时间" },
@@ -828,9 +828,9 @@ export function SharedLibraryModal({
         title="共享卡槽已满"
         message={
           <span>
-            当前共享卡槽已达上限，无法继续获取共享角色。
+            当前共享卡槽已达上限（{slotMax} 个），无法继续获取共享角色。
             <br />
-            请清理不再使用的共享角色，或前往扩容卡槽上限。
+            请清理不再使用的共享角色，或前往扩容（15 猫粮 / +5 卡槽）。
           </span>
         }
         confirmText="前往扩容"

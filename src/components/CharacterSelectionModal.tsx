@@ -12,7 +12,7 @@ import { saveCover, deleteCover, COVER_MARKER } from "../lib/coverStorage";
 import { loadStoredAccount } from "../lib/sharedAccountApi";
 import { fetchVersions, fetchCharacterCard, fetchCoverBlob } from "../lib/sharedLibraryApi";
 import { useCoverObjectUrl } from "../hooks/useCoverObjectUrl";
-import { estimateCharacterStorage, CHARACTER_STORAGE_QUOTA } from "../lib/storageEstimate";
+import { estimateCharacterStorage, DEFAULT_CHARACTER_STORAGE_QUOTA } from "../lib/storageEstimate";
 import { BaseModal } from "./BaseModal";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { CharacterEditModal } from "./CharacterEditModal";
@@ -39,6 +39,12 @@ export function CharacterSelectionModal({
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingCharacter, setEditingCharacter] = useState<CharacterSettings | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
+  // Storage limit dialog: when user is at/over quota, offer to expand instead of hard-blocking.
+  const [storageLimitDialog, setStorageLimitDialog] = useState<{
+    label: string;
+    usage: number;
+    quota: number;
+  } | null>(null);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   // Share flow: a character awaiting the warning dialog, the one being shared,
   // and a flag to surface the account modal when sharing while logged out.
@@ -52,6 +58,7 @@ export function CharacterSelectionModal({
   const [account, setAccount] = useState<string | null>(null);
   const [storedToken, setStoredToken] = useState<string>("");
   const [storedUsername, setStoredUsername] = useState<string>("");
+  const [charStorageQuota, setCharStorageQuota] = useState<number>(DEFAULT_CHARACTER_STORAGE_QUOTA);
   // phase 5b: editing one's own shared card. editMode flags the editor into
   // shared-author mode; the publish-update flow then carries the edited card +
   // cover blob into the share 界面 pre-filled with the server's share metadata.
@@ -91,6 +98,7 @@ export function CharacterSelectionModal({
     setAccount(stored?.profile.account ?? null);
     setStoredToken(stored?.token ?? "");
     setStoredUsername(stored?.profile.username ?? "");
+    setCharStorageQuota(stored?.profile.charStorageMax ?? DEFAULT_CHARACTER_STORAGE_QUOTA);
     })();
     const sharedCards = (settings.characters || []).filter((c) => c.shared && c.globalId);
     if (!sharedCards.length) {
@@ -138,13 +146,15 @@ export function CharacterSelectionModal({
       return;
     }
 
-    // Capacity guard — refuse import if character storage is too close to full.
+    // Capacity guard — if import would exceed quota, offer expansion instead of hard-blocking.
     const used = await estimateCharacterStorage(settings.characters || []);
     const estAfter = used + file.size * 2; // ×2 for JSON + cover WebP
-    if (estAfter > CHARACTER_STORAGE_QUOTA * 0.95) {
-      setImportError(
-        `角色卡存储空间不足（已用 ${(used / (1024 * 1024)).toFixed(1)} MB / ${(CHARACTER_STORAGE_QUOTA / (1024 * 1024)).toFixed(0)} MB），无法导入。请在「角色选择」中删除不常用的角色后重试。`,
-      );
+    if (estAfter > charStorageQuota * 0.95) {
+      setStorageLimitDialog({
+        label: "角色卡储存",
+        usage: used,
+        quota: charStorageQuota,
+      });
       if (fileInputRef.current) fileInputRef.current.value = "";
       return;
     }
@@ -497,7 +507,7 @@ export function CharacterSelectionModal({
           <StorageBar
             label="角色卡储存"
             usage={charUsage}
-            quota={CHARACTER_STORAGE_QUOTA}
+            quota={charStorageQuota}
             warnMessage="角色卡存储空间紧张，建议删除不常用的角色后继续使用"
           />
           {notice && (
@@ -699,6 +709,24 @@ export function CharacterSelectionModal({
       />
 
       <UserAccountModal isOpen={isAccountOpen} onClose={() => setIsAccountOpen(false)} />
+
+      {/* Storage limit dialog — offer to expand instead of hard-blocking */}
+      <ConfirmDialog
+        isOpen={storageLimitDialog !== null}
+        title="储存空间不足"
+        message={
+          storageLimitDialog
+            ? `您的「${storageLimitDialog.label}」已用 ${(storageLimitDialog.usage / (1024 * 1024)).toFixed(1)} MB / 上限 ${(storageLimitDialog.quota / (1024 * 1024)).toFixed(0)} MB，无法继续增加。是否前往扩容？`
+            : ""
+        }
+        confirmText="前往扩容"
+        cancelText="取消"
+        onConfirm={() => {
+          setStorageLimitDialog(null);
+          setIsAccountOpen(true);
+        }}
+        onCancel={() => setStorageLimitDialog(null)}
+      />
     </>
   );
 }

@@ -38,13 +38,19 @@ function badRequest(res, error) {
 // product constants (no per-call configuration): one expansion adds SLOT_STEP
 // to slot_max for SLOT_COST catfood, capped at SLOT_MAX_CEILING.
 const SLOT_STEP = 5; // slots added per expansion
-const SLOT_COST = 5; // catfood charged per expansion
+const SLOT_COST = 15; // catfood charged per expansion
 const SLOT_MAX_CEILING = 200; // hard ceiling on slot_max
 
 // --- KB expansion limits (P2 KnowledgeBase) --------------------------------
-const KB_EXPAND_STEP = 1;  // KB slots added per expansion
-const KB_EXPAND_COST = 5;  // catfood charged per expansion
+const KB_EXPAND_STEP = 2;  // KB slots added per expansion
+const KB_EXPAND_COST = 10;  // catfood charged per expansion
 const KB_EXPAND_MAX = 50;  // hard ceiling on kb_max
+
+// --- Storage expansion limits (paid-feature adjustment 2026-07) -------------
+const CHAR_STORAGE_STEP = 12 * 1024 * 1024; // 12 MB per expansion
+const CHAR_STORAGE_COST = 5;  // catfood charged per expansion
+const CHAT_STORAGE_STEP = 12 * 1024 * 1024; // 12 MB per expansion
+const CHAT_STORAGE_COST = 5;  // catfood charged per expansion
 
 // --- statements -----------------------------------------------------------
 const getUser = db.prepare("SELECT * FROM users WHERE account = ?");
@@ -67,6 +73,13 @@ const expandSlot = db.prepare(
 // Expand the knowledge-base ceiling: same transaction pattern as expand-slot.
 const expandKb = db.prepare(
   "UPDATE users SET catfood = catfood - @cost, spent_total = spent_total + @cost, kb_max = kb_max + @step WHERE account = @account",
+);
+// Expand per-user storage ceilings (character cards / chat history).
+const expandCharStorage = db.prepare(
+  "UPDATE users SET catfood = catfood - @cost, spent_total = spent_total + @cost, char_storage_max = char_storage_max + @step WHERE account = @account",
+);
+const expandChatStorage = db.prepare(
+  "UPDATE users SET catfood = catfood - @cost, spent_total = spent_total + @cost, chat_storage_max = chat_storage_max + @step WHERE account = @account",
 );
 const aggStats = db.prepare(`
   SELECT
@@ -105,6 +118,8 @@ function profileOf(user) {
     earnedTotal: user.earned_total,
     slotMax: user.slot_max,
     kbMax: user.kb_max,
+    charStorageMax: user.char_storage_max,
+    chatStorageMax: user.chat_storage_max,
     stats: {
       sharedCount: stats.shared_count,
       totalDownloads: stats.total_downloads,
@@ -320,6 +335,55 @@ accountRouter.post("/expand-kb", requireAuth, (req, res) => {
         return { error: "insufficient", status: 402 };
       }
       expandKb.run({ account, cost: KB_EXPAND_COST, step: KB_EXPAND_STEP });
+      return { ok: true };
+    });
+    const result = apply();
+    if (result.error) {
+      return res.status(result.status).json({ ok: false, error: result.error });
+    }
+  } catch {
+    return res.status(500).json({ ok: false, error: "db_write_failed" });
+  }
+  return res.json({ ok: true, profile: profileOf(getUser.get(account)) });
+});
+
+// --- expand character-card storage ceiling ----------------------------------
+// POST /account/expand-char-storage (auth) — spend CHAR_STORAGE_COST catfood
+// to raise char_storage_max by CHAR_STORAGE_STEP. No hard ceiling (only bounded
+// by catfood balance). Same transactional pattern as expand-slot.
+accountRouter.post("/expand-char-storage", requireAuth, (req, res) => {
+  const account = req.user.account;
+  try {
+    const apply = db.transaction(() => {
+      const user = getUser.get(account);
+      if (user.catfood < CHAR_STORAGE_COST) {
+        return { error: "insufficient", status: 402 };
+      }
+      expandCharStorage.run({ account, cost: CHAR_STORAGE_COST, step: CHAR_STORAGE_STEP });
+      return { ok: true };
+    });
+    const result = apply();
+    if (result.error) {
+      return res.status(result.status).json({ ok: false, error: result.error });
+    }
+  } catch {
+    return res.status(500).json({ ok: false, error: "db_write_failed" });
+  }
+  return res.json({ ok: true, profile: profileOf(getUser.get(account)) });
+});
+
+// --- expand chat-history storage ceiling -------------------------------------
+// POST /account/expand-chat-storage (auth) — spend CHAT_STORAGE_COST catfood
+// to raise chat_storage_max by CHAT_STORAGE_STEP. No hard ceiling.
+accountRouter.post("/expand-chat-storage", requireAuth, (req, res) => {
+  const account = req.user.account;
+  try {
+    const apply = db.transaction(() => {
+      const user = getUser.get(account);
+      if (user.catfood < CHAT_STORAGE_COST) {
+        return { error: "insufficient", status: 402 };
+      }
+      expandChatStorage.run({ account, cost: CHAT_STORAGE_COST, step: CHAT_STORAGE_STEP });
       return { ok: true };
     });
     const result = apply();

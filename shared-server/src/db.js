@@ -34,7 +34,9 @@ db.exec(`
     catfood      INTEGER NOT NULL DEFAULT 0,  -- balance, >= 0, no decimals
     spent_total  INTEGER NOT NULL DEFAULT 0,  -- lifetime spend (consumption only)
     earned_total INTEGER NOT NULL DEFAULT 0,  -- lifetime earnings (income only)
-    slot_max     INTEGER NOT NULL DEFAULT 20, -- shared-slot ceiling
+    slot_max           INTEGER NOT NULL DEFAULT 10, -- shared-slot ceiling
+    char_storage_max   INTEGER NOT NULL DEFAULT 33554432, -- character card storage ceiling (bytes, 32 MB)
+    chat_storage_max   INTEGER NOT NULL DEFAULT 33554432, -- chat history storage ceiling (bytes, 32 MB)
     last_active  INTEGER NOT NULL DEFAULT 0,  -- unix ms, last authed request
     nyaa_uid     INTEGER                      -- NyaaAcount uid (P7-3 unified accounts)
   );
@@ -111,6 +113,22 @@ db.exec(`
 		// Only affects users who never expanded (still at the old default of 5).
 		try {
 		  db.exec("UPDATE users SET kb_max = 3 WHERE kb_max = 5");
+		} catch { /* harmless */ }
+
+		// Paid-feature adjustment (2026-07): per-user storage ceilings for
+		// character cards and chat history. Previously hardcoded 64 MB each;
+		// now initial free 32 MB, expandable via catfood.
+		try {
+		  db.exec("ALTER TABLE users ADD COLUMN char_storage_max INTEGER NOT NULL DEFAULT 33554432");
+		} catch { /* column already exists — harmless */ }
+		try {
+		  db.exec("ALTER TABLE users ADD COLUMN chat_storage_max INTEGER NOT NULL DEFAULT 33554432");
+		} catch { /* column already exists — harmless */ }
+
+		// Paid-feature adjustment (2026-07): reduce default slot_max from 20 to 10.
+		// Only affects users who never expanded (still at the old default of 20).
+		try {
+		  db.exec("UPDATE users SET slot_max = 10 WHERE slot_max = 20");
 		} catch { /* harmless */ }
 
 // Ensure the user-storage directory exists for future per-user file storage

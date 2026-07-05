@@ -33,7 +33,9 @@ export interface AccountProfile {
   spentTotal: number;
   earnedTotal: number;
   slotMax: number;
-  kbMax: number; // knowledge base stack limit (default 5, expandable)
+  kbMax: number; // knowledge base stack limit (default 3, expandable)
+  charStorageMax: number; // character card storage ceiling (bytes, default 32 MB)
+  chatStorageMax: number; // chat history storage ceiling (bytes, default 32 MB)
   stats: AccountStats;
 }
 
@@ -204,6 +206,16 @@ export function changePassword(
 // catfood) / "slot_max_reached" (already at the 200 ceiling).
 export function expandSlot(token: string): Promise<ApiResult<ProfilePayload>> {
   return request<ProfilePayload>("/expand-slot", { method: "POST", token });
+}
+
+// Expand the character-card storage ceiling: +12 MB for 5 catfood, no hard cap.
+export function expandCharStorage(token: string): Promise<ApiResult<ProfilePayload>> {
+  return request<ProfilePayload>("/expand-char-storage", { method: "POST", token });
+}
+
+// Expand the chat-history storage ceiling: +12 MB for 5 catfood, no hard cap.
+export function expandChatStorage(token: string): Promise<ApiResult<ProfilePayload>> {
+  return request<ProfilePayload>("/expand-chat-storage", { method: "POST", token });
 }
 
 // Redeem a code for catfood. The code is issued/validated by a third-party
