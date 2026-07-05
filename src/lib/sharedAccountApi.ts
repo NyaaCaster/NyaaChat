@@ -31,7 +31,6 @@ export interface AccountProfile {
   createdAt: number; // unix ms
   catfood: number;
   spentTotal: number;
-  earnedTotal: number;
   slotMax: number;
   kbMax: number; // knowledge base stack limit (default 3, expandable)
   charStorageMax: number; // character card storage ceiling (bytes, default 32 MB)

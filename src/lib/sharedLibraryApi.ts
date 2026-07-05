@@ -29,8 +29,6 @@ export interface SharedCharacterSummary {
   source: "original" | "reposted";
   intro: string;
   tags: string[];
-  usePrice: number;
-  buyoutPrice: number;
   downloads: number;
   likes: number;
   dislikes: number;
@@ -71,8 +69,6 @@ export interface AcquiredCard {
   source: "original" | "reposted";
   intro: string;
   tags: string[];
-  usePrice: number;
-  buyoutPrice: number;
   cardJson: string;
   updatedAt: number;
 }
@@ -120,13 +116,10 @@ type WireAcquiredCard = Omit<AcquiredCard, "cardJson"> &
 interface AcquirePayload {
   ok: true;
   card: AcquiredCard;
-  /** Updated buyer economy after a priced settlement (absent for anonymous free use). */
-  profile?: { catfood: number; spentTotal: number };
 }
 interface WireAcquirePayload {
   ok: true;
   card: WireAcquiredCard;
-  profile?: { catfood: number; spentTotal: number };
 }
 interface RatingPayload {
   ok: true;
@@ -435,20 +428,18 @@ export async function fetchCoverBlob(globalId: string): Promise<Blob | null> {
   }
 }
 
-/** Acquire a shared character (use / buyout). Returns the full card json plus,
- *  for a priced settlement, the buyer's updated economy. `token` may be omitted
- *  for free use (anonymous-friendly per the design). */
+/** Acquire a shared character (always free). `token` may be omitted
+ *  for anonymous use. */
 export async function acquireCharacter(
   token: string | null,
   globalId: string,
-  mode: "use" | "buyout",
 ): Promise<ApiResult<AcquirePayload>> {
   const cardWrap = await createCardWrapContext();
   if (!cardWrap) return cardWrapUnavailable();
   const result = await request<WireAcquirePayload>(`/characters/${globalId}/acquire`, {
     method: "POST",
     token: token || undefined,
-    body: { mode, cardWrap: cardWrap.request },
+    body: { mode: "use", cardWrap: cardWrap.request },
   });
   if (result.kind !== "ok") return result;
   try {

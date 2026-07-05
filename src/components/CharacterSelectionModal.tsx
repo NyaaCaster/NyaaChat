@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
-import { Sparkles, Plus, Upload, Check, Edit2, Trash2, CloudUpload, Library, RefreshCw } from "lucide-react";
+import { Sparkles, Plus, Upload, Check, Edit2, Trash2, CloudUpload, Library, RefreshCw, Wallet } from "lucide-react";
 import { AppState, CharacterSettings } from "../types";
 import {
   isSillyTavernFormat,
@@ -59,6 +59,7 @@ export function CharacterSelectionModal({
   const [storedToken, setStoredToken] = useState<string>("");
   const [storedUsername, setStoredUsername] = useState<string>("");
   const [charStorageQuota, setCharStorageQuota] = useState<number>(DEFAULT_CHARACTER_STORAGE_QUOTA);
+  const [slotMax, setSlotMax] = useState(10);
   // phase 5b: editing one's own shared card. editMode flags the editor into
   // shared-author mode; the publish-update flow then carries the edited card +
   // cover blob into the share 界面 pre-filled with the server's share metadata.
@@ -99,6 +100,7 @@ export function CharacterSelectionModal({
     setStoredToken(stored?.token ?? "");
     setStoredUsername(stored?.profile.username ?? "");
     setCharStorageQuota(stored?.profile.charStorageMax ?? DEFAULT_CHARACTER_STORAGE_QUOTA);
+    setSlotMax(stored?.profile.slotMax ?? 10);
     })();
     const sharedCards = (settings.characters || []).filter((c) => c.shared && c.globalId);
     if (!sharedCards.length) {
@@ -286,13 +288,6 @@ export function CharacterSelectionModal({
 
   // Buyout: the card was converted to a fully-private character; just add it to
   // the list (no conversation switch, no slot occupation). Keep the library open.
-  const handleBuyoutShared = (localChar: CharacterSettings) => {
-    onSave({
-      ...settings,
-      characters: [...(settings.characters || []), localChar],
-    });
-  };
-
   // --- phase 5: update a held shared card to the server's latest json ------
   // Pull the freshest card (read-only, no download count). Preserve the LOCAL id
   // (conversations bind to it — changing it would orphan the chat) and the cover
@@ -380,8 +375,7 @@ export function CharacterSelectionModal({
         source: card.source,
         intro: card.intro,
         tags: card.tags,
-        usePrice: card.usePrice,
-        buyoutPrice: card.buyoutPrice,
+        usePrice: 0,
       };
       // Edit from the locally-held card (its id binds the conversation); the
       // editor only revises name/desc/firstMes/worldInfo/cover. Open in
@@ -510,6 +504,26 @@ export function CharacterSelectionModal({
             quota={charStorageQuota}
             warnMessage="角色卡存储空间紧张，建议删除不常用的角色后继续使用"
           />
+
+          {/* Shared card slot usage bar */}
+          <div className="mb-3 px-1">
+            <div className="flex items-center justify-between text-[11px] text-gray-400 dark:text-gray-500 mb-1">
+              <span className="flex items-center gap-1">
+                <Wallet size={12} />
+                共享卡槽占用
+              </span>
+              <span>{sharedCount} / {slotMax} 个</span>
+            </div>
+            <div className="h-1.5 rounded-full bg-gray-200 dark:bg-white/10 overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all duration-500 ${
+                  slotMax > 0 && sharedCount >= slotMax ? "bg-amber-500" : "bg-blue-500"
+                }`}
+                style={{ width: `${slotMax > 0 ? Math.max(2, Math.min(100, (sharedCount / slotMax) * 100)) : 0}%` }}
+              />
+            </div>
+          </div>
+
           {notice && (
             <div
               className={`mb-3 px-3 py-2 text-sm rounded-lg ${
@@ -705,7 +719,6 @@ export function CharacterSelectionModal({
         onClose={() => setIsLibraryOpen(false)}
         sharedCount={sharedCount}
         onUse={handleUseShared}
-        onBuyout={handleBuyoutShared}
       />
 
       <UserAccountModal isOpen={isAccountOpen} onClose={() => setIsAccountOpen(false)} />

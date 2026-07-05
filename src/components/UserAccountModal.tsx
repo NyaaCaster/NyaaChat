@@ -9,13 +9,13 @@ import {
   AlertTriangle,
   PackagePlus,
   TrendingDown,
-  TrendingUp,
   Wallet,
   Share2,
   Download,
   ThumbsUp,
   ThumbsDown,
   HardDrive,
+  Book,
 } from "lucide-react";
 import { BaseModal } from "./BaseModal";
 import { CatCanIcon } from "./icons/CatCanIcon";
@@ -269,6 +269,7 @@ function AccountPanel({
   const [notice, setNotice] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
   const [expanding, setExpanding] = useState(false);
 
+  // Lazy-fetch KB count when not provided via props (for callers without knowledge context)
   const flash = (kind: "ok" | "err", text: string) => {
     setNotice({ kind, text });
     setTimeout(() => setNotice(null), 3000);
@@ -458,11 +459,6 @@ function AccountPanel({
             <TrendingDown size={14} className="text-red-400" /> {profile.spentTotal}
           </span>
         </Row>
-        <Row label="累积收益">
-          <span className="inline-flex items-center gap-1 text-sm text-gray-600 dark:text-gray-400">
-            <TrendingUp size={14} className="text-green-500" /> {profile.earnedTotal}
-          </span>
-        </Row>
         <Row label="共享卡槽">
           <div className="flex items-center gap-2">
             <span className="inline-flex items-center gap-1 text-sm text-gray-700 dark:text-gray-300">
@@ -491,7 +487,7 @@ function AccountPanel({
         <Row label="知识库栈">
           <div className="flex items-center gap-2">
             <span className="inline-flex items-center gap-1 text-sm text-gray-700 dark:text-gray-300">
-              <Wallet size={14} /> 上限 {profile.kbMax}
+              <Book size={14} /> 上限 {profile.kbMax}
             </span>
             <button
               onClick={() => {

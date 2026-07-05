@@ -9,7 +9,6 @@ SELECT
   datetime(created_at / 1000, 'unixepoch', 'localtime') AS registered,
   catfood,
   spent_total,
-  earned_total,
   slot_max
 FROM users
 ORDER BY created_at DESC;

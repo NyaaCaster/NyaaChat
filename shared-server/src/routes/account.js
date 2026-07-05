@@ -115,7 +115,6 @@ function profileOf(user) {
     createdAt: user.created_at,
     catfood: user.catfood,
     spentTotal: user.spent_total,
-    earnedTotal: user.earned_total,
     slotMax: user.slot_max,
     kbMax: user.kb_max,
     charStorageMax: user.char_storage_max,

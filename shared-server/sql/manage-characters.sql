@@ -10,8 +10,6 @@ SELECT
   author,
   owner,
   source,
-  use_price,
-  buyout_price,
   downloads, likes, dislikes,
   datetime(updated_at / 1000, 'unixepoch', 'localtime') AS updated,
   json_extract(tags, '$') AS tags

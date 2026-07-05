@@ -45,11 +45,6 @@ function escapeLike(str) {
   return str.replace(/[\\%_]/g, "\\$&");
 }
 
-/** A non-negative integer price (free / not-for-sale is 0). */
-function isPrice(n) {
-  return Number.isInteger(n) && n >= 0;
-}
-
 // --- statements -----------------------------------------------------------
 const insertCharacter = db.prepare(`
   INSERT INTO shared_characters
@@ -58,7 +53,7 @@ const insertCharacter = db.prepare(`
      downloads, likes, dislikes, created_at, updated_at)
   VALUES
     (@global_id, @owner, @author, @name, @source, @intro, @tags,
-     @use_price, @buyout_price, @card_json, @cover_ext,
+     0, 0, @card_json, @cover_ext,
      0, 0, 0, @created_at, @updated_at)
 `);
 // Publish an update to an existing card (phase 5b). The author may revise the
@@ -67,7 +62,7 @@ const insertCharacter = db.prepare(`
 const updateCharacter = db.prepare(`
   UPDATE shared_characters SET
     author = @author, name = @name, source = @source, intro = @intro,
-    tags = @tags, use_price = @use_price, buyout_price = @buyout_price,
+    tags = @tags, use_price = 0, buyout_price = 0,
     card_json = @card_json, cover_ext = @cover_ext, updated_at = @updated_at
   WHERE global_id = @global_id
 `);
@@ -92,14 +87,6 @@ const bumpDownloads = db.prepare(
   "UPDATE shared_characters SET downloads = downloads + 1 WHERE global_id = ?",
 );
 const getUserByAccount = db.prepare("SELECT * FROM users WHERE account = ?");
-// Settlement halves: the buyer pays (catfood down, spent up), the author earns
-// (catfood up, earned up). Run together in one transaction.
-const debitBuyer = db.prepare(
-  "UPDATE users SET catfood = catfood - @amount, spent_total = spent_total + @amount WHERE account = @account",
-);
-const creditAuthor = db.prepare(
-  "UPDATE users SET catfood = catfood + @amount, earned_total = earned_total + @amount WHERE account = @account",
-);
 
 // Ratings (phase 4). One row per (account, global_id); like/dislike are mutually
 // exclusive via the PK, and value 0 means "cleared" (the row is deleted).
@@ -132,7 +119,7 @@ const listMyRatings = db.prepare(
 // and avoids handing out the design before a use/buyout (covers stay json-free).
 const LIST_COLUMNS = `
   global_id, owner, author, name, source, intro, tags,
-  use_price, buyout_price, downloads, likes, dislikes,
+  downloads, likes, dislikes,
   created_at, updated_at
 `;
 const LIST_LIMIT = 200; // small library for now; a hard ceiling, not pagination
@@ -164,8 +151,6 @@ function summaryOf(row) {
     source: row.source,
     intro: row.intro,
     tags: parseTags(row.tags),
-    usePrice: row.use_price,
-    buyoutPrice: row.buyout_price,
     downloads: row.downloads,
     likes: row.likes,
     dislikes: row.dislikes,
@@ -307,8 +292,6 @@ function cardResponseOf(row, cardKey = null) {
     source: row.source,
     intro: row.intro,
     tags: parseTags(row.tags),
-    usePrice: row.use_price,
-    buyoutPrice: row.buyout_price,
     encryptedCardJson: encryptCardJson(row.card_json, cardKey),
     updatedAt: row.updated_at,
   };
@@ -322,7 +305,7 @@ function newGlobalId() {
 }
 /** Validate + normalize a publish/update body. Returns either { error } (a
  *  client-error code to send as 400) or { value } with the cleaned fields
- *  (source, intro, tags, usePrice, buyoutPrice, cardJson, name, coverBuf).
+ *  (source, intro, tags, cardJson, name, coverBuf).
  *  Shared by POST / (publish) and PUT /:id (publish update) so both apply the
  *  exact same rules. */
 function validateCharacterInput(body) {
@@ -347,10 +330,6 @@ function validateCharacterInput(body) {
       if (tags.length > TAGS_MAX) return { error: "too_many_tags" };
     }
   }
-
-  const usePrice = Number(b.usePrice);
-  const buyoutPrice = Number(b.buyoutPrice);
-  if (!isPrice(usePrice) || !isPrice(buyoutPrice)) return { error: "invalid_price" };
 
   const cardJson = String(b.cardJson ?? "");
   if (!cardJson || cardJson.length > CARD_JSON_MAX) return { error: "invalid_card" };
@@ -377,7 +356,7 @@ function validateCharacterInput(body) {
     return { error: "invalid_cover" };
   }
 
-  return { value: { source, intro, tags, usePrice, buyoutPrice, cardJson, name, coverBuf } };
+  return { value: { source, intro, tags, cardJson, name, coverBuf } };
 }
 
 // ---- P6 KB binding helpers ------------------------------------------------
@@ -462,13 +441,13 @@ async function deleteKbBindings(globalId) {
 export const charactersRouter = Router();
 
 // POST /characters (auth)
-// body: { source, intro?, tags?, usePrice, buyoutPrice, cardJson, coverBase64 }
+// body: { source, intro?, tags?, cardJson, coverBase64 }
 //   cardJson    — ST-format card as a STRING (the character name is read from it)
 //   coverBase64 — re-encoded pure WebP cover, base64 (no data: prefix)
 charactersRouter.post("/", requireAuth, (req, res) => {
   const v = validateCharacterInput(req.body);
   if (v.error) return badRequest(res, v.error);
-  const { source, intro, tags, usePrice, buyoutPrice, cardJson, name, coverBuf } = v.value;
+  const { source, intro, tags, cardJson, name, coverBuf } = v.value;
 
   // Allocate id + write the cover file first; only commit the DB row if the file
   // lands, so we never reference a missing cover.
@@ -490,8 +469,6 @@ charactersRouter.post("/", requireAuth, (req, res) => {
       source,
       intro,
       tags: JSON.stringify(tags),
-      use_price: usePrice,
-      buyout_price: buyoutPrice,
       card_json: cardJson,
       cover_ext: "webp",
       created_at: now,
@@ -624,59 +601,21 @@ charactersRouter.post("/versions", (req, res) => {
   }
 });
 
-// POST /characters/:id/acquire — use or buyout. body: { mode: "use" | "buyout" }
-// Hands out the full card json (only here, never in the browse listing) and
-// bumps downloads. Free use (use_price 0) needs no login, per the design; any
-// priced acquisition requires auth and settles catfood — the buyer pays and the
-// author earns, in one transaction. Buying your own card never charges.
+// POST /characters/:id/acquire — always free (no pricing / no buyout).
+// Hands out the full card json and bumps downloads. Login is optional.
 charactersRouter.post("/:id/acquire", (req, res) => {
   const id = String(req.params.id ?? "");
   if (!HEX_ID.test(id)) return res.status(404).json({ ok: false, error: "not_found" });
 
-  const mode = String(req.body?.mode ?? "");
-  if (mode !== "use" && mode !== "buyout") return badRequest(res, "invalid_mode");
-
   const row = getFullCharacter.get(id);
   if (!row) return res.status(404).json({ ok: false, error: "not_found" });
 
-  if (mode === "buyout" && row.buyout_price <= 0) {
-    return badRequest(res, "not_for_sale");
-  }
-  const price = mode === "buyout" ? row.buyout_price : row.use_price;
-
-  const auth = resolveUser(req);
-  let profile = null;
-
-  if (price > 0) {
-    // Priced acquisition: must be logged in, and (unless it's your own card)
-    // must afford it. Settle buyer↓ / author↑ atomically, then count the download.
-    if (!auth) return res.status(401).json({ ok: false, error: "unauthorized" });
-    const buyer = auth.user;
-    if (buyer.account !== row.owner) {
-      if (buyer.catfood < price) {
-        return res.status(402).json({ ok: false, error: "insufficient", catfood: buyer.catfood });
-      }
-      const settle = db.transaction(() => {
-        debitBuyer.run({ account: buyer.account, amount: price });
-        creditAuthor.run({ account: row.owner, amount: price });
-        bumpDownloads.run(id);
-      });
-      settle();
-    } else {
-      bumpDownloads.run(id);
-    }
-    const fresh = getUserByAccount.get(buyer.account);
-    profile = { catfood: fresh.catfood, spentTotal: fresh.spent_total };
-  } else {
-    // Free use: anonymous-friendly; just count the download.
-    bumpDownloads.run(id);
-    if (auth) profile = { catfood: auth.user.catfood, spentTotal: auth.user.spent_total };
-  }
+  // Always free — just bump the download counter.
+  bumpDownloads.run(id);
 
   return res.json({
     ok: true,
     card: cardResponseOf(row, parseClientCardWrap(req.body?.cardWrap ?? req.body?.cardKey)),
-    ...(profile ? { profile } : {}),
   });
 });
 
@@ -745,7 +684,7 @@ charactersRouter.put("/:id", requireAuth, (req, res) => {
 
   const v = validateCharacterInput(req.body);
   if (v.error) return badRequest(res, v.error);
-  const { source, intro, tags, usePrice, buyoutPrice, cardJson, name, coverBuf } = v.value;
+  const { source, intro, tags, cardJson, name, coverBuf } = v.value;
 
   // Overwrite the cover file first; only commit the DB row if it lands, so we
   // never leave the row pointing at a half-written cover.
@@ -765,8 +704,6 @@ charactersRouter.put("/:id", requireAuth, (req, res) => {
       source,
       intro,
       tags: JSON.stringify(tags),
-      use_price: usePrice,
-      buyout_price: buyoutPrice,
       card_json: cardJson,
       cover_ext: "webp",
       updated_at: now,

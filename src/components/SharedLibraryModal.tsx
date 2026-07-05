@@ -32,14 +32,11 @@ import {
   Loader2,
   AlertTriangle,
   CloudDownload,
-  ShoppingCart,
   Pencil,
   Trash2,
 } from "lucide-react";
 import { BaseModal } from "./BaseModal";
 import { ConfirmDialog } from "./ConfirmDialog";
-import { CatCanIcon } from "./icons/CatCanIcon";
-import { SharedPaymentModal, type PaymentMode } from "./SharedPaymentModal";
 import { CharacterShareModal, type SharePrefill } from "./CharacterShareModal";
 import { UserAccountModal } from "./UserAccountModal";
 import type { CharacterSettings } from "../types";
@@ -91,7 +88,6 @@ interface SharedLibraryModalProps {
   /** Use a shared card: caller adds it (shared type) + starts a new conversation. */
   onUse: (localChar: CharacterSettings) => void;
   /** Buy out a card: caller adds it as a fully-private card (no slot). */
-  onBuyout: (localChar: CharacterSettings) => void;
 }
 
 export function SharedLibraryModal({
@@ -99,7 +95,6 @@ export function SharedLibraryModal({
   onClose,
   sharedCount,
   onUse,
-  onBuyout,
 }: SharedLibraryModalProps) {
   const [items, setItems] = useState<SharedCharacterSummary[]>([]);
   const [allTags, setAllTags] = useState<string[]>([]);
@@ -121,8 +116,6 @@ export function SharedLibraryModal({
   const [storedToken, setStoredToken] = useState<string>("");
   const [myRatings, setMyRatings] = useState<Record<string, number>>({});
   const [actingId, setActingId] = useState<string | null>(null); // card mid-action
-  const [payment, setPayment] = useState<{ item: SharedCharacterSummary; mode: PaymentMode } | null>(null);
-  const [paymentBusy, setPaymentBusy] = useState(false);
   const [notice, setNotice] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
   // Login guide rendered by the library itself: as the last sibling in the
   // library's body-root portal it sits on top, where an account modal owned by a
@@ -176,7 +169,6 @@ export function SharedLibraryModal({
     setTagSheetOpen(false);
     setError(null);
     setNotice(null);
-    setPayment(null);
     setActingId(null);
     setEdit(null);
     setPendingDelete(null);
@@ -299,40 +291,20 @@ export function SharedLibraryModal({
   // --- phase 4 handlers ------------------------------------------------------
 
   /** Reflect a priced settlement's new balance into state + persisted login. */
-  const applyProfilePatch = async (patch: { catfood: number; spentTotal: number }) => {
-    const stored = await loadStoredAccount();
-    if (!stored) return;
-    const next: AccountProfile = { ...stored.profile, catfood: patch.catfood, spentTotal: patch.spentTotal };
-    setProfile(next);
-    await saveStoredAccount({ token: stored.token, profile: next });
-  };
-
   /** Build a local CharacterSettings from an acquired ST card, attaching the
-   *  cover (fetched from the server) into IndexedDB. `shared` marks a use card;
-   *  buyout passes false to produce a fully-private card. */
+   *  cover (fetched from the server) into IndexedDB. `shared` marks a use card. */
   const buildLocalCharacter = async (
     card: { globalId: string; owner: string; name: string; author: string; source: "original" | "reposted"; intro: string; tags?: string[]; cardJson: string; updatedAt: number },
-    shared: boolean,
   ): Promise<CharacterSettings> => {
     const parsed = JSON.parse(card.cardJson);
     const local = convertSillyTavernCharacter(parsed);
-    if (shared) {
-      local.shared = true;
-      local.globalId = card.globalId;
-      local.owner = card.owner; // uploader account, for phase-5b author recognition
-      local.author = card.author;
-      local.source = card.source;
-      local.intro = card.intro;
-      local.version = card.updatedAt; // server revision, for phase-5 update detection
-    } else {
-      // P6 / D7: buyout clears all linkedKbIds — the bought-out character is
-      // fully private and must not reference the original author's KBs.
-      if (local.worldInfo) {
-        for (const rule of local.worldInfo) {
-          delete rule.linkedKbIds;
-        }
-      }
-    }
+    local.shared = true;
+    local.globalId = card.globalId;
+    local.owner = card.owner;
+    local.author = card.author;
+    local.source = card.source;
+    local.intro = card.intro;
+    local.version = card.updatedAt;
     if (card.tags?.length) local.tags = card.tags;
     try {
       const blob = await fetchCoverBlob(card.globalId);
@@ -348,12 +320,8 @@ export function SharedLibraryModal({
 
   const acquireMessage = (err: string): string => {
     switch (err) {
-      case "insufficient":
-        return "余额不足，无法购买";
       case "unauthorized":
         return "请先登录后再操作";
-      case "not_for_sale":
-        return "该角色不可买断";
       case "not_found":
         return "角色不存在或已被删除";
       case "card_key_unavailable":
@@ -365,97 +333,36 @@ export function SharedLibraryModal({
     }
   };
 
-  /** Run an acquisition (use / buyout). token may be null for free use. */
-  const doAcquire = async (
-    item: SharedCharacterSummary,
-    mode: PaymentMode,
-    fromPayment: boolean,
-  ) => {
+  /** Run a free acquisition (always "use" mode). */
+  const doAcquire = async (item: SharedCharacterSummary) => {
     setActingId(item.globalId);
-    if (fromPayment) setPaymentBusy(true);
     try {
-      // Read the freshest token (free use works anonymously; paid was gated).
       const tok = (await loadStoredAccount())?.token ?? null;
-      const result = await acquireCharacter(tok, item.globalId, mode);
+      const result = await acquireCharacter(tok, item.globalId);
       if (result.kind !== "ok") {
-        if (result.kind === "error" && result.error === "unauthorized") {
-          // Stale / expired token on a priced acquisition — re-login.
-          await clearStoredAccount();
-          setProfile(null);
-          setPayment(null);
-          setLoginOpen(true);
-          return;
-        }
         const msg = result.kind === "network" ? "服务器无法连接，请稍后再试" : acquireMessage(result.error);
         flash("err", msg);
         return;
       }
-      const local = await buildLocalCharacter(result.data.card, mode === "use");
-      if (result.data.profile) applyProfilePatch(result.data.profile);
-      setPayment(null);
+      const local = await buildLocalCharacter(result.data.card);
       // Optimistically bump the download counter shown on the card.
       setItems((prev) =>
         prev.map((it) => (it.globalId === item.globalId ? { ...it, downloads: it.downloads + 1 } : it)),
       );
-      if (mode === "use") {
-        onUse(local); // adds the card + starts a new conversation + closes the stack
-      } else {
-        onBuyout(local);
-        flash("ok", `已买断「${item.name}」为私有角色`);
-      }
+      onUse(local);
     } catch (e: any) {
       flash("err", "操作失败：" + (e?.message || String(e)));
     } finally {
       setActingId(null);
-      setPaymentBusy(false);
     }
   };
 
   const startUse = async (item: SharedCharacterSummary) => {
-    const free = item.usePrice === 0;
-    // Slot cap applies to use (shared cards occupy an account slot); free use is
-    // allowed logged-out but still consumes a local slot.
     if (sharedCount >= slotMax) {
       setSlotFullOpen(true);
       return;
     }
-    if (free) {
-      void doAcquire(item, "use", false);
-      return;
-    }
-    const stored = await syncSession();
-    if (!stored) {
-      setLoginOpen(true);
-      return;
-    }
-    setPayment({ item, mode: "use" });
-  };
-
-  const startBuyout = async (item: SharedCharacterSummary) => {
-    // Buyout is always priced (the button is hidden when buyoutPrice is 0) and
-    // does NOT occupy a slot, so there is no cap check here.
-    const stored = await syncSession();
-    if (!stored) {
-      setLoginOpen(true);
-      return;
-    }
-    setPayment({ item, mode: "buyout" });
-  };
-
-  const confirmPayment = async () => {
-    if (!payment) return;
-    const stored = await loadStoredAccount();
-    if (!stored) {
-      setPayment(null);
-      setLoginOpen(true);
-      return;
-    }
-    const price = payment.mode === "use" ? payment.item.usePrice : payment.item.buyoutPrice;
-    if (stored.profile.catfood < price) {
-      flash("err", "余额不足，无法购买");
-      return;
-    }
-    void doAcquire(payment.item, payment.mode, true);
+    void doAcquire(item);
   };
 
   const rate = async (item: SharedCharacterSummary, value: 1 | -1) => {
@@ -768,7 +675,6 @@ export function SharedLibraryModal({
                   acting={actingId === item.globalId}
                   isOwner={!!account && item.owner === account}
                   onUse={() => startUse(item)}
-                  onBuyout={() => startBuyout(item)}
                   onRate={(v) => void rate(item, v)}
                   onEdit={() => void startEdit(item)}
                   onDelete={() => setPendingDelete(item)}
@@ -796,20 +702,6 @@ export function SharedLibraryModal({
           </div>
         </BaseModal>
       )}
-      {/* Payment dialog (priced use / buyout). Free use never opens this. */}
-      {payment && (
-        <SharedPaymentModal
-          isOpen={!!payment}
-          mode={payment.mode}
-          name={payment.item.name}
-          price={payment.mode === "use" ? payment.item.usePrice : payment.item.buyoutPrice}
-          balance={profile?.catfood ?? 0}
-          busy={paymentBusy}
-          onCancel={() => setPayment(null)}
-          onConfirm={confirmPayment}
-        />
-      )}
-
       {/* Login guide (logged-out use / buyout / rating). Owned here so it stacks
           above the library; refresh the session display when it closes. */}
       <UserAccountModal
@@ -908,22 +800,6 @@ function TagPill({
   );
 }
 
-function PriceTag({ label, value, free }: { label: string; value: number; free?: boolean }) {
-  return (
-    <span className="inline-flex items-center gap-1">
-      <span className="text-gray-400 dark:text-gray-500">{label}</span>
-      {free ? (
-        <span className="font-medium text-green-600 dark:text-green-400">免费</span>
-      ) : (
-        <span className="inline-flex items-center gap-0.5 font-medium text-gray-700 dark:text-gray-200">
-          <CatCanIcon size={12} />
-          {value}
-        </span>
-      )}
-    </span>
-  );
-}
-
 function LibraryCard({
   item,
   onAuthorClick,
@@ -931,7 +807,6 @@ function LibraryCard({
   acting,
   isOwner,
   onUse,
-  onBuyout,
   onRate,
   onEdit,
   onDelete,
@@ -942,13 +817,11 @@ function LibraryCard({
   acting: boolean;
   isOwner: boolean;
   onUse: () => void;
-  onBuyout: () => void;
   onRate: (value: 1 | -1) => void;
   onEdit: () => void;
   onDelete: () => void;
 }) {
   const [coverError, setCoverError] = useState(false);
-  const free = item.usePrice === 0;
   return (
     <div className="flex flex-col rounded-xl border border-gray-200 dark:border-white/10 bg-white dark:bg-white/5 overflow-hidden">
       {/* cover */}
@@ -1034,11 +907,6 @@ function LibraryCard({
           </div>
         )}
 
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs pt-1">
-          <PriceTag label="使用" value={item.usePrice} free={item.usePrice === 0} />
-          {item.buyoutPrice > 0 && <PriceTag label="买断" value={item.buyoutPrice} />}
-        </div>
-
         <div className="flex items-center gap-3 text-[11px] text-gray-400 dark:text-gray-500 pt-0.5">
           <span className="inline-flex items-center gap-0.5" title="下载数">
             <Download size={12} /> {item.downloads}
@@ -1056,34 +924,12 @@ function LibraryCard({
           <button
             onClick={onUse}
             disabled={acting}
-            title={free ? "免费使用" : "购买使用权"}
-            className={`flex-1 inline-flex items-center justify-center gap-1 px-2 py-1.5 text-xs font-medium rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed text-white ${
-              free ? "bg-green-600 hover:bg-green-700" : "bg-blue-600 hover:bg-blue-700"
-            }`}
+            title="使用"
+            className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1.5 text-xs font-medium rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed text-white bg-green-600 hover:bg-green-700"
           >
             {acting ? <Loader2 size={12} className="animate-spin" /> : <CloudDownload size={12} />}
             使用
-            {!free && (
-              <span className="inline-flex items-center gap-0.5">
-                <CatCanIcon size={11} />
-                {item.usePrice}
-              </span>
-            )}
           </button>
-          {item.buyoutPrice > 0 && (
-            <button
-              onClick={onBuyout}
-              disabled={acting}
-              title="买断为私有角色"
-              className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1.5 text-xs font-medium rounded-lg border border-gray-200 dark:border-white/10 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <ShoppingCart size={12} /> 买断
-              <span className="inline-flex items-center gap-0.5">
-                <CatCanIcon size={11} />
-                {item.buyoutPrice}
-              </span>
-            </button>
-          )}
           <button
             onClick={() => onRate(1)}
             title="好评"

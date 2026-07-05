@@ -3,7 +3,7 @@
 // Opened from CharacterSelectionModal after the warning dialog is accepted AND
 // the user is logged in (the caller guarantees a live session token). Collects
 // the public-facing metadata the design specifies — source, intro (<=100 code
-// points), tags, use price, buyout price — then uploads the character as an
+// points), tags — then uploads the character as an
 // ST-format card json PLUS a re-encoded pure WebP cover.
 //
 // Cover anti-theft (SSOT §5.3): we never send the PNG card (which embeds the
@@ -16,7 +16,6 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { CloudUpload, Loader2, Plus, X as XIcon, AlertTriangle } from "lucide-react";
 import { BaseModal } from "./BaseModal";
-import { CatCanIcon } from "./icons/CatCanIcon";
 import type { CharacterSettings } from "../types";
 import { convertToSillyTavernCharacter } from "../lib/sillyTavernExport";
 import { imageBlobToCoverWebp, makePlaceholderCoverWebp } from "../lib/pngCard";
@@ -35,28 +34,6 @@ const TAG_MAX_LEN = 20;
 const TAGS_MAX = 20;
 
 // Price tiers from the design. 0 is the "free" / "not for sale" sentinel; -1 is
-// the local-only "custom amount" marker (never sent — replaced by the entered
-// number on submit).
-const CUSTOM = -1;
-const USE_TIERS: Array<{ label: string; value: number }> = [
-  { label: "免费", value: 0 },
-  { label: "3", value: 3 },
-  { label: "6", value: 6 },
-  { label: "36", value: 36 },
-  { label: "60", value: 60 },
-  { label: "200", value: 200 },
-  { label: "自定价", value: CUSTOM },
-];
-const BUYOUT_TIERS: Array<{ label: string; value: number }> = [
-  { label: "不卖", value: 0 },
-  { label: "5", value: 5 },
-  { label: "8", value: 8 },
-  { label: "60", value: 60 },
-  { label: "100", value: 100 },
-  { label: "350", value: 350 },
-  { label: "自定价", value: CUSTOM },
-];
-
 function messageFor(result: Extract<ApiResult<unknown>, { ok: false }>): string {
   if (result.kind === "network") return "服务器无法连接，请稍后再试";
   switch (result.error) {
@@ -72,8 +49,6 @@ function messageFor(result: Extract<ApiResult<unknown>, { ok: false }>): string 
       return "存在过长的标签（单个最多 20 字）";
     case "too_many_tags":
       return "标签数量超出上限";
-    case "invalid_price":
-      return "定价不合法";
     case "invalid_card":
       return "角色数据无效，无法分享";
     case "missing_cover":
@@ -90,7 +65,6 @@ export interface SharePrefill {
   intro: string;
   tags: string[];
   usePrice: number;
-  buyoutPrice: number;
 }
 
 interface CharacterShareModalProps {
@@ -123,18 +97,6 @@ interface CharacterShareModalProps {
   ) => void;
 }
 
-/** Map a price back to a (tierIndex, customText) pair: a matching preset tier if
- *  there is one, else the 自定价 tier (last) with the amount in the custom field. */
-function priceToTier(
-  tiers: Array<{ label: string; value: number }>,
-  price: number,
-): { tier: number; custom: string } {
-  const idx = tiers.findIndex((t) => t.value === price && t.value !== CUSTOM);
-  if (idx >= 0) return { tier: idx, custom: "" };
-  const customIdx = tiers.findIndex((t) => t.value === CUSTOM);
-  return { tier: customIdx, custom: String(price) };
-}
-
 export function CharacterShareModal({
   isOpen,
   onClose,
@@ -156,11 +118,6 @@ export function CharacterShareModal({
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const tagWrapRef = useRef<HTMLDivElement>(null);
 
-  const [useTier, setUseTier] = useState(0); // index into USE_TIERS
-  const [useCustom, setUseCustom] = useState("");
-  const [buyoutTier, setBuyoutTier] = useState(0); // index into BUYOUT_TIERS
-  const [buyoutCustom, setBuyoutCustom] = useState("");
-
   const [coverUrl, setCoverUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -175,21 +132,11 @@ export function CharacterShareModal({
       setIntro(prefill.intro);
       setTagDraft("");
       setTags(prefill.tags);
-      const u = priceToTier(USE_TIERS, prefill.usePrice);
-      setUseTier(u.tier);
-      setUseCustom(u.custom);
-      const b = priceToTier(BUYOUT_TIERS, prefill.buyoutPrice);
-      setBuyoutTier(b.tier);
-      setBuyoutCustom(b.custom);
     } else {
       setSource("original");
       setIntro("");
       setTagDraft("");
       setTags(character?.tags ?? []);
-      setUseTier(0);
-      setUseCustom("");
-      setBuyoutTier(0);
-      setBuyoutCustom("");
     }
     setError(null);
     setBusy(false);
@@ -276,36 +223,12 @@ export function CharacterShareModal({
 
   const removeTag = (t: string) => setTags(tags.filter((x) => x !== t));
 
-  const resolvePrice = (
-    tiers: typeof USE_TIERS,
-    tierIdx: number,
-    customRaw: string,
-  ): number | null => {
-    const tier = tiers[tierIdx];
-    if (tier.value !== CUSTOM) return tier.value;
-    // A custom amount must be an integer of at least 1 — the 免费 / 不卖 case is
-    // a preset tier (value 0), not something the custom field expresses.
-    const n = Number(customRaw);
-    if (!Number.isInteger(n) || n < 1) return null;
-    return n;
-  };
-
   const submit = async () => {
     if (busy || !character) return;
     setError(null);
 
     if (introLen > INTRO_MAX) {
       setError("简介超出 100 字上限");
-      return;
-    }
-    const usePrice = resolvePrice(USE_TIERS, useTier, useCustom);
-    if (usePrice === null) {
-      setError("使用权自定价不能低于 1");
-      return;
-    }
-    const buyoutPrice = resolvePrice(BUYOUT_TIERS, buyoutTier, buyoutCustom);
-    if (buyoutPrice === null) {
-      setError("买断自定价不能低于 1");
       return;
     }
 
@@ -333,8 +256,7 @@ export function CharacterShareModal({
         source,
         intro: intro.trim(),
         tags,
-        usePrice,
-        buyoutPrice,
+        usePrice: 0,
         cardJson,
         coverBase64,
       };
@@ -531,27 +453,6 @@ export function CharacterShareModal({
           )}
         </Field>
 
-        {/* use price / buyout price — hidden until redeem API is live; defaults: usePrice=0 (free), buyoutPrice=0 (no sale)
-        <Field label="使用权定价">
-          <PriceTiers
-            tiers={USE_TIERS}
-            selected={useTier}
-            onSelect={setUseTier}
-            custom={useCustom}
-            onCustom={setUseCustom}
-          />
-        </Field>
-
-        <Field label="买断定价">
-          <PriceTiers
-            tiers={BUYOUT_TIERS}
-            selected={buyoutTier}
-            onSelect={setBuyoutTier}
-            custom={buyoutCustom}
-            onCustom={setBuyoutCustom}
-          />
-        </Field>
-        */}
       </div>
     </BaseModal>
   );
@@ -581,52 +482,4 @@ function chipCls(active: boolean): string {
       ? "bg-blue-600 border-transparent text-white"
       : "bg-transparent border-gray-200 dark:border-white/10 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5"
   }`;
-}
-
-const CUSTOM_MARKER = -1;
-
-function _PriceTiers({
-  tiers,
-  selected,
-  onSelect,
-  custom,
-  onCustom,
-}: {
-  tiers: Array<{ label: string; value: number }>;
-  selected: number;
-  onSelect: (i: number) => void;
-  custom: string;
-  onCustom: (v: string) => void;
-}) {
-  const isCustom = tiers[selected]?.value === CUSTOM_MARKER;
-  return (
-    <div className="space-y-2">
-      <div className="flex flex-wrap gap-1.5">
-        {tiers.map((tier, i) => (
-          <button
-            key={tier.label}
-            onClick={() => onSelect(i)}
-            className={`inline-flex items-center gap-1 ${chipCls(selected === i)}`}
-          >
-            {tier.value > 0 && <CatCanIcon size={13} />}
-            {tier.label}
-          </button>
-        ))}
-      </div>
-      {isCustom && (
-        <div className="flex items-center gap-2">
-          <CatCanIcon size={15} />
-          <input
-            type="number"
-            min={1}
-            step={1}
-            value={custom}
-            onChange={(e) => onCustom(e.target.value)}
-            className="w-32 px-3 py-1.5 text-sm bg-transparent border border-gray-200 dark:border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-shadow"
-            placeholder="自定金额"
-          />
-        </div>
-      )}
-    </div>
-  );
 }
