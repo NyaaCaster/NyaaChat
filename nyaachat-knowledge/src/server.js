@@ -11,6 +11,7 @@ import { embeddingRouter } from "./routes/embedding.js";
 import { kbRouter } from "./routes/kb.js";
 import { documentsRouter } from "./routes/documents.js";
 import { searchRouter } from "./routes/search.js";
+import { internalRouter } from "./routes/internal.js";
 
 const PORT = Number(process.env.PORT) || 5108;
 
@@ -40,6 +41,9 @@ app.use("/kb", kbRouter);
 // Documents router handles /kb/:kbId/documents, /documents/:docId, /chunks/:chunkId
 app.use("/", documentsRouter);
 app.use("/search", searchRouter);
+
+// ---- P6 internal routes (shared-secret auth, not proxied by nginx) ----------
+app.use("/internal", internalRouter);
 
 app.listen(PORT, () => {
   console.log(`[nyaachat-knowledge] listening on :${PORT}`);

@@ -139,6 +139,15 @@ export function KnowledgeBaseModal({ isOpen, onClose }: KnowledgeBaseModalProps)
   // create KB
   const handleCreate = useCallback(async () => {
     if (creating) return;
+    // P7: client-side pre-check before hitting the API
+    if (kbs.length >= kbMax) {
+      if (kbMax >= KB_HARD_LIMIT) {
+        flash("err", `知识库数量已达最大值（${KB_HARD_LIMIT}）`);
+      } else {
+        setExpandPrompt(true);
+      }
+      return;
+    }
     setCreating(true);
     const res = await createKb(token, { name: "未命名知识库", description: "" });
     setCreating(false);

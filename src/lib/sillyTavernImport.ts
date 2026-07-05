@@ -192,6 +192,12 @@ export function convertSillyTavernCharacter(parsed: any): CharacterSettings {
       ),
       content: e.content ?? "",
       enabled: e.enabled ?? true,
+      linkedKbIds: (() => {
+        const ids = Array.isArray(e.extensions?.linkedKbIds)
+          ? (e.extensions.linkedKbIds as string[]).filter((id: unknown) => typeof id === "string")
+          : [];
+        return ids.length > 0 ? ids : undefined;
+      })(),
     }));
 
   const regexScripts = convertRegexScripts(data);

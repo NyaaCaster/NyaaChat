@@ -128,6 +128,8 @@ export function SharedLibraryModal({
   // library's body-root portal it sits on top, where an account modal owned by a
   // parent (rendered inline in the app tree) would be stuck underneath.
   const [loginOpen, setLoginOpen] = useState(false);
+  // P7: expand prompt when slot / KB cap is reached
+  const [slotFullOpen, setSlotFullOpen] = useState(false);
 
   // --- phase 5b (in library): author editing / deleting own cards ------------
   // The logged-in account; a card whose owner === this may show 编辑 / 删除.
@@ -322,6 +324,14 @@ export function SharedLibraryModal({
       local.source = card.source;
       local.intro = card.intro;
       local.version = card.updatedAt; // server revision, for phase-5 update detection
+    } else {
+      // P6 / D7: buyout clears all linkedKbIds — the bought-out character is
+      // fully private and must not reference the original author's KBs.
+      if (local.worldInfo) {
+        for (const rule of local.worldInfo) {
+          delete rule.linkedKbIds;
+        }
+      }
     }
     if (card.tags?.length) local.tags = card.tags;
     try {
@@ -406,7 +416,7 @@ export function SharedLibraryModal({
     // Slot cap applies to use (shared cards occupy an account slot); free use is
     // allowed logged-out but still consumes a local slot.
     if (sharedCount >= slotMax) {
-      flash("err", "共享卡槽已满，请先清理或扩容");
+      setSlotFullOpen(true);
       return;
     }
     if (free) {
@@ -810,6 +820,26 @@ export function SharedLibraryModal({
             if (stored) loadMyRatings(stored.token);
           });
         }}
+      />
+
+      {/* P7: slot-full expand prompt — "前往扩容" opens the account panel */}
+      <ConfirmDialog
+        isOpen={slotFullOpen}
+        title="共享卡槽已满"
+        message={
+          <span>
+            当前共享卡槽已达上限，无法继续获取共享角色。
+            <br />
+            请清理不再使用的共享角色，或前往扩容卡槽上限。
+          </span>
+        }
+        confirmText="前往扩容"
+        cancelText="取消"
+        onConfirm={() => {
+          setSlotFullOpen(false);
+          setLoginOpen(true);
+        }}
+        onCancel={() => setSlotFullOpen(false)}
       />
 
       {/* Author edit (own card): share 界面 in update mode, pre-filled. Carries the

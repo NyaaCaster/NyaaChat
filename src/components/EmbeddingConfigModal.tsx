@@ -115,6 +115,7 @@ export function EmbeddingConfigModal({
       dirtyRef.current = false;
       flash("ok", "嵌入模型配置已保存");
       onSaved?.();
+      onClose();
     } else {
       const msg =
         res.kind === "network" ? "服务器无法连接" : res.error || "保存失败";
@@ -207,9 +208,18 @@ export function EmbeddingConfigModal({
 
         {/* apiKey */}
         <div>
-          <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1.5">
-            API Key
-          </label>
+          <div className="flex items-center justify-between mb-1.5">
+            <label className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+              API Key
+            </label>
+            <button
+              type="button"
+              onClick={() => window.open(SILICONFLOW_URL, "_blank")}
+              className="inline-flex items-center gap-1 text-xs text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 transition-colors"
+            >
+              获取嵌入模型 <ExternalLink size={12} />
+            </button>
+          </div>
           {apiKeyWasSet && !apiKey ? (
             <div className="flex items-center gap-2">
               <span className="text-sm text-gray-400 dark:text-gray-500">
@@ -252,17 +262,6 @@ export function EmbeddingConfigModal({
             }}
             placeholder={DEFAULT_MODEL}
           />
-        </div>
-
-        {/* external link */}
-        <div className="text-right">
-          <button
-            type="button"
-            onClick={() => window.open(SILICONFLOW_URL, "_blank")}
-            className="inline-flex items-center gap-1.5 text-xs text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 transition-colors"
-          >
-            获取嵌入模型 <ExternalLink size={12} />
-          </button>
         </div>
 
         {/* model change warning */}

@@ -29,6 +29,8 @@ services:
       - NYAAACOUNT_PUBLIC_URL=${NYAAACOUNT_PUBLIC_URL}
       - NYAAACOUNT_API_TOKEN=${NYAAACOUNT_API_TOKEN}
       - NYAAACOUNT_ENCRYPTION_KEY=${NYAAACOUNT_ENCRYPTION_KEY}
+      # Internal API secret shared with nyaachat-shared for P6 binding sync.
+      - INTERNAL_API_TOKEN=${INTERNAL_API_TOKEN}
     ports:
       # Bind to localhost only — all external traffic goes through the main
       # nginx at /api/knowledge/ (Docker internal nyaachat-knowledge:5108).

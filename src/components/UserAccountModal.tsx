@@ -31,6 +31,7 @@ import {
   rename as apiRename,
   saveStoredAccount,
 } from "../lib/sharedAccountApi";
+import { expandKb as apiExpandKb } from "../lib/knowledgeApi";
 
 interface UserAccountModalProps {
   isOpen: boolean;
@@ -309,6 +310,32 @@ function AccountPanel({
     }
   };
 
+  // Expand the KB stack ceiling: +1 KB for 5 catfood, capped at 50.
+  const KB_COST = 5;
+  const KB_HARD_LIMIT = 50;
+  const atKbCeiling = profile.kbMax >= KB_HARD_LIMIT;
+
+  const expandKbStack = async () => {
+    if (expanding) return;
+    if (atKbCeiling) {
+      flash("err", "知识库栈已达上限（50）");
+      return;
+    }
+    if (profile.catfood < KB_COST) {
+      flash("err", "猫粮余额不足");
+      return;
+    }
+    setExpanding(true);
+    const r = await apiExpandKb(token);
+    setExpanding(false);
+    if (r.kind === "ok") {
+      onProfile(r.data.profile);
+      flash("ok", `已扩容 +1，扣除 ${KB_COST} 猫粮`);
+    } else {
+      flash("err", r.kind === "network" ? "服务器无法连接" : (r.error || "扩容失败"));
+    }
+  };
+
 
   return (
     <div className="p-4 sm:p-5 space-y-4">
@@ -419,6 +446,22 @@ function AccountPanel({
               onClick={expand}
               disabled={expanding || atSlotCeiling}
               title={atSlotCeiling ? "已达上限 200" : "花费 5 猫粮 +5 卡槽"}
+              className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-blue-600 dark:text-blue-400 border border-blue-500/30 hover:bg-blue-500/10 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {expanding ? <Loader2 size={13} className="animate-spin" /> : <PackagePlus size={13} />}{" "}
+              扩容
+            </button>
+          </div>
+        </Row>
+        <Row label="知识库栈">
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-1 text-sm text-gray-700 dark:text-gray-300">
+              <Wallet size={14} /> 上限 {profile.kbMax}
+            </span>
+            <button
+              onClick={expandKbStack}
+              disabled={expanding || atKbCeiling}
+              title={atKbCeiling ? "已达上限 50" : "花费 5 猫粮 +1 知识库栈"}
               className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-blue-600 dark:text-blue-400 border border-blue-500/30 hover:bg-blue-500/10 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {expanding ? <Loader2 size={13} className="animate-spin" /> : <PackagePlus size={13} />}{" "}

@@ -380,6 +380,84 @@ function validateCharacterInput(body) {
   return { value: { source, intro, tags, usePrice, buyoutPrice, cardJson, name, coverBuf } };
 }
 
+// ---- P6 KB binding helpers ------------------------------------------------
+
+/**
+ * Extract deduplicated linkedKbIds from a published card's JSON (ST format).
+ * Looks at data.character_book.entries[].extensions.linkedKbIds.
+ */
+function extractLinkedKbIdsFromCard(cardJsonStr) {
+  try {
+    const parsed = JSON.parse(cardJsonStr);
+    const ids = new Set();
+    const entries = parsed?.data?.character_book?.entries ?? [];
+    for (const entry of entries) {
+      const ext = entry?.extensions;
+      if (ext && Array.isArray(ext.linkedKbIds)) {
+        for (const id of ext.linkedKbIds) {
+          if (typeof id === "string" && id.trim()) ids.add(id.trim());
+        }
+      }
+    }
+    return [...ids];
+  } catch {
+    return [];
+  }
+}
+
+const KNOWLEDGE_SERVER_URL =
+  (process.env.KNOWLEDGE_SERVER_URL || "http://nyaachat-knowledge:5108").replace(
+    /\/$/,
+    "",
+  );
+const INTERNAL_TOKEN = process.env.INTERNAL_API_TOKEN || "";
+
+/** Best-effort: call knowledge-server internal API to upsert bindings.
+ *  Logs warnings but never fails the calling route handler. */
+async function syncKbBindings(globalId, linkedKbIds, owner) {
+  if (!INTERNAL_TOKEN || !globalId || !owner) return;
+  try {
+    if (linkedKbIds.length > 0) {
+      await fetch(`${KNOWLEDGE_SERVER_URL}/internal/bindings`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Internal-Token": INTERNAL_TOKEN,
+        },
+        body: JSON.stringify({
+          global_id: globalId,
+          kb_ids: linkedKbIds,
+          owner,
+        }),
+        signal: AbortSignal.timeout(5000),
+      });
+    } else {
+      // No KBs linked at all — remove any stale rows from a previous publish.
+      await fetch(`${KNOWLEDGE_SERVER_URL}/internal/bindings/${globalId}`, {
+        method: "DELETE",
+        headers: { "X-Internal-Token": INTERNAL_TOKEN },
+        signal: AbortSignal.timeout(5000),
+      });
+    }
+  } catch (err) {
+    console.warn(`[syncKbBindings] failed for ${globalId}:`, err.message);
+  }
+}
+
+/** Best-effort: call knowledge-server internal API to delete all bindings. */
+async function deleteKbBindings(globalId) {
+  if (!INTERNAL_TOKEN || !globalId) return;
+  try {
+    await fetch(`${KNOWLEDGE_SERVER_URL}/internal/bindings/${globalId}`, {
+      method: "DELETE",
+      headers: { "X-Internal-Token": INTERNAL_TOKEN },
+      signal: AbortSignal.timeout(5000),
+    });
+  } catch (err) {
+    console.warn(`[deleteKbBindings] failed for ${globalId}:`, err.message);
+  }
+}
+
 // --- /characters ----------------------------------------------------------
 export const charactersRouter = Router();
 
@@ -422,6 +500,9 @@ charactersRouter.post("/", requireAuth, (req, res) => {
   } catch {
     return res.status(500).json({ ok: false, error: "db_write_failed" });
   }
+
+  // P6: sync KB bindings for cross-account search (fire-and-forget).
+  syncKbBindings(globalId, extractLinkedKbIdsFromCard(cardJson), req.user.account);
 
   return res.json({ ok: true, globalId });
 });
@@ -694,6 +775,9 @@ charactersRouter.put("/:id", requireAuth, (req, res) => {
     return res.status(500).json({ ok: false, error: "db_write_failed" });
   }
 
+  // P6: re-sync KB bindings on every update (fire-and-forget).
+  syncKbBindings(id, extractLinkedKbIdsFromCard(cardJson), req.user.account);
+
   return res.json({ ok: true, globalId: id, updatedAt: now });
 });
 
@@ -718,6 +802,8 @@ charactersRouter.delete("/:id", requireAuth, (req, res) => {
   } catch {
     return res.status(500).json({ ok: false, error: "db_write_failed" });
   }
+  // P6: clean up KB bindings (best-effort, fire-and-forget).
+  deleteKbBindings(id);
   // Best-effort cover cleanup: the row is already gone, so a leftover file is
   // harmless (it can no longer be served — /covers looks the row up first).
   try {

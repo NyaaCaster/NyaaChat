@@ -67,6 +67,7 @@ function buildEntryExtensions(
     match_creator_notes: false,
     triggers: [],
     ignore_budget: false,
+    linkedKbIds: rule.linkedKbIds ?? [],
   };
 }
 
