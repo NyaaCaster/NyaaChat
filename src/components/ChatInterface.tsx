@@ -9,7 +9,7 @@ import { saveSession } from "../lib/sessionStorage";
 import { getActiveImageProvider, getActiveLlmProvider, imageProviderToApiSettings, providerToApiSettings } from "../lib/providers";
 import { searchWeb, WebSearchError, WEB_SEARCH_FEATURE_ENABLED } from "../lib/searchApi";
 import { searchKb } from "../lib/knowledgeApi";
-import { loadStoredAccount } from "../lib/sharedAccountApi";
+import { loadStoredAccount, consumeComfyuiPack, type StoredAccount } from "../lib/sharedAccountApi";
 import { callTool, listTools, mergeUserCity, filterAdvertised } from "../lib/mcpApi";
 import {
   applyPlaceholders,
@@ -27,6 +27,8 @@ import { ChatHeader } from "./ChatHeader";
 import { ChatComposer } from "./ChatComposer";
 import { motion, AnimatePresence } from "motion/react";
 import { useFullscreen } from "../hooks/useFullscreen";
+import { UserAccountModal } from "./UserAccountModal";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { useAttachments } from "../hooks/useAttachments";
 import { useCoverObjectUrl } from "../hooks/useCoverObjectUrl";
 import { syncChat, syncMeta, getEffectiveRegexScripts, subscribeRegexScripts, resetTransientVariables, setGenerateApiResolver, setMessageWriter, setActiveChatScope, setActiveChatMetadataScope, setContextProvider, setExtensionFieldWriter, applyExtensionFieldToCharacters, getChatMetadata, replaceChatMetadata, saveMetadataNow, toSTCharacter, emitChatChanged, emitChatLoaded, emitMessageDeleted, emitMessageReceived, emitMessageSent, emitMessageUpdated, emitUserMessageRendered, emitCharacterMessageRendered } from "../compat";
@@ -110,6 +112,9 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
   // Transient ComfyUI progress for the bubble currently rendering (queue +
   // step %). Keyed by the generating message id; cleared when it finishes.
   const [comfyProgress, setComfyProgress] = useState<{ id: string; p: ComfyProgress } | null>(null);
+  // P6: ComfyUI pack login gate + exhausted dialog
+  const [isAccountOpen, setIsAccountOpen] = useState(false);
+  const [showExhaustedDialog, setShowExhaustedDialog] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -877,6 +882,24 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
   })();
 
   /**
+   * P6: ComfyUI pack gate — verifies login + remaining credits.
+   * Opens UserAccountModal or the exhausted ConfirmDialog as needed.
+   * Returns the stored account on pass, or null if generation must abort.
+   */
+  async function checkComfyGate(): Promise<StoredAccount | null> {
+    const account = await loadStoredAccount();
+    if (!account) {
+      setIsAccountOpen(true);
+      return null;
+    }
+    if (account.profile.comfyuiPackRemaining <= 0) {
+      setShowExhaustedDialog(true);
+      return null;
+    }
+    return account;
+  }
+
+  /**
    * Run the image API for `prompt` and insert the resulting image as a new
    * assistant bubble immediately after `anchorId`. If `replaceImageId` is
    * given (regenerate path), the existing image bubble is replaced in place
@@ -972,6 +995,26 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
             direction: "response",
             content: "Received ComfyUI image",
             meta: { workflow: workflowName, durationMs: Date.now() - imageStartedAt },
+          });
+
+          // P6: deduct 1 credit from the ComfyUI pack.
+          // Fire-and-forget: the image is already delivered to the user,
+          // so a deduction failure must not block the UX.
+          loadStoredAccount().then((acct) => {
+            if (!acct) return; // shouldn't happen (gate passed), but safe
+            consumeComfyuiPack(acct.token)
+              .then((r) => {
+                if (r.kind === "error") {
+                  onAddLog({
+                    direction: "info",
+                    content: "ComfyUI 图包消费失败",
+                    meta: { error: r.error, status: r.status },
+                  });
+                }
+                // "ok": remaining decremented successfully (no action needed)
+                // "network": server unreachable, silently ignored
+              })
+              .catch(() => { /* non-blocking: prevent unhandled rejection */ });
           });
         } else {
           // OpenAI-compatible path.
@@ -1117,6 +1160,10 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
       if (!msg) return;
 
       if (isComfyImage) {
+        // P6: gate check before LLM call to avoid wasted work
+        const gate = await checkComfyGate();
+        if (!gate) return;
+
         // Build an English prompt via the chat LLM first. Spin the source
         // message's button during this prep so the click feels responsive.
         setImageGeneratingId(id);
@@ -1171,14 +1218,21 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
   );
 
   const handleRegenerateImage = useCallback(
-    (id: string) => {
+    async (id: string) => {
       const msg = messages.find((m) => m.id === id);
       if (!msg || !msg.imageUrl) return;
       const prompt = (msg.imagePrompt || msg.content || "").trim();
       if (!prompt) return;
+
+      // P6: gate check for ComfyUI regenerate
+      if (isComfyImage) {
+        const gate = await checkComfyGate();
+        if (!gate) return;
+      }
+
       void runImageGeneration(prompt, id, id);
     },
-    [messages, runImageGeneration],
+    [messages, runImageGeneration, isComfyImage],
   );
 
   // Load session when selected from history
@@ -1321,6 +1375,22 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
         isLoading={isLoading}
         settings={settings}
         onSettingsChange={onSettingsChange}
+      />
+
+      {/* P6: ComfyUI pack modals */}
+      <UserAccountModal isOpen={isAccountOpen} onClose={() => setIsAccountOpen(false)} />
+
+      <ConfirmDialog
+        isOpen={showExhaustedDialog}
+        title="NyaaComfyui图包 剩余次数不足"
+        message="NyaaComfyui图包 剩余次数不足，是否要扩容？"
+        confirmText="扩容"
+        cancelText="取消"
+        onConfirm={() => {
+          setShowExhaustedDialog(false);
+          setIsAccountOpen(true);
+        }}
+        onCancel={() => setShowExhaustedDialog(false)}
       />
     </div>
   );

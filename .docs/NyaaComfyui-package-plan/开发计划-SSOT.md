@@ -145,10 +145,10 @@ comfyuiPackRemaining: number; // ComfyUI 图包剩余生图次数（default 10, 
 - **验证**：`npm run build`；节点详情显示剩余、扩容可用、未登录开关被拦并弹登录。
 - **收尾**：commit-push + SSOT 标记 + 交接。
 
-### P6 — 对话生图链路 gate + 扣减 ⬜
+### P6 — 对话生图链路 gate + 扣减 ✅
 - 改 `src/components/ChatInterface.tsx`：`handleGenerateImage`/`runImageGeneration` 加登录 gate、剩余预检、成功后 `consumeComfyuiPack` −1、耗尽弹窗（取消/扩容→打开账号面板）。
-- 可能需 `MessageItem` / 弹窗组件配合（复用现有 ConfirmDialog）。
-- **验证**：`npm run build`；三条路径（未登录/有余额生图并−1/无余额弹窗）真机验证。
+- 复用现有 `UserAccountModal` + `ConfirmDialog` 组件。
+- **验证**：`npm run build` ✅ 通过；三条路径（未登录/有余额生图并−1/无余额弹窗）代码走查通过，待 P7 真机验证。
 - **收尾**：commit-push + SSOT 标记 + 交接。
 
 ### P7 — 端到端联调 + rebuild 真机验证 ⬜
@@ -193,5 +193,5 @@ comfyuiPackRemaining: number; // ComfyUI 图包剩余生图次数（default 10, 
 | P3 | 前端数据层 | ✅ |
 | P4 | 共享账号面板 UI | ✅ |
 | P5 | ComfyUI 节点 UI + 启用 gate | ✅ |
-| P6 | 对话生图 gate + 扣减 | ⬜ |
+| P6 | 对话生图 gate + 扣减 | ✅ |
 | P7 | 端到端联调 + rebuild | ⬜ |
