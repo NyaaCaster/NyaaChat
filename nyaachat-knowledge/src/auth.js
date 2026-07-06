@@ -1,37 +1,18 @@
 // Session-token auth for the knowledge base backend.
 //
-// Tokens are issued by the shared-character backend (nyaachat-shared) and stored
-// in its `sessions` table. This service opens a READ-ONLY connection to the
-// shared DB to validate tokens — it never writes sessions or manages users.
-//
-// The shared DB file is bind-mounted read-only at /shared-db/nyaachat-shared.db
-// (see docker-compose.knowledge.yml). If the file is absent (e.g. shared-server
-// not yet deployed), auth fails closed — every protected route 401s.
+// Tokens are issued by the shared-character backend (nyaachat-shared) and validated
+// by calling its internal HTTP API (POST /internal/validate-token) inside the Docker
+// network. Previously this service opened the shared DB directly, but that fails on
+// Docker for Windows when the shared-server holds a file lock on its WAL-mode DB.
 //
 // Public API (same signatures as shared-server/src/auth.js):
 //   tokenFromHeader(req)          — extract Bearer token or null
 //   resolveUser(req)              — soft auth, returns { token, user } or null
 //   requireAuth(req, res, next)   — Express middleware, 401s on failure
 
-import Database from "better-sqlite3";
-import { existsSync } from "node:fs";
-
-const SHARED_DB_PATH = "/shared-db/nyaachat-shared-v4.db";
-
-// Lazy-init the shared-DB connection (container may start before shared-server).
-let _sharedDb = null;
-function getSharedDb() {
-  if (_sharedDb) return _sharedDb;
-  if (!existsSync(SHARED_DB_PATH)) return null;
-  try {
-    _sharedDb = new Database(SHARED_DB_PATH, { readonly: true });
-    _sharedDb.pragma("journal_mode = WAL");
-  } catch (err) {
-    console.error("[auth] Failed to open shared DB:", err.message);
-    return null;
-  }
-  return _sharedDb;
-}
+const SHARED_SERVER_URL =
+  (process.env.SHARED_SERVER_URL || "http://nyaachat-shared:5107").replace(/\/$/, "");
+const INTERNAL_TOKEN = process.env.INTERNAL_API_TOKEN || "";
 
 /** Pull the bearer token from an Authorization header, or null. */
 export function tokenFromHeader(req) {
@@ -41,33 +22,59 @@ export function tokenFromHeader(req) {
 }
 
 /**
- * Soft auth: resolve the bearer token to a live user row from the shared DB.
- * Returns { token, user } on success, null when there is no token / the shared
- * DB isn't available / the token doesn't resolve.
+ * Call the shared-server's internal token-validation endpoint.
+ * Returns the user object on success, or null when validation fails.
  */
-export function resolveUser(req) {
+async function validateTokenViaApi(token) {
+  if (!INTERNAL_TOKEN || !token) return null;
+  try {
+    const resp = await fetch(`${SHARED_SERVER_URL}/internal/validate-token`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Internal-Token": INTERNAL_TOKEN,
+      },
+      body: JSON.stringify({ token }),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    if (!data.ok || !data.user) return null;
+    return data.user;
+  } catch (err) {
+    console.error("[auth] Token validation API call failed:", err.message);
+    return null;
+  }
+}
+
+// Cache validated users briefly to avoid hitting the shared-server on every
+// authed request. TTL is low enough that a logout or account change propagates
+// quickly, but high enough to absorb bursts (e.g. KB list + doc list in one page load).
+const userCache = new Map(); // token → { user, ts }
+const CACHE_TTL_MS = 30_000; // 30 seconds
+
+/**
+ * Soft auth: resolve the bearer token to a user row via the shared-server API.
+ * Returns { token, user } on success, null when there is no token / the shared
+ * server isn't available / the token doesn't resolve.
+ */
+export async function resolveUser(req) {
   const token = tokenFromHeader(req);
   if (!token) return null;
 
-  const sdb = getSharedDb();
-  if (!sdb) return null;
+  // Check cache first.
+  const cached = userCache.get(token);
+  if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
+    return { token, user: cached.user };
+  }
 
-  let session;
-  try {
-    session = sdb.prepare("SELECT account FROM sessions WHERE token = ?").get(token);
-  } catch {
+  const user = await validateTokenViaApi(token);
+  if (!user) {
+    userCache.delete(token);
     return null;
   }
-  if (!session) return null;
 
-  let user;
-  try {
-    user = sdb.prepare("SELECT * FROM users WHERE account = ?").get(session.account);
-  } catch {
-    return null;
-  }
-  if (!user) return null;
-
+  userCache.set(token, { user, ts: Date.now() });
   return { token, user };
 }
 
@@ -75,37 +82,27 @@ export function resolveUser(req) {
  * Express middleware: resolves the bearer token to a live user row and hangs
  * it on req.user, or 401s. Use on every route that needs identity.
  */
-export function requireAuth(req, res, next) {
+export async function requireAuth(req, res, next) {
   const token = tokenFromHeader(req);
   if (!token) {
     return res.status(401).json({ ok: false, error: "unauthorized" });
   }
 
-  const sdb = getSharedDb();
-  if (!sdb) {
-    return res.status(503).json({ ok: false, error: "auth_service_unavailable" });
+  // Check cache first.
+  const cached = userCache.get(token);
+  if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
+    req.user = cached.user;
+    req.token = token;
+    return next();
   }
 
-  let session;
-  try {
-    session = sdb.prepare("SELECT account FROM sessions WHERE token = ?").get(token);
-  } catch {
-    return res.status(503).json({ ok: false, error: "auth_service_unavailable" });
-  }
-  if (!session) {
-    return res.status(401).json({ ok: false, error: "unauthorized" });
-  }
-
-  let user;
-  try {
-    user = sdb.prepare("SELECT * FROM users WHERE account = ?").get(session.account);
-  } catch {
-    return res.status(503).json({ ok: false, error: "auth_service_unavailable" });
-  }
+  const user = await validateTokenViaApi(token);
   if (!user) {
+    userCache.delete(token);
     return res.status(401).json({ ok: false, error: "unauthorized" });
   }
 
+  userCache.set(token, { user, ts: Date.now() });
   req.user = user;
   req.token = token;
   next();

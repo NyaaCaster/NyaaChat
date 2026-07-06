@@ -10,6 +10,7 @@ import express from "express";
 import { db } from "./db.js";
 import { accountRouter } from "./routes/account.js";
 import { charactersRouter, coversRouter } from "./routes/characters.js";
+import { internalRouter } from "./routes/internal.js";
 
 const PORT = Number(process.env.PORT) || 5107;
 
@@ -36,6 +37,7 @@ app.use("/account", accountRouter);
 // /api/shared/covers.
 app.use("/characters", charactersRouter);
 app.use("/covers", coversRouter);
+app.use("/internal", internalRouter);
 
 app.listen(PORT, () => {
   console.log(`[nyaachat-shared] listening on :${PORT}`);
