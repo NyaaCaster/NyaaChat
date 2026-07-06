@@ -115,6 +115,11 @@ export function UserAccountModal({ isOpen, onClose }: UserAccountModalProps) {
     })();
   }, [isOpen, hydrated]);
 
+  // Reset hydration flag when modal closes so the next open will re-fetch.
+  useEffect(() => {
+    if (!isOpen) setHydrated(false);
+  }, [isOpen]);
+
   const applyProfile = useCallback(async (profile: AccountProfile, token: string) => {
     const next = { token, profile };
     setSession(next);
@@ -532,7 +537,7 @@ function AccountPanel({
             </button>
           </div>
         </Row>
-        <Row label="ComfyUI图包">
+        <Row label="NyaaComfyUI图包">
           <div className="flex items-center gap-2">
             <span className="inline-flex items-center gap-1 text-sm text-gray-700 dark:text-gray-300">
               <Image size={14} /> 剩余 {profile.comfyuiPackRemaining} 次
@@ -540,7 +545,7 @@ function AccountPanel({
             <button
               onClick={() => {
                 setPendingExpand({
-                  type: "ComfyUI图包",
+                  type: "NyaaComfyUI图包",
                   cost: COMFY_PACK_COST,
                   stepLabel: `+${COMFY_PACK_STEP} 次`,
                   handler: expandComfyuiPack,

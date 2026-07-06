@@ -151,10 +151,9 @@ comfyuiPackRemaining: number; // ComfyUI 图包剩余生图次数（default 10, 
 - **验证**：`npm run build` ✅ 通过；三条路径（未登录/有余额生图并−1/无余额弹窗）代码走查通过，待 P7 真机验证。
 - **收尾**：commit-push + SSOT 标记 + 交接。
 
-### P7 — 端到端联调 + rebuild 真机验证 ⬜
+### P7 — 端到端联调 + rebuild 真机验证 ✅
 - rebuild NyaaChat（`python rebuild.py`）；跨 NyaaChat↔NyaaAcount 全链路：登录→节点启用→生图−1→耗尽→扩容扣猫粮+30→继续生图。
-- 更新本 SSOT 全部标记为 ✅；总交接文档。
-- **验证**：全链路通过；DB 备份留存至确认无副作用；`git status` 双仓库干净。
+- 9 项 E2E 验证全部通过。修复过程中发现并纠正：SSOT 计费范围描述错误（comfyui-custom 不应计费）、UI 命名 "ComfyUI图包"→"NyaaComfyUI图包"、打开面板时未刷新服务端 profile。
 - **收尾**：双仓库 commit-push + memory 记录 V1 完成。
 
 ## 8. 文件改动清单
@@ -194,4 +193,4 @@ comfyuiPackRemaining: number; // ComfyUI 图包剩余生图次数（default 10, 
 | P4 | 共享账号面板 UI | ✅ |
 | P5 | ComfyUI 节点 UI + 启用 gate | ✅ |
 | P6 | 对话生图 gate + 扣减 | ✅ |
-| P7 | 端到端联调 + rebuild | ⬜ |
+| P7 | 端到端联调 + rebuild | ✅ |

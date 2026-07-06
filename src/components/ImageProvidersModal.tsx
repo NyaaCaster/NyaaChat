@@ -23,7 +23,9 @@ import { ConfirmDialog } from "./ConfirmDialog";
 import { UserAccountModal } from "./UserAccountModal";
 import {
   expandComfyuiPack as apiExpandComfyuiPack,
+  fetchProfile,
   loadStoredAccount,
+  saveStoredAccount,
   type AccountProfile,
   type StoredAccount,
 } from "../lib/sharedAccountApi";
@@ -104,7 +106,23 @@ export function ImageProvidersModal({
   }, [providers, selectedId]);
 
   useEffect(() => {
-    if (isOpen) { setMobileView("list"); loadStoredAccount().then(setAccount); }
+    if (isOpen) {
+      setMobileView("list");
+      loadStoredAccount().then((stored) => {
+        setAccount(stored);
+        // Refresh from server so pack remaining is always current.
+        if (stored) {
+          fetchProfile(stored.token).then(async (r) => {
+            if (r.kind === "ok") {
+              const next = { token: stored.token, profile: r.data.profile };
+              setAccount(next);
+              await saveStoredAccount(next);
+            }
+            // 401 / network: keep cached data, user may re-login or is offline.
+          });
+        }
+      });
+    }
   }, [isOpen]);
 
   const handleProfile = (profile: AccountProfile) => {
@@ -890,7 +908,7 @@ function ComfyProviderDetail({
                 <button
                   onClick={() => {
                     setPendingExpand({
-                      type: "ComfyUI图包",
+                      type: "NyaaComfyUI图包",
                       cost: 5,
                       stepLabel: "+30 次",
                       handler: expandComfyuiPack,
