@@ -124,7 +124,7 @@ comfyuiPackRemaining: number; // ComfyUI 图包剩余生图次数（default 10, 
 - **验证**：重启 NyaaAcount 容器后，构造 consume 测试（临时脚本）确认 action 已知、金额 5、余额不足/成功路径正确；**测试后清理临时用户与脚本、恢复余额**。
 - **收尾**：NyaaAcount 侧 commit-push + 交接。
 
-### P2 — shared-server 后端 ⬜
+### P2 — shared-server 后端 ✅
 - 改 `shared-server/src/db.js`：ALTER TABLE 加 `comfyui_pack_remaining`（try/catch）。
 - 改 `shared-server/src/routes/account.js`：常量 + `expandComfyuiPack`/`consumeComfyuiPack` prepared statements + 两个端点 + `profileOf` 加字段。
 - **验证**：DB 备份 → rebuild → 用测试 token 打两个端点（扩容扣猫粮、消耗 −1、耗尽 409、退款补偿路径）；`profileOf` 返回新字段；**测试后清理**。
@@ -189,7 +189,7 @@ comfyuiPackRemaining: number; // ComfyUI 图包剩余生图次数（default 10, 
 | P | 阶段 | 状态 |
 |---|------|------|
 | P1 | NyaaAcount 定价登记 | ✅ |
-| P2 | shared-server 后端 | ⬜ |
+| P2 | shared-server 后端 | ✅ |
 | P3 | 前端数据层 | ⬜ |
 | P4 | 共享账号面板 UI | ⬜ |
 | P5 | ComfyUI 节点 UI + 启用 gate | ⬜ |
