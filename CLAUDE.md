@@ -16,13 +16,29 @@
 - 共享后端独立重建使用：`python rebuild-shared.py` / `python rebuild-shared.py --no-cache`。
 - 详细规则见 `.claude/skills/rebuild/SKILL.md` 和 `.claude/skills/rebuild-shared/SKILL.md`。
 
+## 三仓库结构（拆分后）
+
+NyaaChat 目录下现在是**三个各自独立的 Git 仓库**，共用同一份工作树（详见 memory `nyaachat-three-repo-split`）：
+
+| 仓库根 | 类型 | remote |
+| --- | --- | --- |
+| `NyaaChat/`（主仓） | 公开 | `github.com/NyaaCaster/NyaaChat.git` |
+| `NyaaChat/nyaachat-knowledge/` | 私有（专利） | `github.com/NyaaCaster/NyaaChat-knowledge-server.git` |
+| `NyaaChat/shared-server/` | 私有（专利） | `github.com/NyaaCaster/NyaaChat-shared-server.git` |
+
+- 主仓 `.gitignore` **已忽略** `/nyaachat-knowledge/` 和 `/shared-server/`——在主仓根跑 `git status` **看不到**这两个子目录的改动。
+- 三仓库**分开提交、分开推送**，各有各的 `origin master`。
+- 改子服务代码必须 `cd` 进对应子目录（或用 `git -C <子目录>`）再执行 git 操作。
+- Docker 构建 / `rebuild*.py` 照旧从**主仓根**运行，不受拆分影响（`build:` 走磁盘相对路径）。
+
 ## Git 提交与推送
 
-每当用户明确要求"提交"、"commit"、"推送"、"push"、"上传到 GitHub"等，使用 `commit-push` skill 完成。要点：
+每当用户明确要求"提交"、"commit"、"推送"、"push"、"上传到 GitHub"等，使用 `commit-push` skill 完成（该 skill 已统管三仓）。要点：
 
 - **未经用户明确请求，绝不自动 commit / push**。
+- **先辨识改动属于哪个仓库**（主仓 / knowledge / shared），进入对应仓库根再操作；一次提交只针对一个仓库，跨仓改动分别走完整流程。
 - 提交信息使用 **Conventional Commits**（英文，小写起首），与仓库历史风格一致；**不**附加 `Co-Authored-By` 行。
-- 始终用 `git add <file>` 明确指定文件，**禁止** `git add -A` / `git add .`。
+- 始终用 `git add <file>` 明确指定文件，**禁止** `git add -A` / `git add .`。子仓的 `.env`（含密钥）绝不入库。
 - 严禁：force push、`--amend` 已推送的 commit、`--no-verify`、修改 `git config`、`reset --hard` 等高破坏性操作（除非用户显式同意）。
 - 详细规则见 `.claude/skills/commit-push/SKILL.md`。
 
