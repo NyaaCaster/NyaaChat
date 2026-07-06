@@ -16,6 +16,7 @@ import {
   ThumbsDown,
   HardDrive,
   Book,
+  Image,
   Gift,
 } from "lucide-react";
 import { BaseModal } from "./BaseModal";
@@ -28,6 +29,7 @@ import {
   expandSlot as apiExpandSlot,
   expandCharStorage as apiExpandCharStorage,
   expandChatStorage as apiExpandChatStorage,
+  expandComfyuiPack as apiExpandComfyuiPack,
   fetchProfile,
   loadStoredAccount,
   login as apiLogin,
@@ -304,6 +306,8 @@ function AccountPanel({
   const KB_HARD_LIMIT = 50;
   const STORAGE_COST = 5;
   const STORAGE_STEP = 12 * 1024 * 1024; // 12 MB
+  const COMFY_PACK_COST = 5;
+  const COMFY_PACK_STEP = 30;
 
   const atSlotCeiling = profile.slotMax >= SLOT_CEILING;
   const atKbCeiling = profile.kbMax >= KB_HARD_LIMIT;
@@ -359,6 +363,16 @@ function AccountPanel({
     if (r.kind === "ok") {
       onProfile(r.data.profile);
       flash("ok", `已扩容 +12 MB，扣除 ${STORAGE_COST} 猫粮`);
+    } else {
+      flash("err", messageFor(r));
+    }
+  };
+
+  const expandComfyuiPack = async () => {
+    const r = await apiExpandComfyuiPack(token);
+    if (r.kind === "ok") {
+      onProfile(r.data.profile);
+      flash("ok", `已扩容 +${COMFY_PACK_STEP} 次，扣除 ${COMFY_PACK_COST} 猫粮`);
     } else {
       flash("err", messageFor(r));
     }
@@ -511,6 +525,29 @@ function AccountPanel({
               }}
               disabled={expanding || atKbCeiling}
               title={atKbCeiling ? "已达上限 50" : `花费 ${KB_COST} 猫粮 +${KB_STEP} 知识库栈`}
+              className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-blue-600 dark:text-blue-400 border border-blue-500/30 hover:bg-blue-500/10 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {expanding ? <Loader2 size={13} className="animate-spin" /> : <PackagePlus size={13} />}{" "}
+              扩容
+            </button>
+          </div>
+        </Row>
+        <Row label="ComfyUI图包">
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-1 text-sm text-gray-700 dark:text-gray-300">
+              <Image size={14} /> 剩余 {profile.comfyuiPackRemaining} 次
+            </span>
+            <button
+              onClick={() => {
+                setPendingExpand({
+                  type: "ComfyUI图包",
+                  cost: COMFY_PACK_COST,
+                  stepLabel: `+${COMFY_PACK_STEP} 次`,
+                  handler: expandComfyuiPack,
+                });
+              }}
+              disabled={expanding}
+              title={`花费 ${COMFY_PACK_COST} 猫粮 +${COMFY_PACK_STEP} 次`}
               className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-blue-600 dark:text-blue-400 border border-blue-500/30 hover:bg-blue-500/10 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {expanding ? <Loader2 size={13} className="animate-spin" /> : <PackagePlus size={13} />}{" "}
