@@ -130,7 +130,7 @@ comfyuiPackRemaining: number; // ComfyUI 图包剩余生图次数（default 10, 
 - **验证**：DB 备份 → rebuild → 用测试 token 打两个端点（扩容扣猫粮、消耗 −1、耗尽 409、退款补偿路径）；`profileOf` 返回新字段；**测试后清理**。
 - **收尾**：commit-push + SSOT 标记 + 交接。
 
-### P3 — 前端数据层 ⬜
+### P3 — 前端数据层 ✅
 - 改 `src/lib/sharedAccountApi.ts`：`AccountProfile` 加 `comfyuiPackRemaining` + `expandComfyuiPack(token)` + `consumeComfyuiPack(token)`（返回 `{remaining}`）。
 - **验证**：`tsc --noEmit` + `eslint` 通过；类型贯通。
 - **收尾**：commit-push + SSOT 标记 + 交接。
@@ -190,7 +190,7 @@ comfyuiPackRemaining: number; // ComfyUI 图包剩余生图次数（default 10, 
 |---|------|------|
 | P1 | NyaaAcount 定价登记 | ✅ |
 | P2 | shared-server 后端 | ✅ |
-| P3 | 前端数据层 | ⬜ |
+| P3 | 前端数据层 | ✅ |
 | P4 | 共享账号面板 UI | ⬜ |
 | P5 | ComfyUI 节点 UI + 启用 gate | ⬜ |
 | P6 | 对话生图 gate + 扣减 | ⬜ |
