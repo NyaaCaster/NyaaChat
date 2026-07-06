@@ -23,3 +23,8 @@ public/extensions/registry.json
 # Generated outbound allowlist for the ext-host sidecar, aggregated from
 # installed extensions' declared network_endpoints at rebuild time.
 ext-host/network-allowlist.generated.json
+# Patent-protected subservices — maintained in separate private repos
+# (NyaaChat-knowledge-server / NyaaChat-shared-server). Kept in-tree locally
+# for development & Docker build only; NOT part of this public repo.
+/nyaachat-knowledge/
+/shared-server/
