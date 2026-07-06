@@ -7,6 +7,7 @@ import {
   Image as ImageIcon,
   ListChecks,
   Loader2,
+  PackagePlus,
   Plus,
   Sparkles,
   Trash2,
@@ -19,6 +20,13 @@ import { Field, FieldHint, ToggleSwitch, DeleteModelButton } from "./SettingsFor
 import { ImageProviderIcon } from "./icons/providerIcons";
 import { ManageImageModelsModal } from "./ManageImageModelsModal";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { UserAccountModal } from "./UserAccountModal";
+import {
+  expandComfyuiPack as apiExpandComfyuiPack,
+  loadStoredAccount,
+  type AccountProfile,
+  type StoredAccount,
+} from "../lib/sharedAccountApi";
 import { ImageProviderTypeModal, type AddableImageProviderKind } from "./ImageProviderTypeModal";
 import { ComfyWorkflowInfoModal } from "./ComfyWorkflowInfoModal";
 import {
@@ -86,6 +94,8 @@ export function ImageProvidersModal({
   const [addTypeOpen, setAddTypeOpen] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [workflowInfoOpen, setWorkflowInfoOpen] = useState(false);
+  const [account, setAccount] = useState<StoredAccount | null>(null);
+  const [isAccountOpen, setIsAccountOpen] = useState(false);
 
   useEffect(() => {
     if (!providers.find((p) => p.id === selectedId) && providers[0]) {
@@ -94,8 +104,12 @@ export function ImageProvidersModal({
   }, [providers, selectedId]);
 
   useEffect(() => {
-    if (isOpen) setMobileView("list");
+    if (isOpen) { setMobileView("list"); loadStoredAccount().then(setAccount); }
   }, [isOpen]);
+
+  const handleProfile = (profile: AccountProfile) => {
+    setAccount((prev) => prev ? { ...prev, profile } : prev);
+  };
 
   const selected = providers.find((p) => p.id === selectedId);
   const manageModelsFor = providers.find((p) => p.id === manageModelsForId) ?? null;
@@ -229,6 +243,9 @@ export function ImageProvidersModal({
                         : undefined
                     }
                     onOpenWorkflowInfo={() => setWorkflowInfoOpen(true)}
+                    account={account}
+                    onOpenAccount={() => setIsAccountOpen(true)}
+                    onProfile={handleProfile}
                   />
                 </div>
               </>
@@ -251,6 +268,8 @@ export function ImageProvidersModal({
         isOpen={workflowInfoOpen}
         onClose={() => setWorkflowInfoOpen(false)}
       />
+
+      <UserAccountModal isOpen={isAccountOpen} onClose={() => setIsAccountOpen(false)} />
 
       <ConfirmDialog
         isOpen={!!pendingDelete}
@@ -343,6 +362,9 @@ interface ImageProviderDetailProps {
   onOpenManage: () => void;
   onRequestDelete?: () => void;
   onOpenWorkflowInfo: () => void;
+  account: StoredAccount | null;
+  onOpenAccount: () => void;
+  onProfile: (profile: AccountProfile) => void;
 }
 
 function ImageProviderDetail(props: ImageProviderDetailProps) {
@@ -361,11 +383,13 @@ function DetailHeader({
   subtitle,
   onUpdate,
   onRequestDelete,
+  onBeforeEnable,
 }: {
   provider: ImageProvider;
   subtitle: string;
   onUpdate: (next: ImageProvider) => void;
   onRequestDelete?: () => void;
+  onBeforeEnable?: () => boolean;
 }) {
   const editable = isCustomKind(provider.kind);
   const [draftName, setDraftName] = useState(provider.name);
@@ -399,7 +423,10 @@ function DetailHeader({
       <div className="flex items-center gap-2 flex-shrink-0">
         <ToggleSwitch
           checked={provider.enabled}
-          onChange={(next) => onUpdate({ ...provider, enabled: next })}
+          onChange={(next) => {
+            if (next && onBeforeEnable && !onBeforeEnable()) return;
+            onUpdate({ ...provider, enabled: next });
+          }}
           label={provider.enabled ? "已启用" : "已禁用"}
         />
         {onRequestDelete && (
@@ -642,6 +669,9 @@ function ComfyProviderDetail({
   onUpdate,
   onRequestDelete,
   onOpenWorkflowInfo,
+  account,
+  onOpenAccount,
+  onProfile,
 }: ImageProviderDetailProps) {
   const isCustom = provider.kind === "comfyui-custom";
   const [draftBaseUrl, setDraftBaseUrl] = useState(provider.baseUrl);
@@ -753,10 +783,30 @@ function ComfyProviderDetail({
     }
   };
 
+  // NyaaComfyui图包 (P5): login gate + expand
+  const [expanding, setExpanding] = useState(false);
+  const [pendingExpand, setPendingExpand] = useState<{
+    type: string; cost: number; stepLabel: string; handler: () => Promise<void>;
+  } | null>(null);
+
+  const handleBeforeEnable = () => {
+    if (!account) { onOpenAccount(); return false; }
+    return true;
+  };
+
+  const expandComfyuiPack = async () => {
+    if (!account || expanding) return;
+    setExpanding(true);
+    const r = await apiExpandComfyuiPack(account.token);
+    if (r.kind === "ok") { onProfile(r.data.profile); }
+    setExpanding(false);
+  };
+
   const currentArt = provider.comfyArtStyle ?? "风格4.5.2";
   const currentWorkflow = comfyWorkflowById(provider.comfyWorkflowId);
 
   return (
+    <>
     <div className="space-y-6">
       <DetailHeader
         provider={provider}
@@ -767,6 +817,7 @@ function ComfyProviderDetail({
         }
         onUpdate={onUpdate}
         onRequestDelete={onRequestDelete}
+        onBeforeEnable={handleBeforeEnable}
       />
 
       {isCustom && (
@@ -825,6 +876,41 @@ function ComfyProviderDetail({
           )}
         </div>
         <FieldHint>仅探测服务器是否可访问（请求 /system_stats），不会发起生图。</FieldHint>
+      </Field>
+
+      <Field label="图包剩余">
+        <div className="flex items-center gap-2 flex-wrap">
+          {account ? (
+            <>
+              <span className="inline-flex items-center gap-1 text-sm text-gray-700 dark:text-gray-300">
+                <ImageIcon size={14} /> 剩余 {account.profile.comfyuiPackRemaining} 次
+              </span>
+              <button
+                onClick={() => {
+                  setPendingExpand({
+                    type: "ComfyUI图包",
+                    cost: 5,
+                    stepLabel: "+30 次",
+                    handler: expandComfyuiPack,
+                  });
+                }}
+                disabled={expanding}
+                title="花费 5 猫粮 +30 次"
+                className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-blue-600 dark:text-blue-400 border border-blue-500/30 hover:bg-blue-500/10 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {expanding ? <Loader2 size={13} className="animate-spin" /> : <PackagePlus size={13} />}{" "}
+                扩容
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={onOpenAccount}
+              className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
+            >
+              登录后可见
+            </button>
+          )}
+        </div>
       </Field>
 
       <Field label="尺寸选择">
@@ -939,6 +1025,30 @@ function ComfyProviderDetail({
         <FieldHint>以当前 尺寸 / 工作流 / 画风 与内置测试提示词发起一次出图（不写入对话）。</FieldHint>
       </Field>
     </div>
+
+    <ConfirmDialog
+      isOpen={pendingExpand !== null}
+      title="扩容确认"
+      message={
+        <div className="space-y-2">
+          <p>
+            确认花费 <span className="inline-flex items-center gap-0.5 font-semibold text-orange-500">5</span> 猫粮
+            为「{pendingExpand?.type}」扩容 <span className="font-semibold">{pendingExpand?.stepLabel}</span>？
+          </p>
+        </div>
+      }
+      confirmText={`确认支付 ${pendingExpand?.cost ?? 0} 猫粮`}
+      cancelText="取消"
+      onConfirm={() => {
+        if (pendingExpand) {
+          const h = pendingExpand.handler;
+          setPendingExpand(null);
+          h();
+        }
+      }}
+      onCancel={() => setPendingExpand(null)}
+    />
+  </>
   );
 }
 
