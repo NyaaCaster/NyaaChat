@@ -130,6 +130,13 @@ db.exec(`
 		  db.exec("ALTER TABLE users ADD COLUMN chat_storage_max INTEGER NOT NULL DEFAULT 33554432");
 		} catch { /* column already exists — harmless */ }
 
+		// NyaaComfyui图包 (P2): consumable image-generation credits. Default 10
+		// free generations, expandable via catfood (+30 / 5 catfood), consumed
+		// per successful ComfyUI node generation (-1). No hard ceiling.
+		try {
+		  db.exec("ALTER TABLE users ADD COLUMN comfyui_pack_remaining INTEGER NOT NULL DEFAULT 10");
+		} catch { /* column already exists — harmless */ }
+
 		// Paid-feature adjustment (2026-07): reduce default slot_max from 20 to 10.
 		// Only affects users who never expanded (still at the old default of 20).
 		try {

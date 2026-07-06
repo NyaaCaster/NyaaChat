@@ -52,6 +52,11 @@ const CHAR_STORAGE_COST = 5;  // catfood charged per expansion
 const CHAT_STORAGE_STEP = 12 * 1024 * 1024; // 12 MB per expansion
 const CHAT_STORAGE_COST = 5;  // catfood charged per expansion
 
+// --- NyaaComfyui图包 limits (P2) ------------------------------------------
+const COMFY_PACK_FREE = 10;         // free credits for every new user
+const COMFY_PACK_EXPAND_STEP = 30;  // credits added per expansion
+const COMFY_PACK_EXPAND_COST = 5;   // catfood charged per expansion
+
 // --- statements -----------------------------------------------------------
 const getUser = db.prepare("SELECT * FROM users WHERE account = ?");
 const getUserByNyaaUid = db.prepare("SELECT * FROM users WHERE nyaa_uid = ?");
@@ -79,6 +84,15 @@ const expandCharStorage = db.prepare(
 );
 const expandChatStorage = db.prepare(
   "UPDATE users SET chat_storage_max = chat_storage_max + @step WHERE account = @account",
+);
+// NyaaComfyui图包 (P2): expand credit balance via catfood.
+const expandComfyuiPack = db.prepare(
+  "UPDATE users SET comfyui_pack_remaining = comfyui_pack_remaining + @step WHERE account = @account",
+);
+// NyaaComfyui图包 (P2): atomic consume 1 credit. WHERE remaining > 0
+// prevents going negative; changes === 0 means pack exhausted.
+const consumeComfyuiPack = db.prepare(
+  "UPDATE users SET comfyui_pack_remaining = comfyui_pack_remaining - 1 WHERE account = @account AND comfyui_pack_remaining > 0",
 );
 const aggStats = db.prepare(`
   SELECT
@@ -129,6 +143,7 @@ async function profileOf(user) {
     spentTotal,
     slotMax: user.slot_max,
     kbMax: user.kb_max,
+    comfyuiPackRemaining: user.comfyui_pack_remaining,
     charStorageMax: user.char_storage_max,
     chatStorageMax: user.chat_storage_max,
     stats: {
@@ -416,6 +431,52 @@ accountRouter.post("/expand-chat-storage", requireAuth, async (req, res) => {
     return res.status(500).json({ ok: false, error: "db_write_failed" });
   }
   return res.json({ ok: true, profile: await profileOf(getUser.get(account)) });
+});
+
+// --- expand NyaaComfyui图包 credits (P2 — via NyaaAcount) -----------------
+// POST /account/expand-comfyui-pack (auth) — same pattern as expand-kb,
+// but without a hard ceiling (comfyui credits can accumulate indefinitely).
+accountRouter.post("/expand-comfyui-pack", requireAuth, async (req, res) => {
+  const account = req.user.account;
+  const user = getUser.get(account);
+  if (!user.nyaa_uid) {
+    return res.status(400).json({ ok: false, error: "not_linked", detail: "账号未关联 NyaaAcount" });
+  }
+  const ref = `nyaachat:${account}:expand_comfyui_pack:${Date.now()}`;
+  const charge = await nyaacount.consume(user.nyaa_uid, "expand_comfyui_pack", COMFY_PACK_EXPAND_COST, ref);
+  if (!charge.ok) {
+    if (charge.data?.error === "insufficient_balance") {
+      return res.status(402).json({ ok: false, error: "insufficient" });
+    }
+    console.error("[expand-comfyui-pack] NyaaAcount consume failed:", charge.status, charge.data);
+    return res.status(503).json({ ok: false, error: "account_service_unavailable" });
+  }
+  try {
+    expandComfyuiPack.run({ account, step: COMFY_PACK_EXPAND_STEP });
+  } catch (err) {
+    console.error(`[expand-comfyui-pack] local write failed, refunding ${COMFY_PACK_EXPAND_COST} catfood:`, err.message);
+    await nyaacount.rechargeBalance(user.nyaa_uid, COMFY_PACK_EXPAND_COST, `${ref}:refund`);
+    return res.status(500).json({ ok: false, error: "db_write_failed" });
+  }
+  return res.json({ ok: true, profile: await profileOf(getUser.get(account)) });
+});
+
+// --- consume NyaaComfyui图包 credit (P2 — local only) ----------------------
+// POST /account/consume-comfyui-pack (auth) — atomic decrement with
+// WHERE remaining > 0 guard. Does NOT touch NyaaAcount.
+accountRouter.post("/consume-comfyui-pack", requireAuth, (req, res) => {
+  const account = req.user.account;
+  const user = getUser.get(account);
+  if (!user.nyaa_uid) {
+    return res.status(400).json({ ok: false, error: "not_linked", detail: "账号未关联 NyaaAcount" });
+  }
+  const result = consumeComfyuiPack.run({ account });
+  if (result.changes === 0) {
+    return res.status(409).json({ ok: false, error: "pack_exhausted" });
+  }
+  // Re-read the new remaining value in the same connection for accuracy.
+  const fresh = db.prepare("SELECT comfyui_pack_remaining FROM users WHERE account = ?").get(account);
+  return res.json({ ok: true, remaining: fresh.comfyui_pack_remaining });
 });
 
 // --- cloud settings upload --------------------------------------------------
