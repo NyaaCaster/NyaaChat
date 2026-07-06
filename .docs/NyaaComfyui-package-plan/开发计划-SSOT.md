@@ -140,7 +140,7 @@ comfyuiPackRemaining: number; // ComfyUI 图包剩余生图次数（default 10, 
 - **验证**：`npm run build` 通过；登录后可见剩余、扩容确认弹窗文案正确、扩容后刷新。
 - **收尾**：commit-push + SSOT 标记 + 交接。
 
-### P5 — ComfyUI 节点 UI（图包剩余 + 扩容 + 启用 gate）⬜
+### P5 — ComfyUI 节点 UI（图包剩余 + 扩容 + 启用 gate）✅
 - 改 `src/components/ImageProvidersModal.tsx`：连通性检查后加「图包剩余」区块 + 扩容按钮；启用开关登录 gate（未登录打开 UserAccountModal）。
 - **验证**：`npm run build`；节点详情显示剩余、扩容可用、未登录开关被拦并弹登录。
 - **收尾**：commit-push + SSOT 标记 + 交接。
@@ -192,6 +192,6 @@ comfyuiPackRemaining: number; // ComfyUI 图包剩余生图次数（default 10, 
 | P2 | shared-server 后端 | ✅ |
 | P3 | 前端数据层 | ✅ |
 | P4 | 共享账号面板 UI | ✅ |
-| P5 | ComfyUI 节点 UI + 启用 gate | ⬜ |
+| P5 | ComfyUI 节点 UI + 启用 gate | ✅ |
 | P6 | 对话生图 gate + 扣减 | ⬜ |
 | P7 | 端到端联调 + rebuild | ⬜ |
