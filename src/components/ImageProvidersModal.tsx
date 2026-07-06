@@ -817,7 +817,7 @@ function ComfyProviderDetail({
         }
         onUpdate={onUpdate}
         onRequestDelete={onRequestDelete}
-        onBeforeEnable={handleBeforeEnable}
+        onBeforeEnable={!isCustom ? handleBeforeEnable : undefined}
       />
 
       {isCustom && (
@@ -878,40 +878,43 @@ function ComfyProviderDetail({
         <FieldHint>仅探测服务器是否可访问（请求 /system_stats），不会发起生图。</FieldHint>
       </Field>
 
-      <Field label="图包剩余">
-        <div className="flex items-center gap-2 flex-wrap">
-          {account ? (
-            <>
-              <span className="inline-flex items-center gap-1 text-sm text-gray-700 dark:text-gray-300">
-                <ImageIcon size={14} /> 剩余 {account.profile.comfyuiPackRemaining} 次
-              </span>
+      {/* P6: pack UI only for NyaaComfyUI (comfyui-fixed), not user-custom servers */}
+      {!isCustom && (
+        <Field label="图包剩余">
+          <div className="flex items-center gap-2 flex-wrap">
+            {account ? (
+              <>
+                <span className="inline-flex items-center gap-1 text-sm text-gray-700 dark:text-gray-300">
+                  <ImageIcon size={14} /> 剩余 {account.profile.comfyuiPackRemaining} 次
+                </span>
+                <button
+                  onClick={() => {
+                    setPendingExpand({
+                      type: "ComfyUI图包",
+                      cost: 5,
+                      stepLabel: "+30 次",
+                      handler: expandComfyuiPack,
+                    });
+                  }}
+                  disabled={expanding}
+                  title="花费 5 猫粮 +30 次"
+                  className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-blue-600 dark:text-blue-400 border border-blue-500/30 hover:bg-blue-500/10 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {expanding ? <Loader2 size={13} className="animate-spin" /> : <PackagePlus size={13} />}{" "}
+                  扩容
+                </button>
+              </>
+            ) : (
               <button
-                onClick={() => {
-                  setPendingExpand({
-                    type: "ComfyUI图包",
-                    cost: 5,
-                    stepLabel: "+30 次",
-                    handler: expandComfyuiPack,
-                  });
-                }}
-                disabled={expanding}
-                title="花费 5 猫粮 +30 次"
-                className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-blue-600 dark:text-blue-400 border border-blue-500/30 hover:bg-blue-500/10 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                onClick={onOpenAccount}
+                className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
               >
-                {expanding ? <Loader2 size={13} className="animate-spin" /> : <PackagePlus size={13} />}{" "}
-                扩容
+                登录后可见
               </button>
-            </>
-          ) : (
-            <button
-              onClick={onOpenAccount}
-              className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
-            >
-              登录后可见
-            </button>
-          )}
-        </div>
-      </Field>
+            )}
+          </div>
+        </Field>
+      )}
 
       <Field label="尺寸选择">
         <div className="flex flex-wrap gap-2">

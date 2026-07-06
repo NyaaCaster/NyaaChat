@@ -869,6 +869,9 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
   const isComfyImage =
     activeImageProvider?.kind === "comfyui-fixed" ||
     activeImageProvider?.kind === "comfyui-custom";
+  // P6: only the project's own NyaaComfyUI instance (comfyui-fixed) enters
+  // the ComfyUI pack billing. User-custom ComfyUI servers are not billed.
+  const isComfyPack = activeImageProvider?.kind === "comfyui-fixed";
   const isImageApiReady = (() => {
     if (!activeImageProvider || !activeImageProvider.enabled) return false;
     if (isComfyImage) {
@@ -998,24 +1001,28 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
           });
 
           // P6: deduct 1 credit from the ComfyUI pack.
+          // Only comfyui-fixed (NyaaComfyUI) enters pack billing;
+          // comfyui-custom (user's own server) is not billed.
           // Fire-and-forget: the image is already delivered to the user,
           // so a deduction failure must not block the UX.
-          loadStoredAccount().then((acct) => {
-            if (!acct) return; // shouldn't happen (gate passed), but safe
-            consumeComfyuiPack(acct.token)
-              .then((r) => {
-                if (r.kind === "error") {
-                  onAddLog({
-                    direction: "info",
-                    content: "ComfyUI 图包消费失败",
-                    meta: { error: r.error, status: r.status },
-                  });
-                }
-                // "ok": remaining decremented successfully (no action needed)
-                // "network": server unreachable, silently ignored
-              })
-              .catch(() => { /* non-blocking: prevent unhandled rejection */ });
-          });
+          if (activeImageProvider?.kind === "comfyui-fixed") {
+            loadStoredAccount().then((acct) => {
+              if (!acct) return; // shouldn't happen (gate passed), but safe
+              consumeComfyuiPack(acct.token)
+                .then((r) => {
+                  if (r.kind === "error") {
+                    onAddLog({
+                      direction: "info",
+                      content: "ComfyUI 图包消费失败",
+                      meta: { error: r.error, status: r.status },
+                    });
+                  }
+                  // "ok": remaining decremented successfully (no action needed)
+                  // "network": server unreachable, silently ignored
+                })
+                .catch(() => { /* non-blocking: prevent unhandled rejection */ });
+            });
+          }
         } else {
           // OpenAI-compatible path.
           // Wire-level size strategy (kept in sync with imageApi.ts):
@@ -1160,9 +1167,11 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
       if (!msg) return;
 
       if (isComfyImage) {
-        // P6: gate check before LLM call to avoid wasted work
-        const gate = await checkComfyGate();
-        if (!gate) return;
+        // P6: gate check before LLM call — only NyaaComfyUI (comfyui-fixed)
+        if (isComfyPack) {
+          const gate = await checkComfyGate();
+          if (!gate) return;
+        }
 
         // Build an English prompt via the chat LLM first. Spin the source
         // message's button during this prep so the click feels responsive.
@@ -1224,15 +1233,15 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
       const prompt = (msg.imagePrompt || msg.content || "").trim();
       if (!prompt) return;
 
-      // P6: gate check for ComfyUI regenerate
-      if (isComfyImage) {
+      // P6: gate check for ComfyUI regenerate — only NyaaComfyUI (comfyui-fixed)
+      if (isComfyPack) {
         const gate = await checkComfyGate();
         if (!gate) return;
       }
 
       void runImageGeneration(prompt, id, id);
     },
-    [messages, runImageGeneration, isComfyImage],
+    [messages, runImageGeneration, isComfyPack],
   );
 
   // Load session when selected from history

@@ -14,7 +14,7 @@
 **范围边界（V1）**：
 - ✅ 覆盖：额度存储、扩容（+30/5猫粮）、生图成功后端 −1、剩余次数展示、登录 gate、三处入口判定。
 - ❌ 不覆盖：按次直扣猫粮模型、图包使用流水审计 UI、次数转赠。
-- ❌ 不计费节点：QinyAPI 节点、用户自定义的 OpenAI 兼容节点、用户自定义的 ComfyUI 节点。**仅 `comfyui-fixed` 和 `comfyui-custom` 进入图包计费。**
+- ❌ 不计费节点：QinyAPI 节点、用户自定义的 OpenAI 兼容节点、用户自定义的 ComfyUI 节点（`comfyui-custom`）。**仅 `comfyui-fixed`（本项目实例特有 NyaaComfyUI）进入图包计费。**
 
 ## 2. 已确认的架构方案
 
