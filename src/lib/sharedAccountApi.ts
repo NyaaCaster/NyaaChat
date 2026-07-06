@@ -33,6 +33,7 @@ export interface AccountProfile {
   spentTotal: number | null;
   slotMax: number;
   kbMax: number; // knowledge base stack limit (default 3, expandable)
+  comfyuiPackRemaining: number; // ComfyUI 图包剩余生图次数 (default 10, expandable)
   charStorageMax: number; // character card storage ceiling (bytes, default 32 MB)
   chatStorageMax: number; // chat history storage ceiling (bytes, default 32 MB)
   stats: AccountStats;
@@ -146,6 +147,10 @@ interface ProfilePayload {
   ok: true;
   profile: AccountProfile;
 }
+interface ConsumePackPayload {
+  ok: true;
+  remaining: number;
+}
 
 export function register(
   account: string,
@@ -215,6 +220,17 @@ export function expandCharStorage(token: string): Promise<ApiResult<ProfilePaylo
 // Expand the chat-history storage ceiling: +12 MB for 5 catfood, no hard cap.
 export function expandChatStorage(token: string): Promise<ApiResult<ProfilePayload>> {
   return request<ProfilePayload>("/expand-chat-storage", { method: "POST", token });
+}
+
+// Expand NyaaComfyui图包 credits: +30 generations for 5 catfood, no hard ceiling.
+export function expandComfyuiPack(token: string): Promise<ApiResult<ProfilePayload>> {
+  return request<ProfilePayload>("/expand-comfyui-pack", { method: "POST", token });
+}
+
+// Consume 1 NyaaComfyui図包 credit after a successful ComfyUI generation.
+// Returns the new remaining count. 409 "pack_exhausted" when out of credits.
+export function consumeComfyuiPack(token: string): Promise<ApiResult<ConsumePackPayload>> {
+  return request<ConsumePackPayload>("/consume-comfyui-pack", { method: "POST", token });
 }
 
 // Redeem a code for catfood. The code is issued/validated by a third-party
