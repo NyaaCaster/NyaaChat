@@ -135,7 +135,7 @@ comfyuiPackRemaining: number; // ComfyUI 图包剩余生图次数（default 10, 
 - **验证**：`tsc --noEmit` + `eslint` 通过；类型贯通。
 - **收尾**：commit-push + SSOT 标记 + 交接。
 
-### P4 — 共享账号面板 UI ⬜
+### P4 — 共享账号面板 UI ✅
 - 改 `src/components/UserAccountModal.tsx`：economy 区块加「ComfyUI图包」行 + 扩容按钮（复用 pendingExpand/ConfirmDialog）。
 - **验证**：`npm run build` 通过；登录后可见剩余、扩容确认弹窗文案正确、扩容后刷新。
 - **收尾**：commit-push + SSOT 标记 + 交接。
@@ -191,7 +191,7 @@ comfyuiPackRemaining: number; // ComfyUI 图包剩余生图次数（default 10, 
 | P1 | NyaaAcount 定价登记 | ✅ |
 | P2 | shared-server 后端 | ✅ |
 | P3 | 前端数据层 | ✅ |
-| P4 | 共享账号面板 UI | ⬜ |
+| P4 | 共享账号面板 UI | ✅ |
 | P5 | ComfyUI 节点 UI + 启用 gate | ⬜ |
 | P6 | 对话生图 gate + 扣减 | ⬜ |
 | P7 | 端到端联调 + rebuild | ⬜ |
