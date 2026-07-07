@@ -318,7 +318,7 @@ function normalizeImageProviders(list: any[]): ImageProvider[] {
         comfySize: p.comfySize ?? d.comfySize,
         comfyWorkflowId: p.comfyWorkflowId ?? d.comfyWorkflowId,
         comfyArtStyle: p.comfyArtStyle ?? d.comfyArtStyle,
-        models: Array.isArray(p.models) && p.models.length > 0 ? p.models : d.models,
+        models: d.models,
         lastUsedModel: p.lastUsedModel ?? d.lastUsedModel,
         name: p.kind === "comfyui-fixed" ? COMFYUI_FIXED_NAME : p.name,
       } as ImageProvider;

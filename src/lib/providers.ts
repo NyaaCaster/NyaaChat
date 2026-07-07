@@ -206,6 +206,20 @@ export function comfyWorkflowById(id: string | undefined): ComfyWorkflowMeta {
   );
 }
 
+/**
+ * Resolve the active ComfyUI workflow from the provider's current selection.
+ * Tries the user-picked model name (lastUsedModel / models[0].id) first,
+ * then falls back to the legacy comfyWorkflowId field.
+ */
+export function resolveComfyWorkflow(provider: ImageProvider): ComfyWorkflowMeta {
+  const modelName = provider.lastUsedModel || provider.models[0]?.id || "";
+  const byName = COMFY_WORKFLOWS.find(
+    (w) => w.name === modelName && !w.disabled,
+  );
+  if (byName) return byName;
+  return comfyWorkflowById(provider.comfyWorkflowId);
+}
+
 export const IMAGE_PROVIDER_PRESETS: ImageProviderPresetMeta[] = [
   {
     kind: "qiny",
@@ -236,7 +250,7 @@ export function defaultComfyFields(): Pick<
     comfySize: DEFAULT_COMFY_SIZE,
     comfyWorkflowId: wf.id,
     comfyArtStyle: DEFAULT_COMFY_ART_STYLE,
-    models: [{ id: wf.name }],
+    models: COMFY_WORKFLOWS.filter(w => !w.disabled).map(w => ({ id: w.name })),
     lastUsedModel: wf.name,
   };
 }

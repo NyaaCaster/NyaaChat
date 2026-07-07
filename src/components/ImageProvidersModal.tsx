@@ -737,7 +737,7 @@ function ComfyProviderDetail({
     onUpdate({
       ...provider,
       comfyWorkflowId: wf.id,
-      models: [{ id: wf.name }],
+      models: COMFY_WORKFLOWS.filter(w => !w.disabled).map(w => ({ id: w.name })),
       lastUsedModel: wf.name,
     });
   };

@@ -1,5 +1,5 @@
 import { ComfyImageSize, ImageProvider } from "../types";
-import { comfyWorkflowById } from "./providers";
+import { resolveComfyWorkflow } from "./providers";
 
 /**
  * ComfyUI image-generation client.
@@ -464,7 +464,7 @@ export async function generateComfyImage(args: GenerateComfyImageArgs): Promise<
   const { provider, prompt, onProgress, signal } = args;
   if (!prompt.trim()) throw new ComfyUIError("提示词为空");
 
-  const wf = comfyWorkflowById(provider.comfyWorkflowId);
+  const wf = resolveComfyWorkflow(provider);
   if (!wf.file || wf.disabled) {
     throw new ComfyUIError(`工作流「${wf.name}」暂不可用`);
   }
