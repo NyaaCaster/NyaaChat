@@ -40,6 +40,8 @@ services:
 
   ext-host:
     build: ./ext-host
+    env_file:
+      - .env
     environment:
       - TZ=Asia/Shanghai
       - PORT=3099

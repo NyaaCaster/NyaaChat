@@ -119,6 +119,54 @@ function pickString(value, fallback) {
   return typeof value === "string" && value.trim() ? value.trim() : fallback;
 }
 
+// ── COMFYUI_FIXED T2I Agent ────────────────────────────────────────────────
+// 服务端 LLM 代理——从 process.env 取部署方 key/baseURL/model，前端 body 只带
+// messages。密钥绝不进入前端 bundle。对标 proxyTts 模式，但无 preset/whitelist。
+const T2I_AGENT_ENV_KEYS = [
+  "COMFYUI_FIXED_T2I_AGENT_API_BASEURL",
+  "COMFYUI_FIXED_T2I_AGENT_API_APIKEY",
+  "COMFYUI_FIXED_T2I_AGENT_API_MODEL",
+];
+
+async function proxyT2iAgent(request) {
+  const [baseURL, apiKey, model] = T2I_AGENT_ENV_KEYS.map((k) => process.env[k]);
+  if (!baseURL || !apiKey || !model) {
+    return errorResponse(
+      503,
+      "t2i_agent_not_configured",
+      "T2I agent is not configured. Set COMFYUI_FIXED_T2I_AGENT_API_BASEURL, _APIKEY, and _MODEL in .env.",
+    );
+  }
+
+  const payload = await readJson(request, 256 * 1024);
+  const messages = Array.isArray(payload.messages) ? payload.messages : [];
+  if (!messages.length) {
+    return errorResponse(400, "t2i_agent_messages_required", "A non-empty messages array is required.");
+  }
+
+  // model 由服务端 env 强制，忽略 body 中的任何 key/baseURL/model 字段
+  const upstreamBody = { model, messages, stream: false };
+
+  const upstream = await fetch(`${baseURL.replace(/\/$/, "")}/v1/chat/completions`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${apiKey}`,
+      "user-agent": "NyaaChat-Ext-Host",
+    },
+    body: JSON.stringify(upstreamBody),
+    signal: AbortSignal.timeout(Number(process.env.T2I_AGENT_TIMEOUT_MS || 120000)),
+  });
+
+  const responseHeaders = new Headers();
+  responseHeaders.set("content-type", "application/json; charset=utf-8");
+  return new Response(upstream.body, {
+    status: upstream.status,
+    statusText: upstream.statusText,
+    headers: responseHeaders,
+  });
+}
+
 async function proxyTts(request) {
   if (!allowedTtsEndpoints.size) {
     return errorResponse(503, "tts_not_configured", "No TTS endpoints are configured.");
@@ -225,6 +273,9 @@ async function route(request) {
   }
   if (request.method === "POST" && path === "/openai/custom/generate-voice") {
     return proxyTts(request);
+  }
+  if (request.method === "POST" && path === "/t2i-agent/chat") {
+    return proxyT2iAgent(request);
   }
 
   return errorResponse(404, "not_found", "Endpoint not found.");
