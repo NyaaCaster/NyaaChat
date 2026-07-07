@@ -17,8 +17,7 @@
   },
   "15": {
     "inputs": {
-      "vae_name": "ae.sft",
-      "+": null
+      "vae_name": "qwen_image_vae.safetensors"
     },
     "class_type": "VAELoader",
     "_meta": {
@@ -34,7 +33,7 @@
       "scheduler": "simple",
       "denoise": 1,
       "model": [
-        "44",
+        "119",
         0
       ],
       "positive": [
@@ -63,14 +62,13 @@
     },
     "class_type": "EmptyLatentImage",
     "_meta": {
-      "title": "空Latent图像"
+      "title": "尺寸"
     }
   },
   "44": {
     "inputs": {
-      "unet_name": "darkBeast_dbzit9DIMRclaw.safetensors",
-      "weight_dtype": "default",
-      "+": null
+      "unet_name": "Krea2RedMix2.1-INT8-Convrot-ComfyUI.safetensors",
+      "weight_dtype": "default"
     },
     "class_type": "UNETLoader",
     "_meta": {
@@ -79,10 +77,9 @@
   },
   "45": {
     "inputs": {
-      "clip_name": "zImageTurbo_turbo_txt.safetensors",
-      "type": "lumina2",
-      "device": "default",
-      "+": null
+      "clip_name": "qwen3vl_4b_bf16.safetensors",
+      "type": "krea2",
+      "device": "default"
     },
     "class_type": "CLIPLoader",
     "_meta": {
@@ -96,8 +93,8 @@
         0
       ],
       "clip": [
-        "45",
-        0
+        "119",
+        1
       ]
     },
     "class_type": "CLIPTextEncode",
@@ -107,7 +104,7 @@
   },
   "83": {
     "inputs": {
-      "prompt": "masterpiece,best quality,highres, cinematic lighting, atmospheric,\n漂亮的亚洲人，明星气质，五官精致，青涩懵懂，皮肤白皙，整体呈现出一种现实美感,仿佛是用普通相机拍摄的真实瞬间,细节丰富,质感自然,具有浓厚的虐待气息与青春美感,\nlight leaks,light rendering,light-rays,ray tracing,lens flare,volumetric lights,ray tracing,lens flare,see-through silhouette,\nrim lighting,volumetric lights,\nhigh-key and low-variance brightness scale,\nbokeh,blurry foreground,light particles,\n\n"
+      "prompt": "masterpiece,highres, atmospheric,\n漂亮的中国女孩，明星气质，五官精致，皮肤白皙光滑无瑕，淡妆中唇色光泽，眼线淡雅，皮肤质感细腻、带有天鹅绒般的触感，全部呈现出自然的白皙暖象牙肤色，保留了真实的自然纹理，而非刻意的磨皮效果，整体呈现出一种青春美感。\n这是一张真实、具有亲密感的生活照片，营造出一种充满生活气息、温馨舒适的午后氛围，带着一种安静、温柔且放松的气氛，阴影处则保留了微妙的细节层次与胶片般的颗粒感。\n空气中有光线颗粒感，整体色调与情绪显得慵懒、柔和、私密且亲密——就像温暖午后光影里一个安静、随性的瞬间，充满了真实抓拍的质感：带着细微的不完美、发丝与背景自然流露的凌乱感、中等景深，以及地道的居家摄影特质。\n\nPOV,景深模糊，\nray tracing,see-through silhouette,volumetric lights,dappled sunlight,\nslender figure, masterpiece, best quality, amazing quality, \n\n"
     },
     "class_type": "CR Prompt Text",
     "_meta": {
@@ -142,7 +139,7 @@
   },
   "114": {
     "inputs": {
-      "filename_prefix": "NyaaChat/DarkBeast/DarkBeast",
+      "filename_prefix": "NyaaChat/RedMix/RedMixK2",
       "images": [
         "8",
         0
@@ -151,6 +148,25 @@
     "class_type": "SaveImage",
     "_meta": {
       "title": "保存图像"
+    }
+  },
+  "119": {
+    "inputs": {
+      "lora_name": "Detailer-KREA2.safetensors",
+      "strength_model": 2,
+      "strength_clip": 1,
+      "model": [
+        "44",
+        0
+      ],
+      "clip": [
+        "45",
+        0
+      ]
+    },
+    "class_type": "LoraLoader",
+    "_meta": {
+      "title": "加载LoRA"
     }
   }
 }

@@ -1,8 +1,8 @@
 {
-  "id": "c3be1b62-22a8-4232-8fd1-b5c5ee1539e6",
+  "id": "57396228-ca35-4c91-acca-91e607886f67",
   "revision": 0,
-  "last_node_id": 118,
-  "last_link_id": 227,
+  "last_node_id": 119,
+  "last_link_id": 231,
   "nodes": [
     {
       "id": 114,
@@ -16,7 +16,7 @@
         870
       ],
       "flags": {},
-      "order": 10,
+      "order": 11,
       "mode": 0,
       "inputs": [
         {
@@ -35,7 +35,13 @@
           "link": null
         }
       ],
-      "outputs": [],
+      "outputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "links": null
+        }
+      ],
       "properties": {
         "cnr_id": "comfy-core",
         "ver": "0.12.3",
@@ -51,66 +57,6 @@
       ]
     },
     {
-      "id": 44,
-      "type": "UNETLoader",
-      "pos": [
-        -1080,
-        1510
-      ],
-      "size": [
-        307.5999755859375,
-        106
-      ],
-      "flags": {},
-      "order": 0,
-      "mode": 0,
-      "inputs": [
-        {
-          "label": "unet_name",
-          "name": "unet_name",
-          "type": "COMBO",
-          "widget": {
-            "name": "unet_name"
-          },
-          "link": null
-        },
-        {
-          "label": "weight_dtype",
-          "name": "weight_dtype",
-          "type": "COMBO",
-          "widget": {
-            "name": "weight_dtype"
-          },
-          "link": null
-        }
-      ],
-      "outputs": [
-        {
-          "label": "MODEL",
-          "name": "MODEL",
-          "type": "MODEL",
-          "links": [
-            226
-          ]
-        }
-      ],
-      "properties": {
-        "cnr_id": "comfy-core",
-        "ver": "0.11.0",
-        "Node name for S&R": "UNETLoader",
-        "ue_properties": {
-          "widget_ue_connectable": {},
-          "version": "7.5.2",
-          "input_ue_unconnectable": {}
-        }
-      },
-      "widgets_values": [
-        "darkBeast_dbzit9DIMRclaw.safetensors",
-        "default",
-        null
-      ]
-    },
-    {
       "id": 19,
       "type": "KSampler",
       "pos": [
@@ -118,18 +64,18 @@
         1510
       ],
       "size": [
-        297.15631103515625,
-        266.5079040527344
+        300,
+        270
       ],
       "flags": {},
-      "order": 8,
+      "order": 9,
       "mode": 0,
       "inputs": [
         {
           "label": "model",
           "name": "model",
           "type": "MODEL",
-          "link": 226
+          "link": 231
         },
         {
           "label": "positive",
@@ -226,7 +172,7 @@
         }
       },
       "widgets_values": [
-        409363575991,
+        955985744103300,
         "randomize",
         8,
         1,
@@ -236,18 +182,78 @@
       ]
     },
     {
+      "id": 92,
+      "type": "CR Prompt Text",
+      "pos": [
+        -410,
+        1510
+      ],
+      "size": [
+        500,
+        280
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [
+        {
+          "label": "prompt",
+          "name": "prompt",
+          "type": "STRING",
+          "widget": {
+            "name": "prompt"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "label": "prompt",
+          "name": "prompt",
+          "type": "STRING",
+          "links": [
+            194
+          ]
+        },
+        {
+          "label": "show_help",
+          "name": "show_help",
+          "type": "STRING"
+        }
+      ],
+      "title": "✍️ 提示词-输入",
+      "properties": {
+        "cnr_id": "ComfyUI_Comfyroll_CustomNodes",
+        "ver": "d78b780ae43fcf8c6b7c6505e6ffb4584281ceca",
+        "Node name for S&R": "CR Prompt Text",
+        "aux_id": "Suzie1/ComfyUI_Comfyroll_CustomNodes",
+        "ue_properties": {
+          "version": "7.5.2",
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {}
+        }
+      },
+      "widgets_values": [
+        "A realistic, intimate home photograph of a young adult East Asian woman in her early 20s, lying on her back on a soft rug and white faux-fur blanket. She is captured from a high-angle overhead perspective with a slight diagonal tilt, her body stretching upward in the frame while her bent knees are positioned close to the lens, creating a strong foreground perspective. Her head is near the upper part of the frame, supported by a pink cushion.\nShe has a quiet, gentle, and relaxed expression as if just waking from a nap — half-open sleepy eyes with a soft hazy gaze looking lazily toward the camera, lips naturally slightly parted in a tender, drowsy manner. Her deep brown-black long hair is naturally spread out across the rug and blanket, with some strands falling messily across her cheeks and forehead, catching soft backlit highlights.\nShe is wearing a pale pink and white short-sleeved floral dress with a low round neckline and tiny pink floral prints. The light, soft fabric naturally drapes and wrinkles around her body. Her legs are bent upward, with white mid-calf slouch socks featuring relaxed folds. A small delicate necklace and a slim bracelet on her wrist catch subtle light.\nVisible skin areas include her face, neck, collarbones, upper chest, shoulders, arms, hands, knees, and large portions of her thighs, all rendered with a natural fair warm ivory tone that glows softly in the sunlight and turns slightly cool in shadows. The skin has a delicate, velvety texture with realistic natural variations, not airbrushed.\nStrong natural window sunlight pours in from the upper left, creating bright highlight patches on her forehead, hair, arms, knees, and legs, with gentle overexposure and soft haze, while shadows retain subtle depth and film-like grain. The background consists of a coarse beige woven rug, white faux-fur blanket, pink cushion, scattered books or magazines, and a few pieces of fruit, giving a lived-in, cozy afternoon atmosphere.\nThe overall mood is lazy, soft, private, and intimate — like a quiet, casual moment in warm afternoon light, with a realistic snapshot feel: slight imperfections, natural messiness in the hair and background, medium depth of field, and authentic home photography qualities."
+      ],
+      "color": "#232",
+      "bgcolor": "#353"
+    },
+    {
       "id": 8,
       "type": "VAEDecode",
       "pos": [
-        -730,
-        1950
+        -570,
+        1970
       ],
       "size": [
         210,
-        46
+        50
       ],
-      "flags": {},
-      "order": 9,
+      "flags": {
+        "collapsed": true
+      },
+      "order": 10,
       "mode": 0,
       "inputs": [
         {
@@ -287,86 +293,19 @@
       "widgets_values": []
     },
     {
-      "id": 28,
-      "type": "EmptyLatentImage",
-      "pos": [
-        -1070,
-        1820
-      ],
-      "size": [
-        270,
-        106
-      ],
-      "flags": {},
-      "order": 1,
-      "mode": 0,
-      "inputs": [
-        {
-          "label": "width",
-          "name": "width",
-          "type": "INT",
-          "widget": {
-            "name": "width"
-          },
-          "link": null
-        },
-        {
-          "label": "height",
-          "name": "height",
-          "type": "INT",
-          "widget": {
-            "name": "height"
-          },
-          "link": null
-        },
-        {
-          "label": "batch_size",
-          "name": "batch_size",
-          "type": "INT",
-          "widget": {
-            "name": "batch_size"
-          },
-          "link": null
-        }
-      ],
-      "outputs": [
-        {
-          "label": "LATENT",
-          "name": "LATENT",
-          "type": "LATENT",
-          "links": [
-            145
-          ]
-        }
-      ],
-      "properties": {
-        "cnr_id": "comfy-core",
-        "ver": "0.3.40",
-        "Node name for S&R": "EmptyLatentImage",
-        "ue_properties": {
-          "widget_ue_connectable": {},
-          "version": "7.5.2",
-          "input_ue_unconnectable": {}
-        }
-      },
-      "widgets_values": [
-        1024,
-        1536,
-        1
-      ]
-    },
-    {
       "id": 99,
       "type": "CR Text Concatenate",
       "pos": [
-        -670,
-        2070
+        -620,
+        2150
       ],
       "size": [
         210,
         90
       ],
-      "flags": {},
+      "flags": {
+        "collapsed": true
+      },
       "order": 6,
       "mode": 0,
       "inputs": [
@@ -416,6 +355,7 @@
         "cnr_id": "ComfyUI_Comfyroll_CustomNodes",
         "ver": "d78b780ae43fcf8c6b7c6505e6ffb4584281ceca",
         "Node name for S&R": "CR Text Concatenate",
+        "aux_id": "Suzie1/ComfyUI_Comfyroll_CustomNodes",
         "ue_properties": {
           "version": "7.5.2",
           "widget_ue_connectable": {},
@@ -429,25 +369,99 @@
       "bgcolor": "#353"
     },
     {
+      "id": 28,
+      "type": "EmptyLatentImage",
+      "pos": [
+        -870,
+        2020
+      ],
+      "size": [
+        270,
+        110
+      ],
+      "flags": {
+        "collapsed": true
+      },
+      "order": 1,
+      "mode": 0,
+      "inputs": [
+        {
+          "label": "width",
+          "name": "width",
+          "type": "INT",
+          "widget": {
+            "name": "width"
+          },
+          "link": null
+        },
+        {
+          "label": "height",
+          "name": "height",
+          "type": "INT",
+          "widget": {
+            "name": "height"
+          },
+          "link": null
+        },
+        {
+          "label": "batch_size",
+          "name": "batch_size",
+          "type": "INT",
+          "widget": {
+            "name": "batch_size"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "label": "LATENT",
+          "name": "LATENT",
+          "type": "LATENT",
+          "links": [
+            145
+          ]
+        }
+      ],
+      "title": "尺寸",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.40",
+        "Node name for S&R": "EmptyLatentImage",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.5.2",
+          "input_ue_unconnectable": {}
+        }
+      },
+      "widgets_values": [
+        1024,
+        1536,
+        1
+      ]
+    },
+    {
       "id": 80,
       "type": "CLIPTextEncode",
       "pos": [
-        -1070,
-        2060
+        -600,
+        2090
       ],
       "size": [
         210,
-        88
+        90
       ],
-      "flags": {},
-      "order": 7,
+      "flags": {
+        "collapsed": true
+      },
+      "order": 8,
       "mode": 0,
       "inputs": [
         {
           "label": "clip",
           "name": "clip",
           "type": "CLIP",
-          "link": 227
+          "link": 229
         },
         {
           "label": "text",
@@ -492,15 +506,15 @@
       "bgcolor": "#353"
     },
     {
-      "id": 92,
+      "id": 83,
       "type": "CR Prompt Text",
       "pos": [
-        -410,
-        1510
+        -1080,
+        2220
       ],
       "size": [
-        500,
-        280
+        630,
+        160
       ],
       "flags": {},
       "order": 2,
@@ -522,7 +536,7 @@
           "name": "prompt",
           "type": "STRING",
           "links": [
-            194
+            222
           ]
         },
         {
@@ -531,11 +545,12 @@
           "type": "STRING"
         }
       ],
-      "title": "✍️ 提示词-输入",
+      "title": "✍️ 正向提示词-前",
       "properties": {
         "cnr_id": "ComfyUI_Comfyroll_CustomNodes",
         "ver": "d78b780ae43fcf8c6b7c6505e6ffb4584281ceca",
         "Node name for S&R": "CR Prompt Text",
+        "aux_id": "Suzie1/ComfyUI_Comfyroll_CustomNodes",
         "ue_properties": {
           "version": "7.5.2",
           "widget_ue_connectable": {},
@@ -543,24 +558,177 @@
         }
       },
       "widgets_values": [
-        "A realistic, intimate home photograph of a young adult East Asian woman in her early 20s, lying on her back on a soft rug and white faux-fur blanket. She is captured from a high-angle overhead perspective with a slight diagonal tilt, her body stretching upward in the frame while her bent knees are positioned close to the lens, creating a strong foreground perspective. Her head is near the upper part of the frame, supported by a pink cushion.\nShe has a quiet, gentle, and relaxed expression as if just waking from a nap — half-open sleepy eyes with a soft hazy gaze looking lazily toward the camera, lips naturally slightly parted in a tender, drowsy manner. Her deep brown-black long hair is naturally spread out across the rug and blanket, with some strands falling messily across her cheeks and forehead, catching soft backlit highlights.\nShe is wearing a pale pink and white short-sleeved floral dress with a low round neckline and tiny pink floral prints. The light, soft fabric naturally drapes and wrinkles around her body. Her legs are bent upward, with white mid-calf slouch socks featuring relaxed folds. A small delicate necklace and a slim bracelet on her wrist catch subtle light.\nVisible skin areas include her face, neck, collarbones, upper chest, shoulders, arms, hands, knees, and large portions of her thighs, all rendered with a natural fair warm ivory tone that glows softly in the sunlight and turns slightly cool in shadows. The skin has a delicate, velvety texture with realistic natural variations, not airbrushed.\nStrong natural window sunlight pours in from the upper left, creating bright highlight patches on her forehead, hair, arms, knees, and legs, with gentle overexposure and soft haze, while shadows retain subtle depth and film-like grain. The background consists of a coarse beige woven rug, white faux-fur blanket, pink cushion, scattered books or magazines, and a few pieces of fruit, giving a lived-in, cozy afternoon atmosphere.\nThe overall mood is lazy, soft, private, and intimate — like a quiet, casual moment in warm afternoon light, with a realistic snapshot feel: slight imperfections, natural messiness in the hair and background, medium depth of field, and authentic home photography qualities."
+        "masterpiece,highres, atmospheric,\n漂亮的中国女孩，明星气质，五官精致，皮肤白皙光滑无瑕，淡妆中唇色光泽，眼线淡雅，皮肤质感细腻、带有天鹅绒般的触感，全部呈现出自然的白皙暖象牙肤色，保留了真实的自然纹理，而非刻意的磨皮效果，整体呈现出一种青春美感。\n这是一张真实、具有亲密感的生活照片，营造出一种充满生活气息、温馨舒适的午后氛围，带着一种安静、温柔且放松的气氛，阴影处则保留了微妙的细节层次与胶片般的颗粒感。\n空气中有光线颗粒感，整体色调与情绪显得慵懒、柔和、私密且亲密——就像温暖午后光影里一个安静、随性的瞬间，充满了真实抓拍的质感：带着细微的不完美、发丝与背景自然流露的凌乱感、中等景深，以及地道的居家摄影特质。\n\nPOV,景深模糊，\nray tracing,see-through silhouette,volumetric lights,dappled sunlight,\nslender figure, masterpiece, best quality, amazing quality, \n\n"
       ],
-      "color": "#232",
-      "bgcolor": "#353"
+      "color": "#2a363b",
+      "bgcolor": "#3f5159"
+    },
+    {
+      "id": 44,
+      "type": "UNETLoader",
+      "pos": [
+        -1080,
+        1510
+      ],
+      "size": [
+        300,
+        110
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [
+        {
+          "label": "unet_name",
+          "name": "unet_name",
+          "type": "COMBO",
+          "widget": {
+            "name": "unet_name"
+          },
+          "link": null
+        },
+        {
+          "label": "weight_dtype",
+          "name": "weight_dtype",
+          "type": "COMBO",
+          "widget": {
+            "name": "weight_dtype"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "label": "MODEL",
+          "name": "MODEL",
+          "type": "MODEL",
+          "links": [
+            230
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.11.0",
+        "Node name for S&R": "UNETLoader",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.5.2",
+          "input_ue_unconnectable": {}
+        }
+      },
+      "widgets_values": [
+        "Krea2RedMix2.1-INT8-Convrot-ComfyUI.safetensors",
+        "default"
+      ]
+    },
+    {
+      "id": 119,
+      "type": "LoraLoader",
+      "pos": [
+        -1080,
+        1660
+      ],
+      "size": [
+        300,
+        150
+      ],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [
+        {
+          "label": "model",
+          "name": "model",
+          "type": "MODEL",
+          "link": 230
+        },
+        {
+          "label": "clip",
+          "name": "clip",
+          "type": "CLIP",
+          "link": 228
+        },
+        {
+          "label": "lora_name",
+          "name": "lora_name",
+          "type": "COMBO",
+          "widget": {
+            "name": "lora_name"
+          },
+          "link": null
+        },
+        {
+          "label": "strength_model",
+          "name": "strength_model",
+          "type": "FLOAT",
+          "widget": {
+            "name": "strength_model"
+          },
+          "link": null
+        },
+        {
+          "label": "strength_clip",
+          "name": "strength_clip",
+          "type": "FLOAT",
+          "widget": {
+            "name": "strength_clip"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "label": "MODEL",
+          "name": "MODEL",
+          "type": "MODEL",
+          "links": [
+            231
+          ]
+        },
+        {
+          "label": "CLIP",
+          "name": "CLIP",
+          "type": "CLIP",
+          "links": [
+            229
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.76",
+        "Node name for S&R": "LoraLoader",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.5.2"
+        },
+        "widget_ue_connectable": {
+          "lora_name": true,
+          "strength_model": true,
+          "strength_clip": true
+        }
+      },
+      "widgets_values": [
+        "Detailer-KREA2.safetensors",
+        2,
+        1
+      ]
     },
     {
       "id": 45,
       "type": "CLIPLoader",
       "pos": [
-        -1070,
-        1650
+        -1080,
+        1850
       ],
       "size": [
         300,
         130
       ],
       "flags": {},
-      "order": 3,
+      "order": 4,
       "mode": 0,
       "inputs": [
         {
@@ -598,7 +766,7 @@
           "name": "CLIP",
           "type": "CLIP",
           "links": [
-            227
+            228
           ]
         }
       ],
@@ -613,68 +781,10 @@
         }
       },
       "widgets_values": [
-        "zImageTurbo_turbo_txt.safetensors",
-        "lumina2",
-        "default",
-        null
+        "qwen3vl_4b_bf16.safetensors",
+        "krea2",
+        "default"
       ]
-    },
-    {
-      "id": 83,
-      "type": "CR Prompt Text",
-      "pos": [
-        -1080,
-        2220
-      ],
-      "size": [
-        630,
-        160
-      ],
-      "flags": {},
-      "order": 4,
-      "mode": 0,
-      "inputs": [
-        {
-          "label": "prompt",
-          "name": "prompt",
-          "type": "STRING",
-          "widget": {
-            "name": "prompt"
-          },
-          "link": null
-        }
-      ],
-      "outputs": [
-        {
-          "label": "prompt",
-          "name": "prompt",
-          "type": "STRING",
-          "links": [
-            222
-          ]
-        },
-        {
-          "label": "show_help",
-          "name": "show_help",
-          "type": "STRING"
-        }
-      ],
-      "title": "✍️ 正向提示词-前",
-      "properties": {
-        "cnr_id": "ComfyUI_Comfyroll_CustomNodes",
-        "ver": "d78b780ae43fcf8c6b7c6505e6ffb4584281ceca",
-        "Node name for S&R": "CR Prompt Text",
-        "ue_properties": {
-          "version": "7.5.2",
-          "widget_ue_connectable": {},
-          "input_ue_unconnectable": {}
-        }
-      },
-      "widgets_values": [
-        "masterpiece,best quality,highres, cinematic lighting, atmospheric,\n漂亮的亚洲人，明星气质，五官精致，青涩懵懂，皮肤白皙，整体呈现出一种现实美感,仿佛是用普通相机拍摄的真实瞬间,细节丰富,质感自然,具有浓厚的虐待气息与青春美感,\nlight leaks,light rendering,light-rays,ray tracing,lens flare,volumetric lights,ray tracing,lens flare,see-through silhouette,\nrim lighting,volumetric lights,\nhigh-key and low-variance brightness scale,\nbokeh,blurry foreground,light particles,\n\n"
-      ],
-      "color": "#2a363b",
-      "bgcolor": "#3f5159"
     },
     {
       "id": 15,
@@ -685,7 +795,7 @@
       ],
       "size": [
         270,
-        82
+        90
       ],
       "flags": {},
       "order": 5,
@@ -722,8 +832,7 @@
         }
       },
       "widgets_values": [
-        "ae.sft",
-        null
+        "qwen_image_vae.safetensors"
       ]
     }
   ],
@@ -801,20 +910,36 @@
       "STRING"
     ],
     [
-      226,
+      228,
+      45,
+      0,
+      119,
+      1,
+      "CLIP"
+    ],
+    [
+      229,
+      119,
+      1,
+      80,
+      0,
+      "CLIP"
+    ],
+    [
+      230,
       44,
       0,
-      19,
+      119,
       0,
       "MODEL"
     ],
     [
-      227,
-      45,
+      231,
+      119,
       0,
-      80,
+      19,
       0,
-      "CLIP"
+      "MODEL"
     ]
   ],
   "groups": [
@@ -828,21 +953,20 @@
         970
       ],
       "color": "#88A",
-      "font_size": 24,
       "flags": {}
     }
   ],
   "config": {},
   "extra": {
     "ds": {
-      "scale": 0.7513148009015777,
+      "scale": 0.6830134553650705,
       "offset": [
-        1255.7631883824038,
-        -1275.6543761817038
+        1630.4983734455197,
+        -1160.1164539033573
       ]
     },
     "workflowRendererVersion": "LG",
-    "frontendVersion": "1.38.13",
+    "frontendVersion": "1.45.20",
     "VHS_latentpreview": false,
     "VHS_latentpreviewrate": 0,
     "VHS_MetadataImage": true,

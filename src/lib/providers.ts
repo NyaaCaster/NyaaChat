@@ -195,7 +195,8 @@ export interface ComfyWorkflowMeta {
 
 export const COMFY_WORKFLOWS: ComfyWorkflowMeta[] = [
   { id: "anima2d", name: "Anima2D", file: "/comfyui/Anima-Nyaa.api.json", usesArtStyle: true },
-  { id: "real", name: "DarkBeast真人", file: "/comfyui/DarkBeast-Nyaa.api.json" },
+  { id: "RMkrea2", name: "RM真人·柔美", file: "/comfyui/RedMix-Nyaa.api.json" },
+  { id: "DBkrea2", name: "DB真人·节操", file: "/comfyui/DarkBeastKrea2-Nyaa.api.json" },
 ];
 
 export function comfyWorkflowById(id: string | undefined): ComfyWorkflowMeta {

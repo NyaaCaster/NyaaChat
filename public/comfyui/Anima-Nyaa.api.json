@@ -27,7 +27,7 @@
   },
   "19": {
     "inputs": {
-      "seed": 0,
+      "seed": "%seed%",
       "steps": 8,
       "cfg": 1,
       "sampler_name": "er_sde",
