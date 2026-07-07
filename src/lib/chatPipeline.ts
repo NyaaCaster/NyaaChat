@@ -817,6 +817,10 @@ const FIXED_T2I_SYSTEM_PROMPT = [
     "off mid-sentence.",
   "- Output ONLY the English prompt text. No Chinese, no explanations, no preamble, " +
     "no quotation marks, no markdown formatting.",
+  "- Crucially, preserve all specific identifying details from the input exactly as " +
+    "described — hair color, eye color, distinctive marks, scars, accessories, and " +
+    "clothing colors must match the character description faithfully. Do not substitute " +
+    "details from your own knowledge of the character.",
   "- The image model is English-only, so every word must be English.",
 ].join("\n\n");
 

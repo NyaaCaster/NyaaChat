@@ -97,7 +97,7 @@ AGENT_ENABLE=false 时：comfyui-fixed 回退到 buildComfyPromptRequest + 用�
 - 新增前端 API 封装（如 `src/lib/t2iAgentApi.ts`）调用 ext-host 端点。
 - **验证**：开关两态各跑一次，确认路由正确、fallback 生效。
 
-### ⬜ P4 — 端到端验证与调优
+### ✅ P4 — 端到端验证与调优
 - 真实出图对比：新 agent vs 旧 custom 路径，评估画质提升。
 - 边界：agent 端点宕机 / 超时 / 空返回的回退链路。
 - 成本观察：单次 agent 调用 token 量。
