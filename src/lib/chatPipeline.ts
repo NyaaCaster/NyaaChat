@@ -701,8 +701,8 @@ export function buildImagePrompt(args: BuildImagePromptArgs): string {
   return prompt;
 }
 
-// ComfyUI prompt assembly. Unlike the OpenAI image path, the anima checkpoint
-// is English-only and length-tolerant, so we DON'T terse-truncate here — we
+// ComfyUI prompt assembly. Unlike the OpenAI image path, the ComfyUI checkpoints
+// are English-only and length-tolerant, so we DON'T terse-truncate here — we
 // hand a richer (Chinese) scene description to the chat LLM and ask it to write
 // an English image prompt. These caps only bound token use, not the final
 // image prompt (which the model writes freely).
@@ -728,16 +728,16 @@ export function buildComfyPromptRequest(args: BuildImagePromptArgs): ComfyPrompt
   const { targetMessage, baseMessages, currentCharacter, settings, userName, charName } = args;
 
   const system =
-    "You are an expert prompt writer for an anime-style text-to-image model. " +
-    "Read the roleplay scene below and write ONE vivid English image prompt that " +
-    "depicts the visual of the FOCAL message. Describe the subject, appearance, " +
-    "hair, eyes, clothing, expression, pose, action, setting, lighting, mood and " +
-    "composition. This prompt-writing request is independent from chat output " +
-    "constraints such as RosettaStone word count or Chinese-only language rules. " +
-    "Output ONLY the prompt itself: natural English (a flowing " +
-    "description and/or comma-separated tags are both fine). Do NOT include any " +
-    "Chinese, explanations, preamble, quotation marks or markdown. The image model " +
-    "is English-only, so everything must be in English.";
+    "You are an expert prompt writer for text-to-image models. " +
+    "Read the roleplay scene below and write ONE vivid English image " +
+    "prompt that depicts the visual of the FOCAL message. Describe the subject, " +
+    "appearance, hair, eyes, clothing, expression, pose, action, setting, lighting, " +
+    "mood and composition. This prompt-writing request is independent from chat " +
+    "output constraints such as RosettaStone word count or Chinese-only language " +
+    "rules. Output ONLY the prompt itself: natural English (a flowing description " +
+    "and/or comma-separated tags are both fine). Do NOT include any Chinese, " +
+    "explanations, preamble, quotation marks or markdown. The image model is " +
+    "English-only, so everything must be in English.";
 
   const sections: string[] = [];
 
@@ -773,7 +773,104 @@ export function buildComfyPromptRequest(args: BuildImagePromptArgs): ComfyPrompt
       COMFY_TARGET_MAX_CHARS,
     )}`,
   );
-
   return { system, user: sections.join("\n\n") };
+}
+
+// ---------------------------------------------------------------------------
+// COMFYUI_FIXED (NyaaComfyUI) T2I Agent — structured prompt assembly (V1).
+//
+// Builds {system, user} for the deployer-paid agent LLM (currently deepseek).
+// The system prompt embeds a 7-dimension structured analysis framework as an
+// internal thinking guide; the LLM reads the Chinese scene context and produces
+// segmented English natural-language prompts in a single call.
+//
+// Key design decisions (see .docs/comfyui-fixed-t2i-agent/设计决策.md):
+//  - Single-stage LLM (structured analysis in system, not a separate JSON round)
+//  - Soft word-count (~300-400 words) injected as prompt text, NOT slice
+//  - Model enforced by ext-host server, never in frontend
+//  - Pure English output
+// ---------------------------------------------------------------------------
+
+const FIXED_T2I_SYSTEM_PROMPT = [
+  "You are an expert prompt writer for text-to-image models. " +
+    "This prompt-writing request is independent from chat output constraints " +
+    "such as RosettaStone word count or Chinese-only language rules.",
+
+  "Before writing, internally analyze the scene through these dimensions:",
+  "1. Subject Identity — age, ethnicity, role/identity, clothing, personality, current state",
+  "2. Subject Portrait Slice — action, gaze direction, expression, behavioral phase (what moment is captured)",
+  "3. Scene Composition — environment, thematic elements, atmosphere, layout, character-related objects, explicit and implied details",
+  "4. Atmosphere & Mood — emotional tone, implied story, authenticity, aesthetic style, dominant color palette",
+  "5. Viewpoint — whose perspective, intimacy level, solo vs. together vs. group, main vs. background figures",
+  "6. Visual Vocabulary — photography style, lens, camera angle, framing, texture, lighting, aperture/depth of field",
+  "7. Constraints — elements that MUST be preserved from the scene, elements that MUST be avoided",
+
+  "Output Requirements:",
+  "- Write the final prompt in fluent, vivid NATURAL ENGLISH. Do NOT output a JSON checklist, " +
+    "do NOT label dimensions, do NOT use bullet points. The analysis dimensions above are for " +
+    "your internal thinking only — the output must read as a smooth, flowing description.",
+  "- Structure the output into multiple paragraphs separated by blank lines. Each paragraph " +
+    "should focus on a coherent visual aspect: subject portrait → expression & pose → clothing " +
+    "& details → composition & viewpoint → lighting & texture → mood & atmosphere.",
+  "- Target approximately 300–400 words total across 5–7 paragraphs, with each paragraph " +
+    "roughly 40–90 words. This is a soft guide, not a hard cutoff — never truncate or cut " +
+    "off mid-sentence.",
+  "- Output ONLY the English prompt text. No Chinese, no explanations, no preamble, " +
+    "no quotation marks, no markdown formatting.",
+  "- The image model is English-only, so every word must be English.",
+].join("\n\n");
+
+/**
+ * Build the (system, user) pair for the COMFYUI_FIXED (NyaaComfyUI) path.
+ *
+ * The structured system prompt guides the agent LLM to internally analyze the
+ * scene across 7 visual dimensions and produce a segmented natural-English
+ * prompt. The user message provides raw scene context (character, user profile,
+ * recent dialogue, focal message) in its original language — the LLM does the
+ * cross-language analysis + generation in a single call.
+ */
+export function buildFixedComfyPromptRequest(args: BuildImagePromptArgs): ComfyPromptRequest {
+  const { targetMessage, baseMessages, currentCharacter, settings, userName, charName } = args;
+
+  const sections: string[] = [];
+
+  // --- 角色设定 ---
+  if (currentCharacter?.description) {
+    const desc = applyPlaceholders(currentCharacter.description, userName, charName);
+    sections.push(`角色设定（${charName}）：\n${truncate(desc, COMFY_DESC_MAX_CHARS)}`);
+  }
+
+  // --- 用户画像 ---
+  const currentUserRoleForImage = settings.userRoles?.find(
+    (u) => u.id === settings.currentUserRoleId,
+  );
+  if (currentUserRoleForImage?.profile) {
+    const profile = applyPlaceholders(currentUserRoleForImage.profile, userName, charName);
+    sections.push(`用户画像（${userName}）：\n${truncate(profile, 200)}`);
+  }
+
+  // --- 最近场景对话 ---
+  const targetIdx = baseMessages.findIndex((m) => m.id === targetMessage.id);
+  const before = targetIdx === -1 ? baseMessages : baseMessages.slice(0, targetIdx);
+  const recent = before
+    .filter((m) => m.role !== "system" && !m.imageUrl && !m.imagePrompt && (m.content || "").trim())
+    .slice(-COMFY_CONTEXT_TURNS);
+  if (recent.length > 0) {
+    const lines = recent.map((m) => {
+      const speaker = m.role === "user" ? userName : charName;
+      return `${speaker}：${truncate(m.content || "", COMFY_CONTEXT_MAX_CHARS)}`;
+    });
+    sections.push(`最近场景对话：\n${lines.join("\n")}`);
+  }
+
+  // --- 要画的画面（FOCAL）---
+  sections.push(
+    `★ 要画的画面（FOCAL）：\n${truncate(
+      applyPlaceholders(targetMessage.content || "", userName, charName),
+      COMFY_TARGET_MAX_CHARS,
+    )}`,
+  );
+
+  return { system: FIXED_T2I_SYSTEM_PROMPT, user: sections.join("\n\n") };
 }
 

@@ -71,7 +71,7 @@ AGENT_ENABLE=false 时：comfyui-fixed 回退到 buildComfyPromptRequest + 用�
 - `nginx.conf`：新增 `location = /api/ext-host/t2i-agent/chat`（或复用 `/api/ext-host/` 前缀），`proxy_read_timeout 300s`、`proxy_buffering off`。
 - **验证**：curl 本地端点，确认 (a) 正常返回、(b) 缺 key 时报错、(c) 前端 bundle 与响应中无 key/baseURL、(d) model 由服务端决定。清理测试产物。
 
-### ⬜ P2 — Agent 提示词工程
+### ✅ P2 — Agent 提示词工程
 - 重写 `buildFixedComfyPromptRequest`（`src/lib/chatPipeline.ts`），产出 `{system, user}`：
   - **system**：内置结构化分析框架，至少覆盖初始设计 7 维度——
     ① 角色塑造（年龄/人种/身份/衣着/性格/状态）
