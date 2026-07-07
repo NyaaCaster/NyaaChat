@@ -11,6 +11,10 @@ declare const __COMFYUI_FIXED_NAME__: string;
 // Injected by vite.config.ts from COMFYUI_FIXED_DESC in .env. Non-secret.
 declare const __COMFYUI_FIXED_DESC__: string;
 
+/** Whether the deployer-paid T2I agent is enabled for comfyui-fixed.
+ *  true → ext-host agent endpoint, false → user's chat LLM. */
+declare const __COMFYUI_FIXED_T2I_AGENT_ENABLE__: boolean;
+
 // Vite's ?raw suffix inlines a file's text content as a string at build time.
 // Used to render VERSION.md inside the version modal without a runtime fetch,
 // keeping VERSION.md as the single source.

@@ -9,11 +9,13 @@ import { saveSession } from "../lib/sessionStorage";
 import { getActiveImageProvider, getActiveLlmProvider, imageProviderToApiSettings, providerToApiSettings } from "../lib/providers";
 import { searchWeb, WebSearchError, WEB_SEARCH_FEATURE_ENABLED } from "../lib/searchApi";
 import { searchKb } from "../lib/knowledgeApi";
+import { fetchT2iAgentPrompt } from "../lib/t2iAgentApi";
 import { loadStoredAccount, consumeComfyuiPack, type StoredAccount } from "../lib/sharedAccountApi";
 import { callTool, listTools, mergeUserCity, filterAdvertised } from "../lib/mcpApi";
 import {
   applyPlaceholders,
   buildComfyPromptRequest,
+  buildFixedComfyPromptRequest,
   buildImagePrompt,
   buildKbSearchContext,
   buildMessageContent,
@@ -1160,29 +1162,79 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
     [messages, currentCharacter, settings, userName, charName],
   );
 
+  /**
+   * COMFYUI_FIXED (NyaaComfyUI) prompt builder — dual-path.
+   *
+   * When the deployer-paid T2I agent is enabled, assembles the structured
+   * {system, user} pair (P2) and calls the ext-host agent endpoint (P1) —
+   * no API key ever reaches the frontend.
+   *
+   * When disabled, falls back to the user's own chat LLM.
+   * When any LLM path fails, the caller falls back to buildImagePrompt.
+   */
+  const buildFixedComfyPrompt = useCallback(
+    async (msg: Message, signal?: AbortSignal): Promise<string> => {
+      const { system, user } = buildFixedComfyPromptRequest({
+        targetMessage: msg,
+        baseMessages: messages,
+        currentCharacter,
+        settings,
+        userName,
+        charName,
+      });
+
+      // ── Deployer-paid agent path (AGENT_ENABLE=true) ──
+      if (__COMFYUI_FIXED_T2I_AGENT_ENABLE__) {
+        return await fetchT2iAgentPrompt(system, user, signal);
+      }
+
+      // ── User's chat LLM path (AGENT_ENABLE=false) ──
+      const llm = getActiveLlmProvider(settings);
+      const modelId = llm?.lastUsedModel || llm?.models[0]?.id;
+      if (!llm || !llm.enabled || !modelId) {
+        throw new Error("未启用对话模型，无法生成英文提示词");
+      }
+      const apiSettings: ApiSettings = {
+        ...providerToApiSettings(llm, modelId),
+        isStreaming: false,
+      };
+      const apiMessages: ApiMessage[] = [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ];
+      let text = "";
+      await fetchChatCompletion(
+        apiMessages,
+        apiSettings,
+        (chunk) => { text += chunk; },
+        signal,
+      );
+      const out = text.trim();
+      if (!out) throw new Error("英文提示词生成为空");
+      return out;
+    },
+    [messages, currentCharacter, settings, userName, charName],
+  );
+
   const handleGenerateImage = useCallback(
     async (id: string) => {
       if (isLoading) return;
       const msg = messages.find((m) => m.id === id);
       if (!msg) return;
 
-      if (isComfyImage) {
-        // P6: gate check before LLM call — only NyaaComfyUI (comfyui-fixed)
-        if (isComfyPack) {
-          const gate = await checkComfyGate();
-          if (!gate) return;
-        }
+      // ── COMFYUI_FIXED (NyaaComfyUI) ── scaffold, design pending ──────────
+      if (isComfyPack) {
+        const gate = await checkComfyGate();
+        if (!gate) return;
 
-        // Build an English prompt via the chat LLM first. Spin the source
-        // message's button during this prep so the click feels responsive.
         setImageGeneratingId(id);
         let prompt = "";
         try {
-          prompt = (await buildEnglishComfyPrompt(msg)).trim();
+          prompt = (await buildFixedComfyPrompt(msg)).trim();
         } catch (err: any) {
           onAddLog({
             direction: "info",
-            content: "ComfyUI English-prompt LLM unavailable, falling back to terse builder",
+            content: "ComfyUI (fixed) English-prompt LLM unavailable, falling back to terse builder",
             meta: { error: err?.message || String(err) },
           });
           prompt = buildImagePrompt({
@@ -1201,6 +1253,35 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
         return;
       }
 
+      // ── comfyui-custom ── user's own ComfyUI server ───────────────────────
+      if (isComfyImage) {
+        setImageGeneratingId(id);
+        let prompt = "";
+        try {
+          prompt = (await buildEnglishComfyPrompt(msg)).trim();
+        } catch (err: any) {
+          onAddLog({
+            direction: "info",
+            content: "ComfyUI (custom) English-prompt LLM unavailable, falling back to terse builder",
+            meta: { error: err?.message || String(err) },
+          });
+          prompt = buildImagePrompt({
+            targetMessage: msg,
+            baseMessages: messages,
+            currentCharacter,
+            settings,
+            userName,
+            charName,
+          }).trim();
+        } finally {
+          setImageGeneratingId((cur) => (cur === id ? null : cur));
+        }
+        if (!prompt) return;
+        void runImageGeneration(prompt, id);
+        return;
+      }
+
+      // ── QinyAPI / OpenAI-compatible ───────────────────────────────────────
       const prompt = buildImagePrompt({
         targetMessage: msg,
         baseMessages: messages,
@@ -1220,8 +1301,10 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
       userName,
       charName,
       isComfyImage,
+      isComfyPack,
       isLoading,
       buildEnglishComfyPrompt,
+      buildFixedComfyPrompt,
       onAddLog,
     ],
   );

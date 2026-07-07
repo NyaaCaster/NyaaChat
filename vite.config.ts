@@ -32,6 +32,11 @@ export default defineConfig(({mode}) => {
       __COMFYUI_FIXED_NAME__: JSON.stringify(env.COMFYUI_FIXED_NAME || 'NyaaComfyUI'),
       // Non-secret description shown under the fixed ComfyUI provider's name.
       __COMFYUI_FIXED_DESC__: JSON.stringify(env.COMFYUI_FIXED_DESC || ''),
+      // Whether the deployer-paid T2I agent is enabled for comfyui-fixed.
+      // true → ext-host agent, false → user's chat LLM (same as custom path).
+      __COMFYUI_FIXED_T2I_AGENT_ENABLE__: JSON.stringify(
+        env.COMFYUI_FIXED_T2I_AGENT_ENABLE === 'true'
+      ),
     },
     resolve: {
       alias: {

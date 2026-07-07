@@ -88,7 +88,7 @@ AGENT_ENABLE=false 时：comfyui-fixed 回退到 buildComfyPromptRequest + 用�
 - 参考 `TestPrompt.md`、`.ref/TestPrompt的结构化拆分.json`、`.ref/一个结构化的画图提示词样例.md`（理解结构，不照抄）。
 - **验证**：用样例场景跑 agent，人工评审输出是否分段、维度齐全、字数达标、纯英文。
 
-### ⬜ P3 — 前端接线
+### ✅ P3 — 前端接线
 - vite define 注入 `__COMFYUI_FIXED_T2I_AGENT_ENABLE__`（`vite.config.ts`）+ 类型声明（`vite-env.d.ts`）。
 - `buildFixedComfyPrompt`（`ChatInterface.tsx`）改造：
   - AGENT_ENABLE=true：组装结构化 `{system, user}` → POST `/api/ext-host/t2i-agent/chat`（无密钥，非流式）→ 取回英文提示词。
