@@ -172,7 +172,7 @@
         }
       },
       "widgets_values": [
-        955985744103300,
+        1046147162833486,
         "randomize",
         8,
         1,
@@ -180,64 +180,6 @@
         "simple",
         1
       ]
-    },
-    {
-      "id": 92,
-      "type": "CR Prompt Text",
-      "pos": [
-        -410,
-        1510
-      ],
-      "size": [
-        500,
-        280
-      ],
-      "flags": {},
-      "order": 0,
-      "mode": 0,
-      "inputs": [
-        {
-          "label": "prompt",
-          "name": "prompt",
-          "type": "STRING",
-          "widget": {
-            "name": "prompt"
-          },
-          "link": null
-        }
-      ],
-      "outputs": [
-        {
-          "label": "prompt",
-          "name": "prompt",
-          "type": "STRING",
-          "links": [
-            194
-          ]
-        },
-        {
-          "label": "show_help",
-          "name": "show_help",
-          "type": "STRING"
-        }
-      ],
-      "title": "✍️ 提示词-输入",
-      "properties": {
-        "cnr_id": "ComfyUI_Comfyroll_CustomNodes",
-        "ver": "d78b780ae43fcf8c6b7c6505e6ffb4584281ceca",
-        "Node name for S&R": "CR Prompt Text",
-        "aux_id": "Suzie1/ComfyUI_Comfyroll_CustomNodes",
-        "ue_properties": {
-          "version": "7.5.2",
-          "widget_ue_connectable": {},
-          "input_ue_unconnectable": {}
-        }
-      },
-      "widgets_values": [
-        "A realistic, intimate home photograph of a young adult East Asian woman in her early 20s, lying on her back on a soft rug and white faux-fur blanket. She is captured from a high-angle overhead perspective with a slight diagonal tilt, her body stretching upward in the frame while her bent knees are positioned close to the lens, creating a strong foreground perspective. Her head is near the upper part of the frame, supported by a pink cushion.\nShe has a quiet, gentle, and relaxed expression as if just waking from a nap — half-open sleepy eyes with a soft hazy gaze looking lazily toward the camera, lips naturally slightly parted in a tender, drowsy manner. Her deep brown-black long hair is naturally spread out across the rug and blanket, with some strands falling messily across her cheeks and forehead, catching soft backlit highlights.\nShe is wearing a pale pink and white short-sleeved floral dress with a low round neckline and tiny pink floral prints. The light, soft fabric naturally drapes and wrinkles around her body. Her legs are bent upward, with white mid-calf slouch socks featuring relaxed folds. A small delicate necklace and a slim bracelet on her wrist catch subtle light.\nVisible skin areas include her face, neck, collarbones, upper chest, shoulders, arms, hands, knees, and large portions of her thighs, all rendered with a natural fair warm ivory tone that glows softly in the sunlight and turns slightly cool in shadows. The skin has a delicate, velvety texture with realistic natural variations, not airbrushed.\nStrong natural window sunlight pours in from the upper left, creating bright highlight patches on her forehead, hair, arms, knees, and legs, with gentle overexposure and soft haze, while shadows retain subtle depth and film-like grain. The background consists of a coarse beige woven rug, white faux-fur blanket, pink cushion, scattered books or magazines, and a few pieces of fruit, giving a lived-in, cozy afternoon atmosphere.\nThe overall mood is lazy, soft, private, and intimate — like a quiet, casual moment in warm afternoon light, with a realistic snapshot feel: slight imperfections, natural messiness in the hair and background, medium depth of field, and authentic home photography qualities."
-      ],
-      "color": "#232",
-      "bgcolor": "#353"
     },
     {
       "id": 8,
@@ -306,7 +248,7 @@
       "flags": {
         "collapsed": true
       },
-      "order": 6,
+      "order": 7,
       "mode": 0,
       "inputs": [
         {
@@ -382,7 +324,7 @@
       "flags": {
         "collapsed": true
       },
-      "order": 1,
+      "order": 0,
       "mode": 0,
       "inputs": [
         {
@@ -517,7 +459,7 @@
         160
       ],
       "flags": {},
-      "order": 2,
+      "order": 1,
       "mode": 0,
       "inputs": [
         {
@@ -575,7 +517,7 @@
         110
       ],
       "flags": {},
-      "order": 3,
+      "order": 2,
       "mode": 0,
       "inputs": [
         {
@@ -634,7 +576,7 @@
         150
       ],
       "flags": {},
-      "order": 7,
+      "order": 6,
       "mode": 0,
       "inputs": [
         {
@@ -728,7 +670,7 @@
         130
       ],
       "flags": {},
-      "order": 4,
+      "order": 3,
       "mode": 0,
       "inputs": [
         {
@@ -798,7 +740,7 @@
         90
       ],
       "flags": {},
-      "order": 5,
+      "order": 4,
       "mode": 0,
       "inputs": [
         {
@@ -834,6 +776,64 @@
       "widgets_values": [
         "qwen_image_vae.safetensors"
       ]
+    },
+    {
+      "id": 92,
+      "type": "CR Prompt Text",
+      "pos": [
+        -410,
+        1510
+      ],
+      "size": [
+        500,
+        280
+      ],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [
+        {
+          "label": "prompt",
+          "name": "prompt",
+          "type": "STRING",
+          "widget": {
+            "name": "prompt"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "label": "prompt",
+          "name": "prompt",
+          "type": "STRING",
+          "links": [
+            194
+          ]
+        },
+        {
+          "label": "show_help",
+          "name": "show_help",
+          "type": "STRING"
+        }
+      ],
+      "title": "✍️ 提示词-输入",
+      "properties": {
+        "cnr_id": "ComfyUI_Comfyroll_CustomNodes",
+        "ver": "d78b780ae43fcf8c6b7c6505e6ffb4584281ceca",
+        "Node name for S&R": "CR Prompt Text",
+        "aux_id": "Suzie1/ComfyUI_Comfyroll_CustomNodes",
+        "ue_properties": {
+          "version": "7.5.2",
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {}
+        }
+      },
+      "widgets_values": [
+        "A young woman in her early twenties nestles into a well-worn single-seat sofa by a rain-streaked window, her legs tucked up beneath a draped throw blanket. She has shoulder-length black hair with softly curled ends, amber-brown eyes half-lidded behind round gold-rimmed glasses that have slipped slightly down her nose. A faded red cord bracelet sits loosely on her right wrist, its color muted against her pale skin.\n\nHer expression is quiet and distant — not quite looking at anything, lips barely curved in an unconscious, gentle smile. She leans her temple against the sofa's armrest, one hand tucked under her head, the other hanging limp over the cushion edge with fingertips still loosely resting on ose is weightless, suspended somewhere between daydreaming and a nap that never quitearrived.\n\nShe wears a creamy off-white open-front knit cardigan, its sleeves slightly too long and swallowing her hands, layered over a soft grey cotton camisole with thin straps visible at the collarbone. Dark navy lounge shorts peek out beneath the hem. A sketchbook lies open across her lap, pages curling at the corner, a stray pencil resting in the crease without its cap.\n\nSeen from a slightly elevated angle as if from someone standing in the doorway, the composition frames her diagonally — the sofa anchoring the lower right, the rain-streaked window filling the upper\nleft. The window glass blurs the city outside into soft smears of grey, green, and muteside the sofa sits a half-empty ceramic mug, its contents long cold, a forgotten propin a lazy afternoon.\n\nThe light is diffuse and overcast, filtered through thick rain clouds — cool grey ambient fill with a faint silver highlight tracing the edge of her cardigan and the bridge of her glasses. No hard shadows, no direct sun, just the gentle wrap of an overcast afternoon. The texture is soft and lived-in: knit wool, worn cotton, slightly rumpled cushions, the subtle grain of rain trails on glass.\n\nThe mood is still, tender, and deeply intimate — a stolen quiet moment on a rainy weekday, the kind that asks nothing and holds everything. The color palette is muted and harmonious: oatmeal cream, heather grey, navy blue, and the washed-out green-grey of rain-soaked glass, with the single warm note of the red bracelet anchoring the whole frame. It feels like a photograph you took of someone you love without them noticing."
+      ],
+      "color": "#232",
+      "bgcolor": "#353"
     }
   ],
   "links": [
@@ -959,10 +959,10 @@
   "config": {},
   "extra": {
     "ds": {
-      "scale": 0.6830134553650705,
+      "scale": 0.620921323059155,
       "offset": [
-        1630.4983734455197,
-        -1160.1164539033573
+        1654.0606734380065,
+        -1022.9938812662434
       ]
     },
     "workflowRendererVersion": "LG",
