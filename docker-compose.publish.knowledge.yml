@@ -1,0 +1,52 @@
+# Knowledge base backend publish compose — macmini deployment.
+#
+# Differs from the dev compose (docker-compose.knowledge.yml) only in:
+#   - No `build:` section — image pulled from NyaaDockerHUB private registry.
+#   - `pull_policy: always` ensures :latest is always refreshed.
+#   - Volume env vars use `${VAR:?err}` so compose fails fast if unset.
+#
+# Separate compose project (name: nyaachat-knowledge) so it can be rebuilt /
+# restarted independently of the NyaaChat frontend and shared-server.
+#
+# Connectivity: this project, the main frontend, and the shared-server all attach
+# to the external `nyaachat-net` network, so the main nginx can reach this service
+# by name (nyaachat-knowledge) and proxy /api/knowledge/* to it same-origin.
+#
+# Auth reads the shared-server's sessions table from its SQLite DB, mounted
+# read-only at /shared-db/ (via SHARED_RES_DIR, same as docker-compose.shared.yml).
+name: nyaachat-knowledge
+
+services:
+  nyaachat-knowledge:
+    image: ${PRIVATE_DOCKER_REGISTRY_HOST:?err}/nyaachat-knowledge:latest
+    container_name: nyaachat-knowledge
+    pull_policy: always
+    environment:
+      - TZ=Asia/Shanghai
+      - PORT=5108
+      - DB_PATH=/data/db/nyaachat-knowledge.db
+      # NyaaAcount unified account platform (P7-3 credential forwarding).
+      # Values come from .env in the project root (git-ignored).
+      - NYAAACOUNT_PUBLIC_URL=${NYAAACOUNT_PUBLIC_URL}
+      - NYAAACOUNT_API_TOKEN=${NYAAACOUNT_API_TOKEN}
+      - NYAAACOUNT_ENCRYPTION_KEY=${NYAAACOUNT_ENCRYPTION_KEY}
+      # Internal API secret shared with nyaachat-shared for P6 binding sync.
+      - INTERNAL_API_TOKEN=${INTERNAL_API_TOKEN}
+    ports:
+      # Bind to localhost only — all external traffic goes through the main
+      # nginx at /api/knowledge/ (Docker internal nyaachat-knowledge:5108).
+      # Direct host access is still available for dev/debug: curl localhost:5108/health
+      - "127.0.0.1:5108:5108"
+    volumes:
+      - ${KNOWLEDGE_RES_DIR:?err}/db:/data/db
+      # Read-only mount of shared-server's DB for session-token auth validation.
+      # Requires shared-server to have been deployed at least once (so the db
+      # file exists). If absent, auth fails closed (all protected routes 401).
+      - ${SHARED_RES_DIR:?err}/db:/shared-db:ro
+    networks:
+      - nyaachat-net
+    restart: unless-stopped
+
+networks:
+  nyaachat-net:
+    external: true

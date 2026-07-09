@@ -1,0 +1,53 @@
+# Shared-character backend publish compose — macmini deployment.
+#
+# Differs from the dev compose (docker-compose.shared.yml) only in:
+#   - No `build:` section — image pulled from NyaaDockerHUB private registry.
+#   - `pull_policy: always` ensures :latest is always refreshed.
+#   - Volume env vars use `${VAR:?err}` so compose fails fast if unset.
+#
+# Separate compose project (name: nyaachat-shared) so it can be rebuilt /
+# restarted independently of the NyaaChat frontend.
+#
+# Connectivity: both this project and the main one attach to the external
+# `nyaachat-net` network, so the main nginx can reach this service by name
+# (nyaachat-shared) and proxy /api/shared/* to it same-origin.
+#
+# Large/persistent data (sqlite db + cover images) is bind-mounted to the host
+# big disk per the project's Docker large-asset convention.
+name: nyaachat-shared
+
+services:
+  nyaachat-shared:
+    image: ${PRIVATE_DOCKER_REGISTRY_HOST:?err}/nyaachat-shared:latest
+    container_name: nyaachat-shared
+    pull_policy: always
+    environment:
+      - TZ=Asia/Shanghai
+      - PORT=5107
+      - DB_PATH=/data/db/nyaachat-shared-v4.db
+      - COVERS_DIR=/data/covers
+      - USER_STORAGE_DIR=/data/user-storage
+      # NyaaAcount unified account platform (P7-3 credential forwarding).
+      # Values come from .env in this compose project's root (git-ignored).
+      - NYAAACOUNT_PUBLIC_URL=${NYAAACOUNT_PUBLIC_URL}
+      - NYAAACOUNT_API_TOKEN=${NYAAACOUNT_API_TOKEN}
+      - NYAAACOUNT_ENCRYPTION_KEY=${NYAAACOUNT_ENCRYPTION_KEY}
+      # Internal API secret shared with nyaachat-knowledge for P6 binding sync.
+      - INTERNAL_API_TOKEN=${INTERNAL_API_TOKEN}
+      - KNOWLEDGE_SERVER_URL=${KNOWLEDGE_SERVER_URL:-http://nyaachat-knowledge:5108}
+    ports:
+      # Bind to localhost only — all external traffic goes through the main
+      # nginx at /api/shared/ (Docker internal nyaachat-shared:5107).  Direct
+      # host access is still available for dev/debug: curl localhost:5107/health
+      - "127.0.0.1:5107:5107"
+    volumes:
+      - ${SHARED_RES_DIR:?err}/db:/data/db
+      - ${SHARED_RES_DIR:?err}/covers:/data/covers
+      - ${USER_STORAGE_DIR:?err}:/data/user-storage
+    networks:
+      - nyaachat-net
+    restart: unless-stopped
+
+networks:
+  nyaachat-net:
+    external: true

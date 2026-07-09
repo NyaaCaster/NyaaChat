@@ -1,0 +1,72 @@
+# NyaaChat main project publish compose — macmini deployment.
+#
+# Differs from the dev compose (docker-compose.yml) only in:
+#   - No `build:` sections — images are pulled from NyaaDockerHUB private registry.
+#   - `pull_policy: always` ensures :latest is always refreshed on `docker compose up`.
+#   - Image refs use ${PRIVATE_DOCKER_REGISTRY_HOST:?err} so compose fails fast if
+#     the variable is not set in .env.
+#
+# All other config (env_file, ports, volumes, networks, restart, depends_on) is
+# identical to the dev compose so behaviour is the same on both sides.
+
+services:
+  app:
+    image: ${PRIVATE_DOCKER_REGISTRY_HOST:?err}/nyaachat-app:latest
+    pull_policy: always
+    # Load MCP_* secrets from .env (git-ignored). The nginx entrypoint
+    # envsubst-renders nginx.conf at container start so the API key never
+    # lands in the image layers or the frontend bundle.
+    env_file:
+      - .env
+    environment:
+      # Pin timezone so nginx access/error logs and any TLS expiry/X-cache
+      # date headers are in Asia/Shanghai instead of the container default
+      # UTC. The base nginx:1.27-alpine image already ships tzdata, so we
+      # don't need to install anything extra.
+      - TZ=Asia/Shanghai
+      # Restrict the official nginx envsubst filter to MCP_- and COMFYUI_-
+      # prefixed vars only. Without this filter, envsubst would clobber nginx's
+      # own variables ($1, $img_scheme, $arg_url, $upstream_cache_status,
+      # $cu_host, $connection_upgrade, ...) and break the image-proxy / comfyui
+      # reverse proxy / SPA routing. COMFYUI_FIXED_URL is injected into the
+      # /api/comfyui/fixed proxy_pass so the real server URL never reaches the
+      # frontend bundle.
+      - NGINX_ENVSUBST_FILTER=^(MCP|COMFYUI)_
+    ports:
+      - "3095:3095"
+    depends_on:
+      - ext-host
+    restart: unless-stopped
+    volumes:
+      # Persist the nginx image-proxy cache across container rebuilds so
+      # users don't lose access to images generated on previous deploys.
+      # Sized at 5GB by nginx.conf:proxy_cache_path.
+      - image-cache:/var/cache/nginx/images
+    # `default` keeps app↔ext-host working; `nyaachat-net` lets nginx reach the
+    # separately-deployed shared-character backend (nyaachat-shared:5107) for
+    # the /api/shared/ proxy. The backend may be absent — nginx defers DNS to
+    # request time (resolver 127.0.0.11 in nginx.conf) so it still boots.
+    networks:
+      - default
+      - nyaachat-net
+
+  ext-host:
+    image: ${PRIVATE_DOCKER_REGISTRY_HOST:?err}/nyaachat-ext-host:latest
+    pull_policy: always
+    env_file:
+      - .env
+    environment:
+      - TZ=Asia/Shanghai
+      - PORT=3099
+    restart: unless-stopped
+    networks:
+      - default
+
+volumes:
+  image-cache:
+
+networks:
+  # Created once out-of-band: `docker network create nyaachat-net`. Shared with
+  # the nyaachat-shared compose project (docker-compose.shared.yml).
+  nyaachat-net:
+    external: true
