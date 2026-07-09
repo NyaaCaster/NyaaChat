@@ -1,7 +1,7 @@
 {
   "st-Quote-TTS": {
     "network_endpoints": [
-      "http://h.hony-wen.com:5050/v1/audio/speech"
+      "http://h.nyaa.host:5050/v1/audio/speech"
     ]
   }
 }
