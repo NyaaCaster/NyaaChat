@@ -136,7 +136,7 @@ export function UserAccountModal({ isOpen, onClose }: UserAccountModalProps) {
     <BaseModal
       isOpen={isOpen}
       onClose={onClose}
-      title="共享账号"
+      title="用户账号"
       titleIcon={<CatCanIcon size={20} />}
       maxWidth="max-w-md"
     >

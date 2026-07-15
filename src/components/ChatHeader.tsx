@@ -170,7 +170,7 @@ export function ChatHeader({
           <button
             onClick={() => setIsAccountOpen(true)}
             className="p-1.5 text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100 hover:bg-gray-200 dark:hover:bg-white/10 rounded-md transition-all duration-200"
-            title="共享账号"
+            title="用户账号"
           >
             <IdCard size={16} />
           </button>
