@@ -15,6 +15,7 @@ import {
   Regex,
   IdCard,
   Book,
+  CircleQuestionMark,
 } from "lucide-react";
 import { motion } from "motion/react";
 import type { CharacterSettings, RegexScript } from "../types";
@@ -94,6 +95,15 @@ export function ChatHeader({
               v{__APP_VERSION__}
             </button>
           </h1>
+          <a
+            href="http://h.nyaa.host:5112/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="p-2 text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-white/10 rounded-lg transition-all duration-200"
+            title="帮助文档"
+          >
+            <CircleQuestionMark size={18} />
+          </a>
           {isBypassActive && (
             <motion.span
               initial={{ opacity: 0, scale: 0.9 }}
