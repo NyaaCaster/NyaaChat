@@ -141,6 +141,21 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
 
+  // Hot-path mirrors so the callbacks handed to every MessageItem can be
+  // stabilized with empty deps. A plain (or messages-keyed) callback gets a
+  // fresh identity on every keystroke / stream token, which busts React.memo on
+  // all bubbles and forces the whole list — each running the full react-markdown
+  // pipeline — to re-render. That is the input lag observed past ~100 floors.
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
+  const isLoadingRef = useRef(isLoading);
+  isLoadingRef.current = isLoading;
+  // Assigned right after sendChat is defined below; read (never captured) by the
+  // stabilized handleRegenerate so it always calls the latest closure.
+  const sendChatRef = useRef<
+    ((content: string, atts: typeof attachments, baseMessages: Message[]) => Promise<void>) | null
+  >(null);
+
   // Effective regex chain (global + this character), enabled-only. Held in state
   // so MessageItem's memo isn't busted by a fresh array identity every render:
   // the reference only changes when we recompute — on character switch, and
@@ -752,6 +767,9 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
       abortControllerRef.current = null;
     }
   };
+  // Keep the ref pointing at the latest sendChat closure so stabilized callbacks
+  // (handleRegenerate) invoke it without taking sendChat as a dependency.
+  sendChatRef.current = sendChat;
 
   const handleSubmit = async () => {
     if (isLoading) {
@@ -771,11 +789,11 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
   // baseMessages handoff so the injected turn behaves identically.
   useImperativeHandle(ref, () => ({
     sendUserMessage: (text: string) => {
-      if (isLoading) return;
+      if (isLoadingRef.current) return;
       if (!text.trim()) return;
-      void sendChat(text, [], messages);
+      void sendChatRef.current!(text, [], messagesRef.current);
     },
-  }));
+  }), []);
 
 
   // Auto-save current session when messages change. Debounced 800ms so the
@@ -847,17 +865,21 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
     });
   }, []);
 
-  const handleRegenerate = (id: string) => {
-    if (isLoading) return;
-    const idx = messages.findIndex((m) => m.id === id);
+  // P0: stabilized with empty deps — reads the hot-path refs so the callback
+  // identity never changes across keystrokes / stream tokens, allowing
+  // React.memo on every MessageItem to actually skip re-renders.
+  const handleRegenerate = useCallback((id: string) => {
+    const msgs = messagesRef.current;
+    if (isLoadingRef.current) return;
+    const idx = msgs.findIndex((m) => m.id === id);
     if (idx === -1) return;
-    const trimmed = messages.slice(0, idx);
+    const trimmed = msgs.slice(0, idx);
     const lastUser = [...trimmed].reverse().find((m) => m.role === "user");
     if (!lastUser) return;
     const withoutLastUser = trimmed.filter((m) => m.id !== lastUser.id);
     setMessages(withoutLastUser);
-    void sendChat(lastUser.content, [], withoutLastUser);
-  };
+    void sendChatRef.current!(lastUser.content, [], withoutLastUser);
+  }, []);
 
   // Resolve image-gen readiness from the v2 active image provider. Two
   // families are supported:
@@ -922,7 +944,7 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
       // Image gen and chat completion share the loading lock + abort controller
       // so the composer's stop button can cancel either, and the user can't
       // accidentally start a second request while one is in flight.
-      if (isLoading) return;
+      if (isLoadingRef.current) return;
 
       const targetId = replaceImageId ?? newId();
       setImageGeneratingId(targetId);
@@ -1115,7 +1137,7 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
         }
       }
     },
-    [isImageApiReady, isLoading, activeImageApi, activeImageProvider, isComfyImage, onAddLog],
+    [isImageApiReady, activeImageApi, activeImageProvider, isComfyImage, onAddLog],
   );
 
   /**
@@ -1132,7 +1154,7 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
       }
       const { system, user } = buildComfyPromptRequest({
         targetMessage: msg,
-        baseMessages: messages,
+        baseMessages: messagesRef.current,
         currentCharacter,
         settings,
         userName,
@@ -1159,7 +1181,7 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
       if (!out) throw new Error("英文提示词生成为空");
       return out;
     },
-    [messages, currentCharacter, settings, userName, charName],
+    [currentCharacter, settings, userName, charName],
   );
 
   /**
@@ -1176,7 +1198,7 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
     async (msg: Message, signal?: AbortSignal): Promise<string> => {
       const { system, user } = buildFixedComfyPromptRequest({
         targetMessage: msg,
-        baseMessages: messages,
+        baseMessages: messagesRef.current,
         currentCharacter,
         settings,
         userName,
@@ -1213,13 +1235,13 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
       if (!out) throw new Error("英文提示词生成为空");
       return out;
     },
-    [messages, currentCharacter, settings, userName, charName],
+    [currentCharacter, settings, userName, charName],
   );
 
   const handleGenerateImage = useCallback(
     async (id: string) => {
-      if (isLoading) return;
-      const msg = messages.find((m) => m.id === id);
+      if (isLoadingRef.current) return;
+      const msg = messagesRef.current.find((m) => m.id === id);
       if (!msg) return;
 
       // ── COMFYUI_FIXED (NyaaComfyUI) ── scaffold, design pending ──────────
@@ -1239,7 +1261,7 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
           });
           prompt = buildImagePrompt({
             targetMessage: msg,
-            baseMessages: messages,
+            baseMessages: messagesRef.current,
             currentCharacter,
             settings,
             userName,
@@ -1267,7 +1289,7 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
           });
           prompt = buildImagePrompt({
             targetMessage: msg,
-            baseMessages: messages,
+            baseMessages: messagesRef.current,
             currentCharacter,
             settings,
             userName,
@@ -1284,7 +1306,7 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
       // ── QinyAPI / OpenAI-compatible ───────────────────────────────────────
       const prompt = buildImagePrompt({
         targetMessage: msg,
-        baseMessages: messages,
+        baseMessages: messagesRef.current,
         currentCharacter,
         settings,
         userName,
@@ -1294,7 +1316,6 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
       void runImageGeneration(prompt, id);
     },
     [
-      messages,
       runImageGeneration,
       currentCharacter,
       settings,
@@ -1302,7 +1323,6 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
       charName,
       isComfyImage,
       isComfyPack,
-      isLoading,
       buildEnglishComfyPrompt,
       buildFixedComfyPrompt,
       onAddLog,
@@ -1311,7 +1331,7 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
 
   const handleRegenerateImage = useCallback(
     async (id: string) => {
-      const msg = messages.find((m) => m.id === id);
+      const msg = messagesRef.current.find((m) => m.id === id);
       if (!msg || !msg.imageUrl) return;
       const prompt = (msg.imagePrompt || msg.content || "").trim();
       if (!prompt) return;
@@ -1324,7 +1344,7 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
 
       void runImageGeneration(prompt, id, id);
     },
-    [messages, runImageGeneration, isComfyPack],
+    [runImageGeneration, isComfyPack],
   );
 
   // Load session when selected from history

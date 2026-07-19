@@ -64,11 +64,15 @@ python rebuild.py --no-cache
 
 ## macmini 部署
 
-本地 `rebuild.py` 构建推送后，**必须**推送 `.env` 到 macmini 并重启容器：
+本地 `rebuild.py` 构建推送后，推送 `.env.linux`（不是 `.env`！）到 macmini 并重启容器：
 
 ```bash
-scp .env U-MacMini-1:/root/DockerContainer/nyaachat/.env && ssh U-MacMini-1 "export PATH=\$PATH:/snap/bin && cd /root/DockerContainer/nyaachat && python3 restart.py"
+scp .env.linux U-MacMini-1:/root/DockerContainer/nyaachat/.env && ssh U-MacMini-1 "export PATH=\$PATH:/snap/bin && cd /root/DockerContainer/nyaachat && python3 restart.py"
 ```
+
+> **为什么用 `.env.linux`？** `.env` 的 `PRIVATE_DOCKER_REGISTRY_HOST=localhost:5000` 供 Windows 推送用；`.env.linux` 的 `=192.168.31.142:5000` 供 macmini 拉取用。scp 时以 `.env.linux` 覆盖 macmini 上的 `.env` 文件名，两边各取所需。
+>
+> **⚠️ 同步规则**：改 `.env` 时必须同步改 `.env.linux`（通常只需改 `PRIVATE_DOCKER_REGISTRY_HOST` 那一行）。两个文件都不提交 Git。
 
 `restart.py` 流程：pull → down → up -d → prune → status。
 
@@ -77,7 +81,7 @@ scp .env U-MacMini-1:/root/DockerContainer/nyaachat/.env && ssh U-MacMini-1 "exp
 **只要 `.env` 中发生了影响 macmini 发布侧运行时行为的变更（如 `MCP_HOST`、`NYAAACOUNT_*`、`PRIVATE_DOCKER_REGISTRY_*` 等容器内通过 `env_file` / envsubst / `process.env` 读取的变量），即使本次不需要 rebuild，也必须单独推送 `.env` 并重启 macmini 容器：**
 
 ```bash
-scp .env U-MacMini-1:/root/DockerContainer/nyaachat/.env && ssh U-MacMini-1 "export PATH=\$PATH:/snap/bin && cd /root/DockerContainer/nyaachat && python3 restart.py"
+scp .env.linux U-MacMini-1:/root/DockerContainer/nyaachat/.env && ssh U-MacMini-1 "export PATH=\$PATH:/snap/bin && cd /root/DockerContainer/nyaachat && python3 restart.py"
 ```
 
 > 反之，纯 build-time 变量（如 `VITE_*`、Vite `define` 注入等）已随镜像走，`.env` 推送不是必需的，但**默认一律推送**以避免遗漏。
