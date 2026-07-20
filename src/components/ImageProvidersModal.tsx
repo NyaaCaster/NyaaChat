@@ -118,6 +118,7 @@ export function ImageProvidersModal({
 
   useEffect(() => {
     if (isOpen) {
+      setSelectedId("comfyui-fixed");
       setMobileView("list");
       loadStoredAccount().then((stored) => {
         setAccount(stored);
