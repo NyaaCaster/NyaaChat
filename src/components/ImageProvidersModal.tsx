@@ -101,7 +101,7 @@ export function ImageProvidersModal({
     });
   }, [settings.imageProviders]);
 
-  const [selectedId, setSelectedId] = useState<string>(providers[0]?.id ?? "");
+  const [selectedId, setSelectedId] = useState<string>("comfyui-fixed");
   const [mobileView, setMobileView] = useState<"list" | "detail">("list");
   const [manageModelsForId, setManageModelsForId] = useState<string | null>(null);
   const [addTypeOpen, setAddTypeOpen] = useState(false);

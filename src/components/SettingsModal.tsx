@@ -84,6 +84,20 @@ const SEND_MODE_OPTIONS: SendModeOption[] = [
   },
 ];
 
+/** Full-screen overlay shown during cloud settings sync phases (API check +
+ *  actual upload/download). Positioned above all modals (z-[60] > BaseModal's
+ *  z-50) so it covers the ConfirmDialog during the execution phase. */
+function CloudBusyOverlay({ message }: { message: string }) {
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/30 backdrop-blur-sm">
+      <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl shadow-2xl border border-gray-200 dark:border-white/10 px-8 py-6 flex flex-col items-center gap-4">
+        <div className="w-8 h-8 border-[3px] border-blue-500/30 border-t-blue-500 rounded-full animate-spin" />
+        <p className="text-sm text-gray-700 dark:text-gray-300 font-medium">{message}</p>
+      </div>
+    </div>
+  );
+}
+
 export function SettingsModal({
   isOpen,
   onClose,
@@ -104,6 +118,7 @@ export function SettingsModal({
   const [pendingCloudOp, setPendingCloudOp] = useState<"upload" | "download" | "no_archive" | null>(null);
   const [pendingCloudPayload, setPendingCloudPayload] = useState<AppState | null>(null);
   const [cloudBusy, setCloudBusy] = useState(false);
+  const [cloudBusyMsg, setCloudBusyMsg] = useState<string | null>(null);
   const [cloudError, setCloudError] = useState<string | null>(null);
 
   const handleThemeSelect = (theme: AppState["theme"]) => {
@@ -184,6 +199,7 @@ export function SettingsModal({
       return;
     }
     setCloudBusy(true);
+    setCloudBusyMsg("正在检测云端存档…");
     try {
       const res = await downloadCloudSettings(stored.token);
       if (res.kind === "network") {
@@ -206,6 +222,7 @@ export function SettingsModal({
       setPendingCloudOp("upload");
     } finally {
       setCloudBusy(false);
+      setCloudBusyMsg(null);
     }
   };
 
@@ -217,6 +234,7 @@ export function SettingsModal({
       return;
     }
     setCloudBusy(true);
+    setCloudBusyMsg("正在检测云端存档…");
     try {
       const res = await downloadCloudSettings(stored.token);
       if (res.kind === "network") {
@@ -246,11 +264,13 @@ export function SettingsModal({
       setPendingCloudOp("download");
     } finally {
       setCloudBusy(false);
+      setCloudBusyMsg(null);
     }
   };
 
   const handleConfirmCloudUpload = async () => {
     setCloudBusy(true);
+    setCloudBusyMsg("正在上传设置，请勿关闭页面…");
     let coverWarning: string | null = null;
     try {
       const stored = await loadStoredAccount();
@@ -284,12 +304,14 @@ export function SettingsModal({
       setCloudError(coverWarning);
     } finally {
       setCloudBusy(false);
+      setCloudBusyMsg(null);
     }
   };
 
   const handleConfirmCloudDownload = async () => {
     if (!pendingCloudPayload) return;
     setCloudBusy(true);
+    setCloudBusyMsg("正在下载设置，请勿关闭页面…");
     try {
       // Download covers before applying settings so IndexedDB is populated
       // by the time the UI re-renders with the new character list.
@@ -311,6 +333,7 @@ export function SettingsModal({
       onClose();
     } finally {
       setCloudBusy(false);
+      setCloudBusyMsg(null);
     }
   };
 
@@ -581,6 +604,8 @@ export function SettingsModal({
         <UserAccountModal isOpen={isAccountOpen} onClose={() => setIsAccountOpen(false)} />,
         document.body,
       )}
+
+      {cloudBusyMsg && <CloudBusyOverlay message={cloudBusyMsg} />}
     </>
   );
 }
