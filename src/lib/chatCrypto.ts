@@ -104,6 +104,9 @@ async function getEncryptionKey(token: string): Promise<Uint8Array> {
   if (res.kind === "network") {
     throw new Error("无法连接服务器获取加密密钥，请检查网络后重试");
   }
+  if (res.kind === "timeout") {
+    throw new Error("获取加密密钥超时，请检查网络后重试");
+  }
   if (res.kind === "error") {
     throw new Error(`获取加密密钥失败：${res.error}`);
   }

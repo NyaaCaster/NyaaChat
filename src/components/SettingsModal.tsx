@@ -190,6 +190,10 @@ export function SettingsModal({
         setCloudError("服务器无法连接,请稍后重试");
         return;
       }
+      if (res.kind === "timeout") {
+        setCloudError("连接超时，请检查网络后重试");
+        return;
+      }
       if (res.kind === "error") {
         setCloudError(`服务器错误:${res.error}`);
         return;
@@ -217,6 +221,10 @@ export function SettingsModal({
       const res = await downloadCloudSettings(stored.token);
       if (res.kind === "network") {
         setCloudError("服务器无法连接,请稍后重试");
+        return;
+      }
+      if (res.kind === "timeout") {
+        setCloudError("连接超时，请检查网络后重试");
         return;
       }
       if (res.kind === "error") {

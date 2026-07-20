@@ -52,7 +52,13 @@ export interface StoredAccount {
 export type ApiResult<T> =
   | { kind: "ok"; ok: true; data: T }
   | { kind: "error"; ok: false; error: string; status: number }
-  | { kind: "network"; ok: false };
+  | { kind: "network"; ok: false }
+  | { kind: "timeout"; ok: false };
+
+// Convenience type for error-mapping helpers that accept any non-ok variant.
+// TS narrows discriminated unions on `kind`, so callers must handle each
+// variant explicitly — this alias is purely for function parameter typing.
+export type ApiError = Extract<ApiResult<never>, { ok: false }>;
 
 // --- IndexedDB persistence -----------------------------------------------
 export async function loadStoredAccount(): Promise<StoredAccount | null> {
@@ -87,10 +93,11 @@ export async function clearStoredAccount(): Promise<void> {
 // --- low-level request ----------------------------------------------------
 async function request<T>(
   path: string,
-  options: { method?: string; body?: unknown; token?: string } = {},
+  options: { method?: string; body?: unknown; token?: string; timeoutMs?: number } = {},
 ): Promise<ApiResult<T>> {
+  const timeoutMs = options.timeoutMs ?? REQUEST_TIMEOUT_MS;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const headers: Record<string, string> = {};
     if (options.body !== undefined) headers["Content-Type"] = "application/json";
@@ -108,6 +115,15 @@ async function request<T>(
       payload = await res.json();
     } catch {
       payload = null;
+    }
+
+    // When the response body couldn't be parsed as JSON but the HTTP status is
+    // 200, classify based on whether our own timeout fired (→ timeout) or
+    // something in the proxy chain returned HTML/empty (→ network).  Both are
+    // transport-level failures, not business errors, so they must not reach the
+    // "error" branch that would show a confusing `http_200` label.
+    if (payload === null && res.ok) {
+      return { kind: controller.signal.aborted ? "timeout" : "network", ok: false };
     }
 
     // Gateway-level failures (nginx can't reach the backend, or the backend
@@ -320,7 +336,7 @@ export interface CloudChatSessionsResponse {
 export function downloadChatSessions(
   token: string,
 ): Promise<ApiResult<CloudChatSessionsResponse>> {
-  return request<CloudChatSessionsResponse>("/chat-sessions", { token });
+  return request<CloudChatSessionsResponse>("/chat-sessions", { token, timeoutMs: 120_000 });
 }
 
 /** Upload an encrypted chat-session payload (AES-256-GCM). */
@@ -332,6 +348,7 @@ export function uploadChatSessions(
     method: "PUT",
     token,
     body: payload,
+    timeoutMs: 120_000,
   });
 }
 

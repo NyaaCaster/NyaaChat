@@ -49,6 +49,7 @@ interface UserAccountModalProps {
 // separately (the design requires distinguishing them from bad credentials).
 function messageFor(result: Extract<ApiResult<unknown>, { ok: false }>): string {
   if (result.kind === "network") return "服务器无法连接，请稍后再试";
+  if (result.kind === "timeout") return "连接超时，请检查网络后重试";
   switch (result.error) {
     case "bad_credentials":
       return "账号或密码错误";

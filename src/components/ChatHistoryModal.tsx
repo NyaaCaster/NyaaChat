@@ -22,6 +22,20 @@ function getSessionLabel(session: ChatSession): string {
   return `${session.characterName}-${stamp}`;
 }
 
+/** Full-screen overlay shown during cloud sync phases (API check + actual
+ *  upload/download). Positioned above all modals (z-[60] > BaseModal's z-50)
+ *  so it covers even the ConfirmDialog during the execution phase. */
+function CloudBusyOverlay({ message }: { message: string }) {
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/30 backdrop-blur-sm">
+      <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl shadow-2xl border border-gray-200 dark:border-white/10 px-8 py-6 flex flex-col items-center gap-4">
+        <div className="w-8 h-8 border-[3px] border-blue-500/30 border-t-blue-500 rounded-full animate-spin" />
+        <p className="text-sm text-gray-700 dark:text-gray-300 font-medium">{message}</p>
+      </div>
+    </div>
+  );
+}
+
 interface ChatHistoryModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -52,6 +66,7 @@ export function ChatHistoryModal({
 
   // --- cloud chat-sessions state --------------------------------------------
   const [cloudBusy, setCloudBusy] = useState(false);
+  const [cloudBusyMsg, setCloudBusyMsg] = useState<string | null>(null);
   const [cloudError, setCloudError] = useState<string | null>(null);
   const [cloudMeta, setCloudMeta] = useState<{ updated_at: number; count: number } | null>(null);
   const [pendingCloudOp, setPendingCloudOp] = useState<"upload" | "download" | "no_archive" | null>(null);
@@ -171,10 +186,15 @@ export function ChatHistoryModal({
       return;
     }
     setCloudBusy(true);
+    setCloudBusyMsg("正在检测云端存档…");
     try {
       const res = await downloadChatSessions(stored.token);
       if (res.kind === "network") {
         setCloudError("服务器无法连接，请稍后重试");
+        return;
+      }
+      if (res.kind === "timeout") {
+        setCloudError("连接超时，请检查网络后重试");
         return;
       }
       if (res.kind === "error") {
@@ -189,6 +209,7 @@ export function ChatHistoryModal({
       setPendingCloudOp("upload");
     } finally {
       setCloudBusy(false);
+      setCloudBusyMsg(null);
     }
   };
 
@@ -200,10 +221,15 @@ export function ChatHistoryModal({
       return;
     }
     setCloudBusy(true);
+    setCloudBusyMsg("正在检测云端存档…");
     try {
       const res = await downloadChatSessions(stored.token);
       if (res.kind === "network") {
         setCloudError("服务器无法连接，请稍后重试");
+        return;
+      }
+      if (res.kind === "timeout") {
+        setCloudError("连接超时，请检查网络后重试");
         return;
       }
       if (res.kind === "error") {
@@ -221,11 +247,13 @@ export function ChatHistoryModal({
       setPendingCloudOp("download");
     } finally {
       setCloudBusy(false);
+      setCloudBusyMsg(null);
     }
   };
 
   const handleConfirmCloudUpload = async () => {
     setCloudBusy(true);
+    setCloudBusyMsg("正在上传聊天记录，请勿关闭页面…");
     try {
       const stored = await loadStoredAccount();
       if (!stored) return;
@@ -234,6 +262,10 @@ export function ChatHistoryModal({
       const res = await uploadChatSessions(stored.token, encrypted);
       if (res.kind === "network") {
         setCloudError("上传失败：服务器无法连接");
+        return;
+      }
+      if (res.kind === "timeout") {
+        setCloudError("上传超时，请检查网络后重试");
         return;
       }
       if (res.kind === "error") {
@@ -247,12 +279,14 @@ export function ChatHistoryModal({
       setCloudError("加密失败：" + (err?.message || String(err)));
     } finally {
       setCloudBusy(false);
+      setCloudBusyMsg(null);
     }
   };
 
   const handleConfirmCloudDownload = async () => {
     if (!pendingCloudRaw) return;
     setCloudBusy(true);
+    setCloudBusyMsg("正在下载聊天记录，请勿关闭页面…");
     try {
       const stored = await loadStoredAccount();
       if (!stored) { setCloudError("登录已过期，请重新登录"); return; }
@@ -267,6 +301,7 @@ export function ChatHistoryModal({
       setCloudError("解密失败：" + (err?.message || String(err)));
     } finally {
       setCloudBusy(false);
+      setCloudBusyMsg(null);
     }
   };
 
@@ -484,6 +519,8 @@ export function ChatHistoryModal({
         }}
         onCancel={() => setStorageLimitDialog(null)}
       />
+
+      {cloudBusyMsg && <CloudBusyOverlay message={cloudBusyMsg} />}
     </>
   );
 }

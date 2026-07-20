@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   ArrowLeft,
@@ -89,6 +89,17 @@ export function ImageProvidersModal({
   onSave,
 }: ImageProvidersModalProps) {
   const providers = settings.imageProviders;
+
+  // Render list with NyaaComfyUI always pinned to the top; the stored order
+  // (settings.imageProviders) is left untouched so data operations like
+  // updateProvider / handleSelect continue to work against the canonical array.
+  const displayProviders = useMemo(() => {
+    return [...settings.imageProviders].sort((a, b) => {
+      if (a.kind === "comfyui-fixed") return -1;
+      if (b.kind === "comfyui-fixed") return 1;
+      return 0;
+    });
+  }, [settings.imageProviders]);
 
   const [selectedId, setSelectedId] = useState<string>(providers[0]?.id ?? "");
   const [mobileView, setMobileView] = useState<"list" | "detail">("list");
@@ -206,7 +217,7 @@ export function ImageProvidersModal({
           >
             <div className="flex-1 overflow-y-auto p-2 min-h-0">
               <ul className="space-y-1 list-none">
-                {providers.map((p) => (
+                {displayProviders.map((p) => (
                   <ImageProviderRow
                     key={p.id}
                     provider={p}

@@ -36,6 +36,7 @@ const TAGS_MAX = 20;
 // Price tiers from the design. 0 is the "free" / "not for sale" sentinel; -1 is
 function messageFor(result: Extract<ApiResult<unknown>, { ok: false }>): string {
   if (result.kind === "network") return "服务器无法连接，请稍后再试";
+  if (result.kind === "timeout") return "连接超时，请检查网络后重试";
   switch (result.error) {
     case "unauthorized":
       return "登录已失效，请重新登录后再分享";

@@ -340,7 +340,9 @@ export function SharedLibraryModal({
       const tok = (await loadStoredAccount())?.token ?? null;
       const result = await acquireCharacter(tok, item.globalId);
       if (result.kind !== "ok") {
-        const msg = result.kind === "network" ? "服务器无法连接，请稍后再试" : acquireMessage(result.error);
+        const msg = result.kind === "network" ? "服务器无法连接，请稍后再试"
+          : result.kind === "timeout" ? "连接超时，请检查网络后重试"
+          : acquireMessage(result.error);
         flash("err", msg);
         return;
       }
