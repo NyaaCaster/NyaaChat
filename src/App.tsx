@@ -300,6 +300,7 @@ function normalizeImageProviders(list: any[]): ImageProvider[] {
     if (p?.kind === "comfyui") {
       return {
         ...p,
+        id: "comfyui-fixed",
         kind: "comfyui-fixed",
         name: COMFYUI_FIXED_NAME,
         baseUrl: "",

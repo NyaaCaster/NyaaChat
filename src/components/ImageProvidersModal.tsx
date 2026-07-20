@@ -101,7 +101,9 @@ export function ImageProvidersModal({
     });
   }, [settings.imageProviders]);
 
-  const [selectedId, setSelectedId] = useState<string>("comfyui-fixed");
+  const [selectedId, setSelectedId] = useState<string>(
+    () => settings.imageProviders.find((p) => p.kind === "comfyui-fixed")?.id ?? "",
+  );
   const [mobileView, setMobileView] = useState<"list" | "detail">("list");
   const [manageModelsForId, setManageModelsForId] = useState<string | null>(null);
   const [addTypeOpen, setAddTypeOpen] = useState(false);
@@ -118,7 +120,8 @@ export function ImageProvidersModal({
 
   useEffect(() => {
     if (isOpen) {
-      setSelectedId("comfyui-fixed");
+      const comfyId = settings.imageProviders.find((p: any) => p.kind === "comfyui-fixed")?.id;
+      if (comfyId) setSelectedId(comfyId);
       setMobileView("list");
       loadStoredAccount().then((stored) => {
         setAccount(stored);
