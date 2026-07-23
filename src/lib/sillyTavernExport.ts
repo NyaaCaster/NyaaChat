@@ -69,6 +69,7 @@ function buildEntryExtensions(
     ignore_budget: false,
     linkedKbIds: rule.linkedKbIds ?? [],
     _linkedKbCache: rule._linkedKbCache ?? {},
+    nyaa_hard: rule.hard === true,
   };
 }
 

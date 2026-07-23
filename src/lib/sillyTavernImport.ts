@@ -177,11 +177,7 @@ export function convertSillyTavernCharacter(parsed: any): CharacterSettings {
       triggerType: e.constant ? "permanent" : "keywords",
       keywords: e.constant ? undefined : (e.keys ?? []).join(","),
       position: mapEntryPosition(e),
-      // ST has no hard/soft authority concept; nothing in the card justifies
-      // auto-promoting an entry to a hard constraint. Per the prompt-architecture
-      // standard (§6.1 / §7.8) imported lore defaults to soft — the user
-      // manually promotes the few true rules (e.g. TRPG check mechanics) after.
-      hard: false,
+      hard: e.extensions?.nyaa_hard === true,
       // Collapse ST's two recursion limiters into one switch: an entry only
       // participates in NyaaChat's recursion chain if ST left it fully open
       // (neither exclude_recursion nor prevent_recursion set). delay_until_recursion
