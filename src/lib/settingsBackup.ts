@@ -384,8 +384,8 @@ function validateImportPayload(raw: unknown): ImportResult {
   if (!bp.opusChecks || typeof bp.opusChecks !== "object" || Array.isArray(bp.opusChecks)) {
     bp.opusChecks = {
       gemini31Check: wordCheckTemplates.gemini31Check.content,
-      opus48Check: wordCheckTemplates.opus48Check.content,
-      opus47Check: wordCheckTemplates.opus47Check.content,
+      op1Check: wordCheckTemplates.op1Check.content,
+      op2Check: wordCheckTemplates.op2Check.content,
     };
   }
 

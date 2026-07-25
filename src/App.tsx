@@ -380,8 +380,8 @@ const DEFAULT_SETTINGS: AppState = {
     },
     opusChecks: {
       gemini31Check: wordCheckTemplates.gemini31Check.content,
-      opus48Check: wordCheckTemplates.opus48Check.content,
-      opus47Check: wordCheckTemplates.opus47Check.content,
+      op1Check: wordCheckTemplates.op1Check.content,
+      op2Check: wordCheckTemplates.op2Check.content,
     },
     // RosettaStone — standalone output constraints (independent of the
     // ClavisSalomonis `enabled` switch above). 字数控制 default off,
@@ -491,16 +491,22 @@ export default function App() {
           ...(typeof parsedOpusChecks.gemini31Check === "string"
             ? { gemini31Check: parsedOpusChecks.gemini31Check }
             : {}),
-          ...(typeof parsedOpusChecks.opus48Check === "string"
-            ? { opus48Check: parsedOpusChecks.opus48Check }
-            : typeof parsedOpusChecks.opusCheck1 === "string"
-              ? { opus48Check: parsedOpusChecks.opusCheck1 }
-              : {}),
-          ...(typeof parsedOpusChecks.opus47Check === "string"
-            ? { opus47Check: parsedOpusChecks.opus47Check }
-            : typeof parsedOpusChecks.opusCheck2 === "string"
-              ? { opus47Check: parsedOpusChecks.opusCheck2 }
-              : {}),
+          // op1Check was previously named opus47Check (and opusCheck2 before
+          // that); op2Check was opus48Check (and opusCheck1 before that).
+          ...(typeof parsedOpusChecks.op1Check === "string"
+            ? { op1Check: parsedOpusChecks.op1Check }
+            : typeof parsedOpusChecks.opus47Check === "string"
+              ? { op1Check: parsedOpusChecks.opus47Check }
+              : typeof parsedOpusChecks.opusCheck2 === "string"
+                ? { op1Check: parsedOpusChecks.opusCheck2 }
+                : {}),
+          ...(typeof parsedOpusChecks.op2Check === "string"
+            ? { op2Check: parsedOpusChecks.op2Check }
+            : typeof parsedOpusChecks.opus48Check === "string"
+              ? { op2Check: parsedOpusChecks.opus48Check }
+              : typeof parsedOpusChecks.opusCheck1 === "string"
+                ? { op2Check: parsedOpusChecks.opusCheck1 }
+                : {}),
         };
         setSettings({
           bypass: {

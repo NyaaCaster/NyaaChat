@@ -442,8 +442,6 @@ export function SharedLibraryModal({
           source: card.source,
           intro: card.intro,
           tags: card.tags,
-          usePrice: card.usePrice,
-          buyoutPrice: card.buyoutPrice,
         },
         coverBlob,
       });

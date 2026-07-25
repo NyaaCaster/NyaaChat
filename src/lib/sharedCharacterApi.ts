@@ -59,7 +59,6 @@ export interface SharePayload {
   source: "original" | "reposted";
   intro: string;
   tags: string[];
-  usePrice: number;
   /** ST-format character card serialized as a STRING. */
   cardJson: string;
   /** Re-encoded pure-WebP cover, base64 (no data: prefix). */

@@ -322,7 +322,7 @@ export function BypassModal({ isOpen, onClose, settings, onSave, onSendMessage }
                 ))}
               </div>
             </div>
-            {/* RuleBreaker — Gemini31Check / Opus48Check / Opus47Check 文本编辑，无开关。 */}
+            {/* RuleBreaker — Gemini31Check / Op1Check / Op2Check 文本编辑，无开关。 */}
             <div className="space-y-6 p-5 sm:p-6 bg-red-50/50 dark:bg-red-500/5 rounded-2xl border border-red-100 dark:border-red-500/10">
               <h4 className="text-base font-semibold tracking-tight text-red-700 dark:text-red-400" style={{ fontFamily: 'var(--font-display)' }}>
                 RuleBreaker
@@ -330,8 +330,8 @@ export function BypassModal({ isOpen, onClose, settings, onSave, onSendMessage }
               <div className="space-y-3">
                 {([
                   { key: 'gemini31Check' as WordCheckKey, label: wordCheckTemplates.gemini31Check.label },
-                  { key: 'opus48Check' as WordCheckKey, label: wordCheckTemplates.opus48Check.label },
-                  { key: 'opus47Check' as WordCheckKey, label: wordCheckTemplates.opus47Check.label },
+                  { key: 'op1Check' as WordCheckKey, label: wordCheckTemplates.op1Check.label },
+                  { key: 'op2Check' as WordCheckKey, label: wordCheckTemplates.op2Check.label },
                 ]).map((item) => (
                   <div key={item.key} className="flex items-center justify-between gap-1 p-2.5 bg-white/50 dark:bg-white/5 rounded-xl">
                     <button
@@ -361,6 +361,17 @@ export function BypassModal({ isOpen, onClose, settings, onSave, onSendMessage }
                 ))}
                 <p className="text-xs text-gray-500 dark:text-gray-400 px-1 leading-relaxed">
                   直接点击破甲词名称即可发送破甲词到当前对话，注意对应模型。
+                  <br />
+                  请到{' '}
+                  <a
+                    href="https://qm.qq.com/q/NRwmBbH322"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:underline transition-colors"
+                  >
+                    QinyAPI交流③群
+                  </a>{' '}
+                  群文件获取破甲词，并严格依据破甲词压缩包内使用说明进行使用。
                 </p>
                 {/* 互斥编辑框：所有按钮共用此位置，editingOpus 决定显示哪一段。 */}
                 <AnimatePresence mode="wait">

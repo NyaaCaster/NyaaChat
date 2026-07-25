@@ -157,7 +157,9 @@ export function CharacterEditModal({
     const id = initialCharacter?.id || cardIdRef.current;
     // Cover persistence is non-fatal — a failure here should never silently
     // discard character edits (worldInfo, linkedKbIds, etc.).
-    let coverImage: Blob | undefined;
+    // commitCover returns the IndexedDB marker string (COVER_MARKER), not the
+    // blob itself — the blob lives in IndexedDB, the card only stores the marker.
+    let coverImage: string | undefined;
     try {
       coverImage = await commitCover(id);
     } catch {

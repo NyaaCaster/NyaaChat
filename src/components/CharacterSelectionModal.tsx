@@ -375,7 +375,6 @@ export function CharacterSelectionModal({
         source: card.source,
         intro: card.intro,
         tags: card.tags,
-        usePrice: 0,
       };
       // Edit from the locally-held card (its id binds the conversation); the
       // editor only revises name/desc/firstMes/worldInfo/cover. Open in

@@ -60,12 +60,13 @@ function messageFor(result: Extract<ApiResult<unknown>, { ok: false }>): string 
   }
 }
 
-/** Pre-fill values for editing an existing share (phase 5b publish update). */
+/** Pre-fill values for editing an existing share (phase 5b publish update).
+ *  Shared cards are always free since v1.5.1 (de-commercialization), so there
+ *  are no pricing fields to carry. */
 export interface SharePrefill {
   source: "original" | "reposted";
   intro: string;
   tags: string[];
-  usePrice: number;
 }
 
 interface CharacterShareModalProps {
@@ -257,7 +258,6 @@ export function CharacterShareModal({
         source,
         intro: intro.trim(),
         tags,
-        usePrice: 0,
         cardJson,
         coverBase64,
       };
