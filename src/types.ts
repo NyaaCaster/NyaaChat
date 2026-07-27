@@ -266,6 +266,10 @@ export interface AppState {
    *  pattern-matches model names, which is not reliable enough to gate a
    *  feature on for self-hosted / proxied endpoints. */
   modelContextOverrides?: Record<string, number>;
+  /** When the user accepted the plaintext-storage disclosure. Undefined = never
+   *  shown; the dialog is gated on this rather than on isMemoryEnabled so that
+   *  toggling off and on again does not silently skip the disclosure. */
+  memoryDisclosureAcceptedAt?: number;
 }
 
 export type ModelCapability =

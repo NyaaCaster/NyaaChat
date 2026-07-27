@@ -3,16 +3,18 @@ import { wordCheckTemplates } from "./WordCheckTemplates";
 import { wordCountTemplates } from "./WordCountTemplates";
 import { COVER_MARKER, loadCover, saveCover } from "./coverStorage";
 import { COMFYUI_FIXED_NAME, defaultComfyFields } from "./providers";
+import { MIN_THRESHOLD_PCT, MAX_THRESHOLD_PCT, DEFAULT_THRESHOLD_PCT } from "./contextBudget";
 
 const EXPORT_KIND = "nyaachat_settings_export";
 /** Bumped to 3 when the AppState gained MCP fields (`isMcpEnabled`,
  *  `mcpUserCity`, `mcpToolsEnabled`). v4 adds the native front-end renderer
  *  toggle/depth. v5 adds bypass sub-fields (opusChecks, wordCount,
  *  languageConstraint), isWebSearchEnabled / isStreaming validation, and
- *  ComfyUI image-provider field normalisation. Older files are still accepted
- *  and backfilled during import. */
-const EXPORT_VERSION = 5;
-const SUPPORTED_IMPORT_VERSIONS = new Set([2, 3, 4, 5]);
+ *  ComfyUI image-provider field normalisation. v6 adds persistent-memory fields
+ *  (isMemoryEnabled, memoryThresholdPct, modelContextOverrides). Older files are
+ *  still accepted and backfilled during import. */
+const EXPORT_VERSION = 6;
+const SUPPORTED_IMPORT_VERSIONS = new Set([2, 3, 4, 5, 6]);
 
 export interface ExportPayload {
   _kind: typeof EXPORT_KIND;
@@ -318,6 +320,31 @@ function validateImportPayload(raw: unknown): ImportResult {
     }
   }
 
+  // v6 fields: persistent-memory switch + threshold + context overrides.
+  // Pre-v6 files lack them entirely — accepted and backfilled below.
+  if (obj._version >= 6) {
+    if (s.isMemoryEnabled !== undefined && typeof s.isMemoryEnabled !== "boolean") {
+      issues.push("isMemoryEnabled 必须是布尔");
+    }
+    if (
+      s.memoryThresholdPct !== undefined &&
+      (typeof s.memoryThresholdPct !== "number" ||
+        !Number.isFinite(s.memoryThresholdPct) ||
+        s.memoryThresholdPct < MIN_THRESHOLD_PCT ||
+        s.memoryThresholdPct > MAX_THRESHOLD_PCT)
+    ) {
+      issues.push(`memoryThresholdPct 必须是 ${MIN_THRESHOLD_PCT}-${MAX_THRESHOLD_PCT} 的数字`);
+    }
+    if (
+      s.modelContextOverrides !== undefined &&
+      (typeof s.modelContextOverrides !== "object" ||
+        s.modelContextOverrides === null ||
+        Array.isArray(s.modelContextOverrides))
+    ) {
+      issues.push("modelContextOverrides 必须是对象");
+    }
+  }
+
   if (issues.length > 0) {
     const shown = issues.slice(0, 5).join("; ");
     const more = issues.length > 5 ? ` (还有 ${issues.length - 5} 项)` : "";
@@ -414,6 +441,32 @@ function validateImportPayload(raw: unknown): ImportResult {
     filled.imageProviders = normalizeImageProvidersForImport(
       filled.imageProviders as ImageProvider[],
     );
+  }
+
+  // --- v6 backfills: persistent memory ---
+  // Old archives predate the feature; importing one must never silently turn
+  // on plaintext server-side storage, so this defaults to false regardless.
+  if (typeof filled.isMemoryEnabled !== "boolean") {
+    filled.isMemoryEnabled = false;
+  }
+  {
+    const pct = Number(filled.memoryThresholdPct);
+    filled.memoryThresholdPct =
+      Number.isFinite(pct) && pct >= MIN_THRESHOLD_PCT && pct <= MAX_THRESHOLD_PCT
+        ? Math.floor(pct)
+        : DEFAULT_THRESHOLD_PCT;
+  }
+  if (
+    !filled.modelContextOverrides ||
+    typeof filled.modelContextOverrides !== "object" ||
+    Array.isArray(filled.modelContextOverrides)
+  ) {
+    filled.modelContextOverrides = {};
+  }
+  // memoryDisclosureAcceptedAt is deliberately NOT backfilled to a timestamp:
+  // an imported archive must re-show the plaintext-storage disclosure.
+  if (!Number.isFinite(filled.memoryDisclosureAcceptedAt)) {
+    delete filled.memoryDisclosureAcceptedAt;
   }
 
   return { kind: "ok", settings: filled as unknown as AppState };

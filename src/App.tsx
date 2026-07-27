@@ -13,6 +13,8 @@ import { COMFYUI_FIXED_NAME, createDefaultImageProviders, createDefaultLlmProvid
 import { newId } from "./lib/id";
 import { loadLastSessionId, loadSessions, saveLastSessionId } from "./lib/sessionStorage";
 import { getItem, setItem, removeItem } from "./lib/idbStorage";
+import { SettingsProvider } from "./lib/settingsContext";
+import { MIN_THRESHOLD_PCT, MAX_THRESHOLD_PCT, DEFAULT_THRESHOLD_PCT } from "./lib/contextBudget";
 import { ChatSession, LlmProvider, ImageProvider, LlmProviderKind } from "./types";
 
 // Modals are rendered only when opened, so each one's chunk loads on-demand
@@ -55,7 +57,7 @@ export type ConnectionStatus = "disconnected" | "connecting" | "connected";
 // with per-provider apiKey/baseUrl/models. The legacy single-endpoint `api`
 // and `imageApi` blocks are retained on AppState during the transition until
 // chatPipeline is switched over (phase 3).
-const SCHEMA_VERSION = 8;
+const SCHEMA_VERSION = 9;
 
 function migrate(raw: any): any {
   if (!raw || typeof raw !== "object") return raw;
@@ -82,6 +84,9 @@ function migrate(raw: any): any {
   if (v < 8) {
     raw = migrateV7ToV8(raw);
   }
+  if (v < 9) {
+    raw = migrateV8ToV9(raw);
+  }
 
   return raw;
 }
@@ -99,6 +104,21 @@ function migrateV7ToV8(raw: any): any {
     ...raw,
     bypass: { ...bypass, enabled: false },
     _version: 8,
+  };
+}
+
+/**
+ * v8 → v9: persistent-memory system fields. All new installations and
+ * upgraded clients default to off — plaintext server-side storage must
+ * be opt-in, never silently enabled by a migration.
+ */
+function migrateV8ToV9(raw: any): any {
+  return {
+    ...raw,
+    isMemoryEnabled: false,
+    memoryThresholdPct: DEFAULT_THRESHOLD_PCT,
+    modelContextOverrides: {},
+    _version: 9,
   };
 }
 
@@ -439,6 +459,8 @@ const DEFAULT_SETTINGS: AppState = {
   isMemoryEnabled: false,
   memoryThresholdPct: 70,
   modelContextOverrides: {},
+  // memoryDisclosureAcceptedAt intentionally absent — undefined means
+  // "disclosure not yet accepted". Toggling off and on again re-shows it.
 };
 
 function findMostRecentSessionForCharacter(characterId: string): ChatSession | null {
@@ -634,8 +656,8 @@ export default function App() {
               : DEFAULT_SETTINGS.isMemoryEnabled,
           memoryThresholdPct:
             Number.isFinite(parsed.memoryThresholdPct) &&
-            parsed.memoryThresholdPct >= 40 &&
-            parsed.memoryThresholdPct <= 90
+            parsed.memoryThresholdPct >= MIN_THRESHOLD_PCT &&
+            parsed.memoryThresholdPct <= MAX_THRESHOLD_PCT
               ? Math.floor(parsed.memoryThresholdPct)
               : DEFAULT_SETTINGS.memoryThresholdPct,
           modelContextOverrides:
@@ -643,6 +665,10 @@ export default function App() {
             !Array.isArray(parsed.modelContextOverrides)
               ? parsed.modelContextOverrides
               : {},
+          memoryDisclosureAcceptedAt:
+            Number.isFinite(parsed.memoryDisclosureAcceptedAt)
+              ? parsed.memoryDisclosureAcceptedAt
+              : undefined,
         });
       } catch (e) {
         console.error("Failed to load settings", e);
@@ -741,8 +767,13 @@ export default function App() {
 
   if (!isLoaded) return null; // or a loading spinner
 
+  const settingsCtx = React.useMemo(
+    () => ({ settings, onSettingsChange: handleSaveSettings }),
+    [settings],
+  );
+
   return (
-    <>
+    <SettingsProvider value={settingsCtx}>
       <ChatInterface
         ref={chatRef}
         settings={settings}
@@ -830,6 +861,6 @@ export default function App() {
           />
         )}
       </Suspense>
-    </>
+    </SettingsProvider>
   );
 }

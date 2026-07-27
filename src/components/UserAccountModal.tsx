@@ -18,6 +18,7 @@ import {
   Book,
   Image,
   Gift,
+  Settings,
 } from "lucide-react";
 import { BaseModal } from "./BaseModal";
 import { CatCanIcon } from "./icons/CatCanIcon";
@@ -38,7 +39,10 @@ import {
   saveStoredAccount,
 } from "../lib/sharedAccountApi";
 import { expandKb as apiExpandKb } from "../lib/knowledgeApi";
+import { getMemoryUsage, deleteAllMemory, type MemoryUsage } from "../lib/knowledgeApi";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { EmbeddingConfigModal } from "./EmbeddingConfigModal";
+import { useAppSettings } from "../lib/settingsContext";
 
 interface UserAccountModalProps {
   isOpen: boolean;
@@ -86,6 +90,26 @@ function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function MemoryToggle({ checked, onChange }: { checked: boolean; onChange: () => void }) {
+  return (
+    <button
+      role="switch"
+      aria-checked={checked}
+      aria-label="持久化记忆开关"
+      onClick={onChange}
+      className={`relative w-10 h-5 rounded-full transition-colors ${
+        checked ? "bg-blue-500" : "bg-gray-300 dark:bg-white/15"
+      }`}
+    >
+      <span
+        className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${
+          checked ? "translate-x-5" : "translate-x-0"
+        }`}
+      />
+    </button>
+  );
 }
 
 export function UserAccountModal({ isOpen, onClose }: UserAccountModalProps) {
@@ -278,6 +302,79 @@ function AccountPanel({
   const [notice, setNotice] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
   const [expanding, setExpanding] = useState(false);
 
+  // --- persistent memory ---
+  const settingsCtx = useAppSettings();
+  const [memoryUsage, setMemoryUsage] = useState<MemoryUsage | null>(null);
+  const [isEmbeddingOpen, setIsEmbeddingOpen] = useState(false);
+  const [memoryDiscloseOpen, setMemoryDiscloseOpen] = useState(false);
+  const [memoryDisableOpen, setMemoryDisableOpen] = useState(false);
+  const [memoryClearOpen, setMemoryClearOpen] = useState(false);
+
+  const memoryEnabled = settingsCtx?.settings.isMemoryEnabled ?? false;
+
+  // Load memory usage when logged in and memory is enabled
+  const loadMemoryUsage = useCallback(async () => {
+    if (!memoryEnabled) { setMemoryUsage(null); return; }
+    const r = await getMemoryUsage(token);
+    if (r.kind === "ok") setMemoryUsage(r.data);
+  }, [token, memoryEnabled]);
+
+  useEffect(() => { loadMemoryUsage(); }, [loadMemoryUsage]);
+
+  const handleToggleMemory = () => {
+    if (!settingsCtx) return;
+    if (!memoryEnabled) {
+      // Turning ON — check disclosure
+      if (settingsCtx.settings.memoryDisclosureAcceptedAt == null) {
+        setMemoryDiscloseOpen(true);
+        return;
+      }
+      settingsCtx.onSettingsChange({ ...settingsCtx.settings, isMemoryEnabled: true });
+    } else {
+      // Turning OFF — confirm
+      setMemoryDisableOpen(true);
+    }
+  };
+
+  const confirmEnableMemory = () => {
+    if (!settingsCtx) return;
+    setMemoryDiscloseOpen(false);
+    settingsCtx.onSettingsChange({
+      ...settingsCtx.settings,
+      isMemoryEnabled: true,
+      memoryDisclosureAcceptedAt: Date.now(),
+    });
+  };
+
+  const confirmDisableMemory = () => {
+    if (!settingsCtx) return;
+    setMemoryDisableOpen(false);
+    settingsCtx.onSettingsChange({ ...settingsCtx.settings, isMemoryEnabled: false });
+  };
+
+  const handleClearMemory = async () => {
+    setMemoryClearOpen(false);
+    setExpanding(true);
+    const r = await deleteAllMemory(token);
+    setExpanding(false);
+    if (r.kind === "ok") {
+      flash("ok", "所有记忆已清空");
+      loadMemoryUsage();
+    } else {
+      flash("err", r.kind === "network" ? "服务器无法连接" : (r.error || "清空失败"));
+    }
+  };
+
+  // Rough upper-bound token estimate for the disclosure dialog (no current
+  // conversation context available in the account panel).
+  const disclosureTokenEstimate = (() => {
+    const CHARS_PER_TOKEN = 1.5;
+    const EXTRACT_CHAR_CAP = 60_000;
+    const inputTokens = Math.ceil(EXTRACT_CHAR_CAP / CHARS_PER_TOKEN);
+    const outputTokens = Math.min(Math.ceil(inputTokens * 0.08), 4096);
+    return inputTokens + outputTokens;
+  })();
+
   // Lazy-fetch KB count when not provided via props (for callers without knowledge context)
   const flash = (kind: "ok" | "err", text: string) => {
     setNotice({ kind, text });
@@ -463,6 +560,44 @@ function AccountPanel({
             {formatRegisteredAt(profile.createdAt)}
           </span>
         </Row>
+        {settingsCtx && (
+          <Row label="持久化记忆">
+            <div className="flex items-center gap-2">
+              {memoryEnabled && memoryUsage && (
+                <span className="text-xs text-gray-500 dark:text-gray-400 tabular-nums">
+                  {(memoryUsage.usage / 10000).toFixed(1)}/{(memoryUsage.quota / 10000).toFixed(0)} 万字
+                </span>
+              )}
+              <button
+                onClick={() => setIsEmbeddingOpen(true)}
+                className="p-1.5 text-gray-400 hover:text-blue-500 hover:bg-blue-500/10 rounded-md transition-colors"
+                title="嵌入模型配置"
+              >
+                <Settings size={16} />
+              </button>
+              <MemoryToggle checked={memoryEnabled} onChange={handleToggleMemory} />
+            </div>
+          </Row>
+        )}
+        {memoryEnabled && (
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 flex-shrink-0" />
+            <span className="text-xs text-amber-600 dark:text-amber-400">
+              当前模型未返回 token 用量，无法判定上下文占用，自动提炼不会触发。
+            </span>
+          </div>
+        )}
+        {memoryEnabled && (
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 flex-shrink-0" />
+            <button
+              onClick={() => setMemoryClearOpen(true)}
+              className="text-xs text-red-500 hover:text-red-400 hover:underline transition-colors"
+            >
+              清空我的全部记忆
+            </button>
+          </div>
+        )}
       </div>
 
       <Divider />
@@ -663,6 +798,71 @@ function AccountPanel({
           }
         }}
         onCancel={() => setPendingExpand(null)}
+      />
+
+      {/* Memory: first-time-on disclosure */}
+      <ConfirmDialog
+        isOpen={memoryDiscloseOpen}
+        title="开启持久化记忆"
+        confirmText="我已了解，开启"
+        cancelText="取消"
+        message={
+          <div className="space-y-2 text-left">
+            <p>开启后，当对话接近模型上下文上限时，NyaaChat 会把最早的若干轮提炼成事实条目并保存，之后按需检索召回。</p>
+            <p className="text-amber-600 dark:text-amber-400">
+              ① 提炼出的事实条目以<b>明文</b>存储在服务器上。聊天记录本身仍然端到端加密，但这些条目不加密 —— 服务端可以读到。
+            </p>
+            <p>② 提炼使用<b>你当前对话所选的模型</b>，消耗你自己的 API 额度。每次提炼都会提前提示，可以跳过。</p>
+            <p>③ 本次配置下单次提炼预估消耗约 <b>{disclosureTokenEstimate.toLocaleString()}</b> tokens。</p>
+          </div>
+        }
+        onConfirm={confirmEnableMemory}
+        onCancel={() => setMemoryDiscloseOpen(false)}
+      />
+
+      {/* Memory: turn-off confirmation */}
+      <ConfirmDialog
+        isOpen={memoryDisableOpen}
+        title="关闭持久化记忆"
+        confirmText="关闭"
+        cancelText="取消"
+        message={
+          <div className="space-y-2 text-left">
+            <p>关闭后将不再提炼新的记忆，也不再检索召回已有记忆。</p>
+            <p>已归档的记忆<b>不会</b>被删除，重新开启即可继续使用。</p>
+            <p className="text-amber-600 dark:text-amber-400">
+              注意：已经归档的历史轮次不会重新加入发送内容 —— 关闭期间，记忆分界线以上的内容既不会发送也不会被召回。
+            </p>
+          </div>
+        }
+        onConfirm={confirmDisableMemory}
+        onCancel={() => setMemoryDisableOpen(false)}
+      />
+
+      {/* Memory: clear all */}
+      <ConfirmDialog
+        isOpen={memoryClearOpen}
+        title="清空全部记忆"
+        confirmText="确认清空"
+        cancelText="取消"
+        destructive
+        message={
+          <div className="space-y-2 text-left">
+            <p>将删除你账号下的<b>所有</b>持久化记忆条目，此操作不可撤销。</p>
+            <p className="text-amber-600 dark:text-amber-400">
+              注意：已归档的轮次不会重新加入对话 —— 清空后，记忆分界线以上的内容仍然不会发送。
+            </p>
+          </div>
+        }
+        onConfirm={handleClearMemory}
+        onCancel={() => setMemoryClearOpen(false)}
+      />
+
+      {/* Embedding config modal */}
+      <EmbeddingConfigModal
+        isOpen={isEmbeddingOpen}
+        onClose={() => setIsEmbeddingOpen(false)}
+        token={token}
       />
     </div>
   );
