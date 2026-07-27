@@ -12,6 +12,12 @@ export interface Message {
   attachments?: Attachment[];
   timestamp?: number;
   tokenCount?: number;
+  /** Set on the LAST message of an extracted memory batch. Messages at or
+   *  before this position have been distilled into the server-side memory KB
+   *  and are excluded from the history sent to the model; the bubble itself is
+   *  kept so the user still sees the conversation. The value is the batch
+   *  sequence number used as `documents.name = <sessionId>#<batchSeq>`. */
+  memoryBatchSeq?: number;
   model?: string;
   /** Floor number = index in the live chat array. Assigned by the compat
    *  runtime mirror (src/compat/runtimeStore) for SillyTavern extensions and

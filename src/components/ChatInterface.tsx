@@ -20,7 +20,7 @@ import {
   selectExtractionRange,
   estimateExtractionCost,
 } from "../lib/memoryExtraction";
-import { ingestMemory } from "../lib/knowledgeApi";
+import { ingestMemory, searchMemory, type MemorySearchResult } from "../lib/knowledgeApi";
 import {
   applyPlaceholders,
   buildComfyPromptRequest,
@@ -29,13 +29,16 @@ import {
   buildKbSearchContext,
   buildMessageContent,
   buildRequestMessages,
+  buildMemoryContext,
   buildSearchContext,
   collectLinkedKbIds,
   getActivatedKeywordRules,
 } from "../lib/chatPipeline";
+import { nextBatchSeq, findBoundaryIndex } from "../lib/memoryBoundary";
 import { MessageItem } from "./MessageItem";
 import { ChatHeader } from "./ChatHeader";
 import { ChatComposer } from "./ChatComposer";
+import MemoryDivider from "./MemoryDivider";
 import { motion, AnimatePresence } from "motion/react";
 import { useFullscreen } from "../hooks/useFullscreen";
 import { UserAccountModal } from "./UserAccountModal";
@@ -427,8 +430,7 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
       });
 
       if (budget.overThreshold && skippedAt == null) {
-        // P5 will track real lastBoundaryIndex; P3 starts from beginning.
-        const lastBoundaryIndex = -1;
+        const lastBoundaryIndex = findBoundaryIndex(baseMessages);
         const range = selectExtractionRange(baseMessages, lastBoundaryIndex);
         if (range) {
           const estimate = estimateExtractionCost(range.messages, budget);
@@ -616,6 +618,32 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
       .filter(Boolean)
       .join("\n\n") || undefined;
 
+    // Memory search — runs after KB search, before buildRequestMessages.
+    // Only when the feature is enabled, the user is logged in, and this session
+    // already has extracted batches (hasBoundary). Failure is non-fatal.
+    let memoryContext: string | undefined;
+    if (settings.isMemoryEnabled && currentSession?.id) {
+      const boundaryIdx = findBoundaryIndex(baseMessages);
+      if (boundaryIdx >= 0) {
+        const stored2 = await loadStoredAccount();
+        if (stored2) {
+          try {
+            const memResult = await searchMemory(stored2.token, currentSession.id, processedInput, 5);
+            if (memResult.kind === "ok" && memResult.data.count > 0) {
+              memoryContext = buildMemoryContext(memResult.data.results);
+            } else if (memResult.kind === "error" || memResult.kind === "network") {
+              onAddLog({
+                direction: "info",
+                content: `Memory search skipped: ${memResult.kind === "error" ? memResult.error : "unreachable"}`,
+              });
+            }
+          } catch {
+            // Non-fatal — memory is an enhancement, not a dependency.
+          }
+        }
+      }
+    }
+
     // Declared outside the try so the catch can report elapsed time too.
     let chatStartedAt = Date.now();
     try {
@@ -741,6 +769,7 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
         userName,
         charName,
         searchContext: mergedSearchContext,
+        memoryContext,
         mcpAdvertisedToolNames: advertisedToolNames,
       });
 
@@ -902,8 +931,12 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
         skippedAtMessageCount: null,
       });
 
-      // P5 will track batchSeq per session; P3 uses a simple counter.
-      const batchSeq = Date.now();
+      // Tag the last message of the extracted range so the sending side
+      // can cut history at that boundary via messagesAfterBoundary().
+      const batchSeq = nextBatchSeq(pendingSendRef.current?.baseMessages ?? []);
+      const rangeLastMsg = range.messages[range.messages.length - 1];
+      const taggedMsg = { ...rangeLastMsg, memoryBatchSeq: batchSeq };
+
       const result = await ingestMemory(stored.token, {
         sessionId: currentSession!.id!,
         batchSeq,
@@ -912,7 +945,7 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
 
       if (result.kind === "error") {
         if (result.error === "memory_char_max_reached") {
-          // P6 will add recompress flow. P3 falls through to failed.
+          // P6 will add recompress flow. P5 falls through to failed.
           setExtractionState({
             phase: { phase: "failed", range, stage: "ingest", message: "记忆配额已满，暂时无法存储" },
             skippedAtMessageCount: null,
@@ -926,10 +959,23 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
         return;
       }
 
-      // Success — reset extraction state and resume the deferred send.
+      // Success — tag the message in both pending baseMessages and UI state,
+      // then resume the deferred send.
       setExtractionState({ phase: { phase: "idle" }, skippedAtMessageCount: null });
+
+      // Update pending baseMessages so the resumed send uses the tagged snapshot.
       const p = pendingSendRef.current;
-      if (p) { pendingSendRef.current = null; await sendChat(p.content, p.atts, p.baseMessages); }
+      if (p) {
+        const updatedBase = p.baseMessages.map((m: Message) =>
+          m.id === rangeLastMsg.id ? taggedMsg : m,
+        );
+        pendingSendRef.current = { ...p, baseMessages: updatedBase };
+        setMessages((prev) =>
+          prev.map((m) => (m.id === rangeLastMsg.id ? taggedMsg : m)),
+        );
+        pendingSendRef.current = null;
+        await sendChat(p.content, p.atts, updatedBase);
+      }
     } catch (err: any) {
       if (err?.name === "AbortError") {
         // User cancelled — treat as skip.
@@ -1089,7 +1135,19 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
     setMessages((prev) => {
       const deletedIndex = prev.findIndex((m) => m.id === id);
       if (deletedIndex >= 0) emitMessageDeleted(deletedIndex);
-      return prev.filter((m) => m.id !== id);
+      const seq = prev[deletedIndex]?.memoryBatchSeq;
+      const next = prev.filter((m) => m.id !== id);
+      // Transfer boundary marker to the previous message when the deleted one
+      // held it — otherwise the cut point silently disappears and the full
+      // history is sent on the next turn. If the deleted message is the first
+      // one (index 0), the marker is dropped (nothing left above it to cut).
+      if (seq !== undefined && deletedIndex > 0) {
+        const targetIdx = deletedIndex - 1;
+        const target = next[targetIdx];
+        // Preserve an earlier marker if the previous message already has one.
+        next[targetIdx] = { ...target, memoryBatchSeq: target.memoryBatchSeq ?? seq };
+      }
+      return next;
     });
   }, []);
 
@@ -1677,34 +1735,42 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
           ) : (
             <>
               <AnimatePresence initial={false}>
-                {messages.map((message, idx) => (
-                  <MessageItem
-                    key={message.id}
-                    message={message}
-                    mesid={idx}
-                    userName={currentUserRole?.name}
-                    charName={currentCharacter?.name}
-                    onDelete={handleDeleteMessage}
-                    onRegenerate={handleRegenerate}
-                    onEdit={handleEditMessage}
-                    onGenerateImage={isImageApiReady ? handleGenerateImage : undefined}
-                    onRegenerateImage={isImageApiReady ? handleRegenerateImage : undefined}
-                    imageGenerating={imageGeneratingId === message.id}
-                    imageProgressText={
-                      comfyProgress?.id === message.id
-                        ? formatComfyProgress(comfyProgress.p)
-                        : undefined
-                    }
-                    busy={isLoading}
-                    regexScripts={regexScripts}
-                    coverUrl={coverUrl}
-                    frontendRenderingEnabled={
-                      settings.isFrontendRenderingEnabled &&
-                      (settings.frontendRenderingDepth === 0 ||
-                        messages.length - idx <= settings.frontendRenderingDepth)
-                    }
-                  />
-                ))}
+                {messages.flatMap((message, idx) => {
+                  const nodes: React.ReactNode[] = [
+                    <MessageItem
+                      key={message.id}
+                      message={message}
+                      mesid={idx}
+                      userName={currentUserRole?.name}
+                      charName={currentCharacter?.name}
+                      onDelete={handleDeleteMessage}
+                      onRegenerate={handleRegenerate}
+                      onEdit={handleEditMessage}
+                      onGenerateImage={isImageApiReady ? handleGenerateImage : undefined}
+                      onRegenerateImage={isImageApiReady ? handleRegenerateImage : undefined}
+                      imageGenerating={imageGeneratingId === message.id}
+                      imageProgressText={
+                        comfyProgress?.id === message.id
+                          ? formatComfyProgress(comfyProgress.p)
+                          : undefined
+                      }
+                      busy={isLoading}
+                      regexScripts={regexScripts}
+                      coverUrl={coverUrl}
+                      frontendRenderingEnabled={
+                        settings.isFrontendRenderingEnabled &&
+                        (settings.frontendRenderingDepth === 0 ||
+                          messages.length - idx <= settings.frontendRenderingDepth)
+                      }
+                    />,
+                  ];
+                  if (message.memoryBatchSeq !== undefined) {
+                    nodes.push(
+                      <MemoryDivider key={`mb-${message.id}`} seq={message.memoryBatchSeq} />,
+                    );
+                  }
+                  return nodes;
+                })}
               </AnimatePresence>
               <div ref={messagesEndRef} className="h-6" />
             </>

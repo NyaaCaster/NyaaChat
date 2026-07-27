@@ -24,6 +24,10 @@ export function sessionToMarkdown(session: ChatSession): string {
     lines.push(`### ${heading}${ts}`);
     lines.push("");
     lines.push(m.content);
+    if (m.memoryBatchSeq !== undefined) {
+      lines.push(`> ── 记忆分界 #${m.memoryBatchSeq} ──`);
+      lines.push("");
+    }
     lines.push("");
   }
 
