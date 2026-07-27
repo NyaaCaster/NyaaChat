@@ -776,12 +776,12 @@ export default function App() {
     return () => clearInterval(interval);
   }, [isLoaded]);
 
-  if (!isLoaded) return null; // or a loading spinner
-
   const settingsCtx = React.useMemo(
     () => ({ settings, onSettingsChange: handleSaveSettings }),
     [settings],
   );
+
+  if (!isLoaded) return null; // or a loading spinner
 
   return (
     <SettingsProvider value={settingsCtx}>
