@@ -256,6 +256,16 @@ export interface AppState {
    *  treated as enabled (default-on). Persisted across reloads so a user's
    *  manual disable survives even when the resulting object is empty. */
   mcpToolsEnabled: Record<string, boolean>;
+  /** Persistent memory master switch. Off by default — the feature stores
+   *  distilled facts as plaintext on the server, so it must be opt-in. */
+  isMemoryEnabled: boolean;
+  /** Context-usage percentage that triggers the extraction prompt. Valid range
+   *  is [MIN_THRESHOLD_PCT, MAX_THRESHOLD_PCT] from lib/contextBudget. */
+  memoryThresholdPct?: number;
+  /** Manual contextWindow overrides keyed by model id. inferLimits() only
+   *  pattern-matches model names, which is not reliable enough to gate a
+   *  feature on for self-hosted / proxied endpoints. */
+  modelContextOverrides?: Record<string, number>;
 }
 
 export type ModelCapability =

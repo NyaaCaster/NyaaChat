@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from "react";
-import { Sparkles } from "lucide-react";
+import { Loader2, Sparkles } from "lucide-react";
 import { ApiSettings, Message, AppState, LogEntry, ChatSession } from "../types";
 import { fetchChatCompletion, type ApiMessage, type LlmTool, type ToolExecutor } from "../lib/api";
 import { generateImage } from "../lib/imageApi";
@@ -12,6 +12,15 @@ import { searchKb } from "../lib/knowledgeApi";
 import { fetchT2iAgentPrompt } from "../lib/t2iAgentApi";
 import { loadStoredAccount, consumeComfyuiPack, type StoredAccount } from "../lib/sharedAccountApi";
 import { callTool, listTools, mergeUserCity, filterAdvertised } from "../lib/mcpApi";
+import { computeContextBudget } from "../lib/contextBudget";
+import {
+  type ExtractionState,
+  runExtraction,
+  parseExtraction,
+  selectExtractionRange,
+  estimateExtractionCost,
+} from "../lib/memoryExtraction";
+import { ingestMemory } from "../lib/knowledgeApi";
 import {
   applyPlaceholders,
   buildComfyPromptRequest,
@@ -121,6 +130,15 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const previousMessageIdsRef = useRef<string[]>([]);
+
+  // Persistent memory extraction state.
+  const [extractionState, setExtractionState] = useState<ExtractionState>({
+    phase: { phase: "idle" },
+    skippedAtMessageCount: null,
+  });
+  const extractionRef = useRef(extractionState);
+  extractionRef.current = extractionState;
+  const pendingSendRef = useRef<{ content: string; atts: ReturnType<typeof useAttachments>["attachments"]; baseMessages: Message[] } | null>(null);
 
   const { isSupported: isFullscreenSupported, isFullscreen, toggleFullscreen } =
     useFullscreen();
@@ -380,6 +398,53 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
       });
       onOpenSettings();
       return;
+    }
+
+    // ---- persistent memory extraction trigger --------------------------------
+    // Check BEFORE creating the user message — if extraction is needed, the
+    // user's turn must be deferred until extraction completes (or is skipped).
+
+    if (
+      settings.isMemoryEnabled &&
+      currentSession?.id &&
+      extractionRef.current.phase.phase === "idle"
+    ) {
+      // Reset skip if enough new messages have accumulated.
+      const state = extractionRef.current;
+      let skippedAt = state.skippedAtMessageCount;
+      if (skippedAt != null && baseMessages.length - skippedAt >= 10) {
+        skippedAt = null;
+      }
+
+      const activeModelEntry = activeProvider?.models.find(
+        (m) => m.id === activeApi.model,
+      );
+      const budget = computeContextBudget({
+        messages: baseMessages,
+        modelId: activeApi.model,
+        entry: activeModelEntry,
+        settings,
+      });
+
+      if (budget.overThreshold && skippedAt == null) {
+        // P5 will track real lastBoundaryIndex; P3 starts from beginning.
+        const lastBoundaryIndex = -1;
+        const range = selectExtractionRange(baseMessages, lastBoundaryIndex);
+        if (range) {
+          const estimate = estimateExtractionCost(range.messages, budget);
+          pendingSendRef.current = { content, atts, baseMessages };
+          setExtractionState({
+            phase: { phase: "prompting", range, estimate },
+            skippedAtMessageCount: state.skippedAtMessageCount,
+          });
+          return; // Defer send — wait for user decision or extraction.
+        }
+      }
+
+      // Update skip state if it changed.
+      if (skippedAt !== state.skippedAtMessageCount) {
+        setExtractionState({ phase: { phase: "idle" }, skippedAtMessageCount: skippedAt });
+      }
     }
 
     const processedInput = applyPlaceholders(content, userName, charName);
@@ -776,12 +841,183 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
       handleStop();
       return;
     }
+    // Block send while extraction is active.
+    if (extractionRef.current.phase.phase !== "idle") return;
     if (!input.trim() && attachments.length === 0) return;
     const content = input;
     const atts = attachments;
     setInput("");
     clearAttachments();
     await sendChat(content, atts, messages);
+  };
+
+  // ---- extraction handlers ---------------------------------------------------
+
+  const confirmExtraction = async () => {
+    const state = extractionRef.current;
+    if (state.phase.phase !== "prompting") return;
+    const { range, estimate: _estimate } = state.phase;
+
+    const stored = await loadStoredAccount();
+    if (!stored) {
+      // token expired / logged out — silently abort and send normally
+      setExtractionState({ phase: { phase: "idle" }, skippedAtMessageCount: null });
+      const p = pendingSendRef.current;
+      if (p) { pendingSendRef.current = null; await sendChat(p.content, p.atts, p.baseMessages); }
+      return;
+    }
+
+    const activeProvider = getActiveLlmProvider(settings);
+    const activeApi = activeProvider
+      ? { ...providerToApiSettings(activeProvider), isStreaming: false }
+      : null;
+    if (!activeApi) {
+      setExtractionState({
+        phase: { phase: "failed", range, stage: "extract", message: "未找到可用的 API 配置" },
+        skippedAtMessageCount: null,
+      });
+      return;
+    }
+
+    const abort = new AbortController();
+    setExtractionState({
+      phase: { phase: "extracting", range, abort },
+      skippedAtMessageCount: null,
+    });
+
+    try {
+      const { text } = await runExtraction({
+        api: activeApi,
+        material: range.messages,
+        userName,
+        charName,
+        signal: abort.signal,
+      });
+
+      // Parse before ingest — bad output must not be stored.
+      const parsed = parseExtraction(text);
+
+      setExtractionState({
+        phase: { phase: "ingesting", range, extracted: parsed.content },
+        skippedAtMessageCount: null,
+      });
+
+      // P5 will track batchSeq per session; P3 uses a simple counter.
+      const batchSeq = Date.now();
+      const result = await ingestMemory(stored.token, {
+        sessionId: currentSession!.id!,
+        batchSeq,
+        content: parsed.content,
+      });
+
+      if (result.kind === "error") {
+        if (result.error === "memory_char_max_reached") {
+          // P6 will add recompress flow. P3 falls through to failed.
+          setExtractionState({
+            phase: { phase: "failed", range, stage: "ingest", message: "记忆配额已满，暂时无法存储" },
+            skippedAtMessageCount: null,
+          });
+          return;
+        }
+        setExtractionState({
+          phase: { phase: "failed", range, stage: "ingest", message: result.error },
+          skippedAtMessageCount: null,
+        });
+        return;
+      }
+
+      // Success — reset extraction state and resume the deferred send.
+      setExtractionState({ phase: { phase: "idle" }, skippedAtMessageCount: null });
+      const p = pendingSendRef.current;
+      if (p) { pendingSendRef.current = null; await sendChat(p.content, p.atts, p.baseMessages); }
+    } catch (err: any) {
+      if (err?.name === "AbortError") {
+        // User cancelled — treat as skip.
+        setExtractionState({
+          phase: { phase: "idle" },
+          skippedAtMessageCount: messages.length,
+        });
+        const p = pendingSendRef.current;
+        if (p) { pendingSendRef.current = null; await sendChat(p.content, p.atts, p.baseMessages); }
+        return;
+      }
+      setExtractionState({
+        phase: { phase: "failed", range, stage: "extract", message: err?.message || String(err) },
+        skippedAtMessageCount: null,
+      });
+    }
+  };
+
+  const skipExtraction = async () => {
+    setExtractionState({
+      phase: { phase: "idle" },
+      skippedAtMessageCount: messages.length,
+    });
+    const p = pendingSendRef.current;
+    if (p) { pendingSendRef.current = null; await sendChat(p.content, p.atts, p.baseMessages); }
+  };
+
+  const disableMemoryAndSend = async () => {
+    const next = { ...settings, isMemoryEnabled: false };
+    onSettingsChange(next);
+    setExtractionState({ phase: { phase: "idle" }, skippedAtMessageCount: null });
+    const p = pendingSendRef.current;
+    if (p) { pendingSendRef.current = null; await sendChat(p.content, p.atts, p.baseMessages); }
+  };
+
+  const cancelExtraction = () => {
+    const state = extractionRef.current;
+    if (state.phase.phase === "extracting") {
+      state.phase.abort.abort();
+    }
+  };
+
+  const retryExtraction = async () => {
+    const state = extractionRef.current;
+    if (state.phase.phase !== "failed") return;
+    const { range, stage } = state.phase;
+
+    if (stage === "extract" || stage === "recompress") {
+      // Re-run extraction — restart from prompting.
+      const estimate = estimateExtractionCost(
+        range.messages,
+        computeContextBudget({
+          messages,
+          modelId: getActiveLlmProvider(settings)?.lastUsedModel ?? "",
+          entry: undefined,
+          settings,
+        }),
+      );
+      setExtractionState({
+        phase: { phase: "prompting", range, estimate },
+        skippedAtMessageCount: null,
+      });
+    } else {
+      // stage === "ingest" — re-send the extracted text without re-running model.
+      const stored = await loadStoredAccount();
+      if (!stored) {
+        setExtractionState({ phase: { phase: "idle" }, skippedAtMessageCount: null });
+        const p = pendingSendRef.current;
+        if (p) { pendingSendRef.current = null; await sendChat(p.content, p.atts, p.baseMessages); }
+        return;
+      }
+
+      // The extracted text should be in the failed state, but P3 doesn't carry
+      // it. For now, fall through to re-extract.
+      setExtractionState({
+        phase: { phase: "prompting", range, estimate: { inputTokens: 0, outputTokens: 0, totalTokens: 0, rough: true } },
+        skippedAtMessageCount: null,
+      });
+    }
+  };
+
+  const skipFailedExtraction = async () => {
+    setExtractionState({
+      phase: { phase: "idle" },
+      skippedAtMessageCount: messages.length,
+    });
+    const p = pendingSendRef.current;
+    if (p) { pendingSendRef.current = null; await sendChat(p.content, p.atts, p.baseMessages); }
   };
 
   // Allow App (and thus sibling modals like BypassModal) to inject a message
@@ -1476,6 +1712,44 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
       </main>
 
       {/* Input Area */}
+
+      {/* Extraction progress bar — shown above the composer during active phases. */}
+      {extractionState.phase.phase === "extracting" && (
+        <div className="flex items-center gap-2 px-4 py-2 text-sm text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/5 border-t border-blue-200 dark:border-blue-500/10">
+          <Loader2 size={14} className="animate-spin" />
+          <span>正在整理早期对话记忆…</span>
+          <button onClick={cancelExtraction} className="ml-auto text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 underline">
+            取消
+          </button>
+        </div>
+      )}
+      {extractionState.phase.phase === "ingesting" && (
+        <div className="flex items-center gap-2 px-4 py-2 text-sm text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-500/5 border-t border-green-200 dark:border-green-500/10">
+          <Loader2 size={14} className="animate-spin" />
+          <span>正在保存记忆…</span>
+        </div>
+      )}
+      {extractionState.phase.phase === "recompressing" && (
+        <div className="flex items-center gap-2 px-4 py-2 text-sm text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-500/5 border-t border-purple-200 dark:border-purple-500/10">
+          <Loader2 size={14} className="animate-spin" />
+          <span>正在压缩已有记忆…</span>
+          <button onClick={cancelExtraction} className="ml-auto text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 underline">
+            取消
+          </button>
+        </div>
+      )}
+      {extractionState.phase.phase === "failed" && (
+        <div className="flex items-center gap-2 px-4 py-2 text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-500/5 border-t border-red-200 dark:border-red-500/10">
+          <span className="truncate">记忆提炼失败：{extractionState.phase.message}</span>
+          <button onClick={retryExtraction} className="ml-auto text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline whitespace-nowrap">
+            重试
+          </button>
+          <button onClick={skipFailedExtraction} className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 underline whitespace-nowrap">
+            跳过本次
+          </button>
+        </div>
+      )}
+
       <ChatComposer
         input={input}
         onInputChange={setInput}
@@ -1485,6 +1759,7 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
         onSubmit={handleSubmit}
         onStop={handleStop}
         isLoading={isLoading}
+        extractionActive={extractionState.phase.phase !== "idle" && extractionState.phase.phase !== "failed"}
         settings={settings}
         onSettingsChange={onSettingsChange}
       />
@@ -1504,6 +1779,54 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
         }}
         onCancel={() => setShowExhaustedDialog(false)}
       />
+
+      {/* Persistent memory extraction prompt */}
+      {extractionState.phase.phase === "prompting" && (() => {
+        const p = extractionState.phase as { phase: "prompting"; range: import("../lib/memoryExtraction").ExtractionRange; estimate: import("../lib/memoryExtraction").TokenEstimate };
+        const { range, estimate } = p;
+        const budget = computeContextBudget({
+          messages,
+          modelId: getActiveLlmProvider(settings)?.lastUsedModel ?? "",
+          entry: undefined,
+          settings,
+        });
+        const pct = budget.ratio != null ? Math.round(budget.ratio * 100) : "?";
+        const windowLabel = budget.source === "fallback" ? `${budget.contextWindow.toLocaleString()}（估算）` : budget.contextWindow.toLocaleString();
+        const activeProvider = getActiveLlmProvider(settings);
+        const modelName = activeProvider
+          ? providerToApiSettings(activeProvider).model
+          : "当前模型";
+
+        return (
+          <ConfirmDialog
+            isOpen={true}
+            title="整理早期对话记忆"
+            confirmText="开始提炼"
+            cancelText="本次跳过"
+            message={
+              <div className="space-y-2 text-left">
+                <p>当前对话已占用约 {budget.usedTokens?.toLocaleString() ?? "?"} / {windowLabel} tokens（{pct}%），接近模型上限。</p>
+                <p>可以把最早的 {range.count} 条消息提炼成事实摘要存入记忆，之后模型按需回忆，早期逐字原文不再随每轮发送。</p>
+                <ul className="list-disc list-inside space-y-1 text-gray-500 dark:text-gray-400">
+                  <li>提炼使用你当前的对话模型「{modelName}」，消耗你自己的 API 额度</li>
+                  <li>本次预计消耗约 {estimate.totalTokens} tokens（输入 {estimate.inputTokens} + 输出 {estimate.outputTokens}，为估算值）</li>
+                  <li>提炼出的事实摘要以明文存储在服务器上（聊天记录本身仍为端到端加密）</li>
+                </ul>
+                <button
+                  onClick={() => {
+                    disableMemoryAndSend();
+                  }}
+                  className="text-xs text-gray-400 hover:text-red-500 underline pt-1"
+                >
+                  不再自动提炼
+                </button>
+              </div>
+            }
+            onConfirm={confirmExtraction}
+            onCancel={skipExtraction}
+          />
+        );
+      })()}
     </div>
   );
 });

@@ -436,6 +436,9 @@ const DEFAULT_SETTINGS: AppState = {
   isMcpEnabled: true,
   mcpUserCity: null,
   mcpToolsEnabled: { get_current_time: false, get_weather: false, roll_coc: false, roll_dnd: false, web_search: false },
+  isMemoryEnabled: false,
+  memoryThresholdPct: 70,
+  modelContextOverrides: {},
 };
 
 function findMostRecentSessionForCharacter(characterId: string): ChatSession | null {
@@ -625,6 +628,21 @@ export default function App() {
             parsed.mcpToolsEnabled && typeof parsed.mcpToolsEnabled === "object"
               ? parsed.mcpToolsEnabled
               : DEFAULT_SETTINGS.mcpToolsEnabled,
+          isMemoryEnabled:
+            typeof parsed.isMemoryEnabled === "boolean"
+              ? parsed.isMemoryEnabled
+              : DEFAULT_SETTINGS.isMemoryEnabled,
+          memoryThresholdPct:
+            Number.isFinite(parsed.memoryThresholdPct) &&
+            parsed.memoryThresholdPct >= 40 &&
+            parsed.memoryThresholdPct <= 90
+              ? Math.floor(parsed.memoryThresholdPct)
+              : DEFAULT_SETTINGS.memoryThresholdPct,
+          modelContextOverrides:
+            parsed.modelContextOverrides && typeof parsed.modelContextOverrides === "object" &&
+            !Array.isArray(parsed.modelContextOverrides)
+              ? parsed.modelContextOverrides
+              : {},
         });
       } catch (e) {
         console.error("Failed to load settings", e);

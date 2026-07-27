@@ -38,6 +38,8 @@ interface ChatComposerProps {
   onSubmit: () => void;
   onStop: () => void;
   isLoading: boolean;
+  /** True while memory extraction is in progress — input is disabled. */
+  extractionActive?: boolean;
   settings: AppState;
   onSettingsChange: (next: AppState) => void;
 }
@@ -61,6 +63,7 @@ export function ChatComposer({
   onSubmit,
   onStop,
   isLoading,
+  extractionActive = false,
   settings,
   onSettingsChange,
 }: ChatComposerProps) {
@@ -511,7 +514,7 @@ export function ChatComposer({
               }
             }}
             type={isLoading ? "button" : "submit"}
-            disabled={!input.trim() && attachments.length === 0 && !isLoading}
+            disabled={extractionActive || (!input.trim() && attachments.length === 0 && !isLoading)}
             className={`absolute right-2 bottom-2 p-2 rounded-lg text-white disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300 flex items-center justify-center overflow-hidden ${
               isLoading
                 ? "bg-red-500 hover:bg-red-600 shadow-glow shadow-red-500/50"

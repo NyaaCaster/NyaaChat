@@ -30,6 +30,7 @@ import {
   Loader2,
   LogOut,
   MessageSquare,
+  Pencil,
   Plus,
   Trash2,
   X,
@@ -46,6 +47,7 @@ import { newId } from "../lib/id";
 import { normalizeBaseUrl } from "../lib/api";
 import { QINY_ENDPOINTS, resolveQinyEndpoint, type QinyEndpoint } from "../lib/providers";
 import { probeModel } from "../lib/modelHealth";
+import { resolveContextWindow, FALLBACK_CONTEXT_WINDOW } from "../lib/contextBudget";
 
 interface LlmProvidersModalProps {
   isOpen: boolean;
@@ -246,6 +248,8 @@ export function LlmProvidersModal({
                         ? () => setPendingDeleteId(selected.id)
                         : undefined
                     }
+                    settings={settings}
+                    onSave={onSave}
                   />
                 </div>
               </>
@@ -378,6 +382,8 @@ interface ProviderDetailProps {
   onOpenManage: () => void;
   /** Provided only for kind === "custom". Built-in presets can't be removed. */
   onRequestDelete?: () => void;
+  settings: AppState;
+  onSave: (s: AppState) => void;
 }
 
 function ProviderDetail({
@@ -385,6 +391,8 @@ function ProviderDetail({
   onUpdate,
   onOpenManage,
   onRequestDelete,
+  settings,
+  onSave,
 }: ProviderDetailProps) {
   const showCompatMode = provider.kind === "custom";
   const showBaseUrl = provider.kind === "custom" || provider.kind === "ollama";
@@ -783,6 +791,8 @@ function ProviderDetail({
                   isProbing={probingIds.has(m.id)}
                   onDelete={() => handleDeleteModel(m.id)}
                   deleteDisabled={isHealthTesting}
+                  settings={settings}
+                  onSave={onSave}
                 />
               ))}
             </ul>
@@ -802,44 +812,131 @@ function ModelRow({
   isProbing,
   onDelete,
   deleteDisabled,
+  settings,
+  onSave,
 }: {
   entry: ModelEntry;
   isProbing: boolean;
   onDelete: () => void;
   deleteDisabled: boolean;
+  settings: AppState;
+  onSave: (s: AppState) => void;
 }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const { value: cw, source } = resolveContextWindow(
+    entry.id, entry, settings.modelContextOverrides,
+  );
+
+  const saveOverride = () => {
+    const n = Number(draft);
+    if (Number.isFinite(n) && n >= 1024 && n <= 10_000_000) {
+      const next = {
+        ...settings.modelContextOverrides,
+        [entry.id]: Math.floor(n),
+      };
+      onSave({ ...settings, modelContextOverrides: next });
+    }
+    setEditing(false);
+  };
+
+  const removeOverride = () => {
+    if (!settings.modelContextOverrides?.[entry.id]) return;
+    const next = { ...settings.modelContextOverrides };
+    delete next[entry.id];
+    onSave({ ...settings, modelContextOverrides: next });
+    setEditing(false);
+  };
+
+  const contextLabel = (() => {
+    if (editing) return null;
+    if (source === "override") return `${formatTokens(cw)}（自定义）`;
+    if (source === "fallback") return `${formatTokens(cw)}（估算）`;
+    return formatTokens(cw);
+  })();
+
   return (
-    <li className="flex items-center gap-2 px-4 py-2.5 text-sm">
-      <DeleteModelButton
-        onConfirm={onDelete}
-        disabled={deleteDisabled}
-        disabledReason="健康测试进行中，暂不可删除"
-      />
-      <span className="font-mono text-gray-700 dark:text-gray-300 truncate min-w-0 flex-shrink-[2]">
-        {entry.id}
-      </span>
-      <CapabilityIcons capabilities={entry.capabilities} />
-      <MetricChip
-        icon={<Database size={11} />}
-        value={formatTokens(entry.contextWindow)}
-        title="上下文窗口长度"
-      />
-      <MetricChip
-        icon={<LogOut size={11} />}
-        value={formatTokens(entry.maxOutput)}
-        title="最大输出长度"
-      />
-      <span className="ml-auto inline-flex items-center gap-1.5 flex-shrink-0">
-        {isProbing ? (
-          <Loader2 size={12} className="animate-spin text-blue-500" />
-        ) : entry.health ? (
-          <HealthBadge health={entry.health} />
+    <li className="flex flex-col">
+      <div className="flex items-center gap-2 px-4 py-2.5 text-sm">
+        <DeleteModelButton
+          onConfirm={onDelete}
+          disabled={deleteDisabled}
+          disabledReason="健康测试进行中，暂不可删除"
+        />
+        <span className="font-mono text-gray-700 dark:text-gray-300 truncate min-w-0 flex-shrink-[2]">
+          {entry.id}
+        </span>
+        <CapabilityIcons capabilities={entry.capabilities} />
+
+        {/* Context window — editable */}
+        {editing ? (
+          <span className="inline-flex items-center gap-1 flex-shrink-0">
+            <input
+              autoFocus
+              type="number"
+              min={1024}
+              max={10_000_000}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") saveOverride();
+                if (e.key === "Escape") { setEditing(false); }
+              }}
+              className="w-20 px-1.5 py-0.5 text-xs bg-transparent border border-gray-300 dark:border-white/15 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+            />
+            <button onClick={saveOverride} className="p-0.5 text-green-600 hover:bg-green-500/10 rounded" title="保存">
+              <Check size={12} />
+            </button>
+            <button onClick={() => setEditing(false)} className="p-0.5 text-gray-400 hover:bg-gray-200 dark:hover:bg-white/5 rounded" title="取消">
+              <X size={12} />
+            </button>
+            {source === "override" && (
+              <button onClick={removeOverride} className="text-[10px] text-gray-400 hover:text-blue-500 whitespace-nowrap ml-1">
+                恢复自动
+              </button>
+            )}
+          </span>
         ) : (
-          <span className="text-[11px] text-gray-400 dark:text-gray-500">
-            未测试
+          <span
+            className={`inline-flex items-center gap-1 flex-shrink-0 cursor-pointer group ${
+              source === "fallback" ? "text-amber-600 dark:text-amber-400" :
+              source === "override" ? "text-blue-600 dark:text-blue-400" :
+              "text-gray-500 dark:text-gray-400"
+            }`}
+            onClick={() => { setDraft(String(cw)); setEditing(true); }}
+            title={`上下文窗口长度${source === "fallback" ? "（估算值）" : source === "override" ? "（自定义）" : ""}`}
+          >
+            <Database size={11} />
+            <span className="tabular-nums">{contextLabel}</span>
+            <Pencil size={10} className="opacity-0 group-hover:opacity-100 transition-opacity" />
           </span>
         )}
-      </span>
+
+        <MetricChip
+          icon={<LogOut size={11} />}
+          value={formatTokens(entry.maxOutput)}
+          title="最大输出长度"
+        />
+        <span className="ml-auto inline-flex items-center gap-1.5 flex-shrink-0">
+          {isProbing ? (
+            <Loader2 size={12} className="animate-spin text-blue-500" />
+          ) : entry.health ? (
+            <HealthBadge health={entry.health} />
+          ) : (
+            <span className="text-[11px] text-gray-400 dark:text-gray-500">
+              未测试
+            </span>
+          )}
+        </span>
+      </div>
+      {/* Fallback warning when memory is enabled */}
+      {source === "fallback" && settings.isMemoryEnabled && (
+        <div className="px-4 pb-2">
+          <span className="text-[11px] text-amber-600 dark:text-amber-400">
+            未能识别该模型的上下文上限，按 {FALLBACK_CONTEXT_WINDOW.toLocaleString()} 估算。持久化记忆的触发判定依赖此值，建议手动填写。
+          </span>
+        </div>
+      )}
     </li>
   );
 }
