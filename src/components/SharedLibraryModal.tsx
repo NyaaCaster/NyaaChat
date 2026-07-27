@@ -777,6 +777,15 @@ export function SharedLibraryModal({
 }
 
 // --- presentational helpers ------------------------------------------------
+/**
+ * One row in the tag filter list (PC sidebar + mobile 选择标签 sheet).
+ *
+ * shrink-0 matters: the pill is a flex item in a column list whose mobile sheet
+ * is height-capped (max-h-[60vh]), and `truncate` sets overflow:hidden, which
+ * zeroes the item's automatic minimum size. Without shrink-0 the rows compress
+ * below their line height once the tags outgrow the cap — clipping the label
+ * vertically instead of letting the container scroll.
+ */
 function TagPill({
   label,
   active,
@@ -789,7 +798,7 @@ function TagPill({
   return (
     <button
       onClick={onClick}
-      className={`text-left px-2.5 py-1.5 text-sm rounded-lg border transition-all truncate ${
+      className={`shrink-0 text-left px-2.5 py-1.5 text-sm leading-5 rounded-lg border transition-all truncate ${
         active
           ? "bg-blue-600 border-transparent text-white"
           : "bg-transparent border-gray-200 dark:border-white/10 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5"
