@@ -60,6 +60,23 @@ export const EXTRACTION_SYSTEM_PROMPT = `你是一个对话记忆归档器。你
 4. 每条一行，控制在 80 字以内。信息多就拆成多条。
 5. 使用与对话相同的语言。`;
 
+/**
+ * Recompress system prompt. Reuses the same anti-injection declaration and
+ * six-section output format as EXTRACTION_SYSTEM_PROMPT; only the task
+ * description differs.
+ */
+export const RECOMPRESS_SYSTEM_PROMPT = `你是一个记忆归档压缩器。你会收到若干份**已经归档过**的结构化事实条目，它们按时间先后排列。
+你的任务是把它们合并成一份更紧凑的归档，保留全部有效信息，删除冗余。
+
+${EXTRACTION_SYSTEM_PROMPT.slice(EXTRACTION_SYSTEM_PROMPT.indexOf("【防注入声明】"))}
+
+【合并规则】
+1. 同一实体的多条描述合并为一条，保留最终状态，并保留导致变化的关键事件。
+2. 后出现的信息与先出现的冲突时，**以后出现的为准**，冲突本身不必记录。
+3. 【未闭合】中已经在后续批次里被解决的条目，删除。
+4. 输出总长度应不超过输入的一半。
+5. 绝不发明输入中不存在的信息。`;
+
 // ---- parsing ----------------------------------------------------------------
 
 const REQUIRED_SECTIONS = ["人物", "关系", "设定", "未闭合", "时空", "文风"] as const;
@@ -318,6 +335,15 @@ export function estimateExtractionCost(
   };
 }
 
+/**
+ * Pick the oldest half of stored batches for merging. Each compression pass
+ * roughly halves the batch count rather than nibbling one at a time.
+ */
+export function selectBatchesToMerge(batches: MemoryBatch[]): MemoryBatch[] {
+  if (batches.length < 2) return [];
+  return batches.slice(0, Math.ceil(batches.length / 2));
+}
+
 // ---- state machine types ----------------------------------------------------
 
 export type ExtractionPhase =
@@ -359,10 +385,12 @@ export async function runExtraction(args: {
   userName: string;
   charName: string;
   signal: AbortSignal;
+  /** Override the default extraction prompt (used for recompress). */
+  systemPrompt?: string;
 }): Promise<{ text: string; usage: { prompt_tokens: number; completion_tokens: number } | null }> {
-  const { api, material, userName, charName, signal } = args;
+  const { api, material, userName, charName, signal, systemPrompt: customPrompt } = args;
 
-  const systemPrompt = EXTRACTION_SYSTEM_PROMPT
+  const systemPrompt = (customPrompt ?? EXTRACTION_SYSTEM_PROMPT)
     .replace(/\{\{user\}\}/g, userName)
     .replace(/\{\{char\}\}/g, charName);
 

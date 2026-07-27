@@ -15,6 +15,7 @@ import { loadLastSessionId, loadSessions, saveLastSessionId } from "./lib/sessio
 import { getItem, setItem, removeItem } from "./lib/idbStorage";
 import { SettingsProvider } from "./lib/settingsContext";
 import { MIN_THRESHOLD_PCT, MAX_THRESHOLD_PCT, DEFAULT_THRESHOLD_PCT } from "./lib/contextBudget";
+import { maybeHeartbeat } from "./lib/memoryLifecycle";
 import { ChatSession, LlmProvider, ImageProvider, LlmProviderKind } from "./types";
 
 // Modals are rendered only when opened, so each one's chunk loads on-demand
@@ -764,6 +765,16 @@ export default function App() {
     }
     setCurrentSession(normalizedSession);
   };
+
+  // Heartbeat: refresh server-side memory last_seen_at on load + every 6h.
+  // Guards itself on isMemoryEnabled and login state, so it's safe to call
+  // unconditionally from this effect.
+  useEffect(() => {
+    if (!isLoaded) return;
+    maybeHeartbeat();
+    const interval = setInterval(maybeHeartbeat, 6 * 60 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [isLoaded]);
 
   if (!isLoaded) return null; // or a loading spinner
 

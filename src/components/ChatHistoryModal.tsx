@@ -5,11 +5,13 @@ import { newId } from "../lib/id";
 import { loadSessions, saveSession, deleteSession, replaceAllSessions } from "../lib/sessionStorage";
 import { estimateChatStorage, DEFAULT_CHAT_STORAGE_QUOTA } from "../lib/storageEstimate";
 import { loadStoredAccount } from "../lib/sharedAccountApi";
+import { deleteSessionMemory } from "../lib/knowledgeApi";
 import { uploadChatSessions, downloadChatSessions } from "../lib/sharedAccountApi";
 import { encryptChatPayload, decryptChatPayload } from "../lib/chatCrypto";
 import { sessionToMarkdown } from "../lib/exportSession";
 import { BaseModal } from "./BaseModal";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { useAppSettings } from "../lib/settingsContext";
 import { StorageBar } from "./StorageBar";
 import { UserAccountModal } from "./UserAccountModal";
 
@@ -54,6 +56,7 @@ export function ChatHistoryModal({
   onCurrentSessionDeleted,
 }: ChatHistoryModalProps) {
   const sessions = loadSessions();
+  const settingsCtx = useAppSettings();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
@@ -129,6 +132,16 @@ export function ChatHistoryModal({
     if (pendingDeleteId) {
       const wasCurrent = pendingDeleteId === currentSessionId;
       deleteSession(pendingDeleteId);
+      // Fire-and-forget server-side memory cleanup. TTL is the backstop.
+      if (settingsCtx?.settings.isMemoryEnabled) {
+        loadStoredAccount().then((stored) => {
+          if (stored) {
+            deleteSessionMemory(stored.token, pendingDeleteId).then((r) => {
+              if (r.kind !== "ok") console.warn("[memory] session cleanup failed, TTL will reclaim");
+            });
+          }
+        });
+      }
       if (wasCurrent) onCurrentSessionDeleted();
       onSessionsChange();
     }

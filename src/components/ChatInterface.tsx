@@ -19,8 +19,16 @@ import {
   parseExtraction,
   selectExtractionRange,
   estimateExtractionCost,
+  RECOMPRESS_SYSTEM_PROMPT,
+  selectBatchesToMerge,
 } from "../lib/memoryExtraction";
-import { ingestMemory, searchMemory, type MemorySearchResult } from "../lib/knowledgeApi";
+import {
+  ingestMemory,
+  searchMemory,
+  listMemoryBatches,
+  recompressMemory,
+  type MemorySearchResult,
+} from "../lib/knowledgeApi";
 import {
   applyPlaceholders,
   buildComfyPromptRequest,
@@ -141,6 +149,12 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
   });
   const extractionRef = useRef(extractionState);
   extractionRef.current = extractionState;
+  /** Holds batchSeq + taggedMsg across the confirmExtraction → recompress → confirmRecompress chain. */
+  const recompressMetaRef = useRef<{
+    batchSeq: number;
+    rangeLastMsgId: string;
+    taggedMsg: Message;
+  } | null>(null);
   const pendingSendRef = useRef<{ content: string; atts: ReturnType<typeof useAttachments>["attachments"]; baseMessages: Message[] } | null>(null);
 
   const { isSupported: isFullscreenSupported, isFullscreen, toggleFullscreen } =
@@ -936,6 +950,7 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
       const batchSeq = nextBatchSeq(pendingSendRef.current?.baseMessages ?? []);
       const rangeLastMsg = range.messages[range.messages.length - 1];
       const taggedMsg = { ...rangeLastMsg, memoryBatchSeq: batchSeq };
+      recompressMetaRef.current = { batchSeq, rangeLastMsgId: rangeLastMsg.id, taggedMsg };
 
       const result = await ingestMemory(stored.token, {
         sessionId: currentSession!.id!,
@@ -945,9 +960,46 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
 
       if (result.kind === "error") {
         if (result.error === "memory_char_max_reached") {
-          // P6 will add recompress flow. P5 falls through to failed.
+          // Memory quota full — attempt recompress before giving up.
+          const batchesResult = await listMemoryBatches(stored.token, currentSession!.id!);
+          if (batchesResult.kind !== "ok") {
+            setExtractionState({
+              phase: { phase: "failed", range, stage: "ingest", message: "无法获取已有记忆批次" },
+              skippedAtMessageCount: null,
+            });
+            return;
+          }
+          const candidates = selectBatchesToMerge(batchesResult.data.batches);
+          if (candidates.length === 0) {
+            // Only 1 batch — nothing to merge. Tell the user and discard.
+            setExtractionState({
+              phase: { phase: "failed", range, stage: "ingest",
+                message: "记忆配额已满且仅有一个批次，无法合并压缩。请删除不再需要的历史对话以释放配额。" },
+              skippedAtMessageCount: null,
+            });
+            return;
+          }
+          // Assemble the merged material for re-extraction.
+          const mergedContent = candidates
+            .map((b, i) => `──── 归档 ${i + 1} ────\n${b.content}`)
+            .join("\n\n");
+          const recompressMaterial: Message[] = [{
+            id: "__recompress__",
+            role: "user",
+            content: `以下是 ${candidates.length} 份按时间先后排列的归档，请合并压缩：\n\n${mergedContent}`,
+          }];
+          const recompressEstimate = estimateExtractionCost(recompressMaterial, {
+            usedTokens: null, contextWindow: 32000, source: "fallback" as const,
+            ratio: null, overThreshold: false, thresholdPct: 70,
+          });
           setExtractionState({
-            phase: { phase: "failed", range, stage: "ingest", message: "记忆配额已满，暂时无法存储" },
+            phase: {
+              phase: "recompressPrompting",
+              range,
+              extracted: parsed.content,
+              batches: candidates,
+              estimate: recompressEstimate,
+            },
             skippedAtMessageCount: null,
           });
           return;
@@ -992,6 +1044,143 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
         skippedAtMessageCount: null,
       });
     }
+  };
+
+  /** User confirmed the recompress prompt — run extraction with recompress prompt,
+   *  call recompressMemory, then retry the original ingest. */
+  const confirmRecompress = async () => {
+    const state = extractionRef.current;
+    if (state.phase.phase !== "recompressPrompting") return;
+    const { range, extracted, batches } = state.phase;
+
+    const stored = await loadStoredAccount();
+    if (!stored) {
+      setExtractionState({ phase: { phase: "idle" }, skippedAtMessageCount: null });
+      const p = pendingSendRef.current;
+      if (p) { pendingSendRef.current = null; await sendChat(p.content, p.atts, p.baseMessages); }
+      return;
+    }
+
+    const activeProvider = getActiveLlmProvider(settings);
+    if (!activeProvider) {
+      setExtractionState({
+        phase: { phase: "failed", range, stage: "recompress", message: "当前 Provider 未配置" },
+        skippedAtMessageCount: null,
+      });
+      return;
+    }
+    const activeApi = providerToApiSettings(activeProvider);
+
+    const abort = new AbortController();
+    setExtractionState({
+      phase: { phase: "recompressing", range, extracted, batches, abort },
+      skippedAtMessageCount: null,
+    });
+
+    try {
+      // Merge batch content into one recompress material message.
+      const mergedContent = batches
+        .map((b, i) => `──── 归档 ${i + 1} ────\n${b.content}`)
+        .join("\n\n");
+      const recompressMaterial: Message[] = [{
+        id: "__recompress__",
+        role: "user",
+        content: `以下是 ${batches.length} 份按时间先后排列的归档，请合并压缩：\n\n${mergedContent}`,
+      }];
+
+      const { text } = await runExtraction({
+        api: activeApi,
+        material: recompressMaterial,
+        userName,
+        charName,
+        signal: abort.signal,
+        systemPrompt: RECOMPRESS_SYSTEM_PROMPT,
+      });
+
+      const parsed = parseExtraction(text);
+
+      const replaceSeqs = batches.map((b) => b.batchSeq);
+      const rcResult = await recompressMemory(stored.token, {
+        sessionId: currentSession!.id!,
+        replaceBatchSeqs: replaceSeqs,
+        content: parsed.content,
+      });
+
+      if (rcResult.kind === "error") {
+        if (rcResult.error === "still_over_quota") {
+          setExtractionState({
+            phase: { phase: "failed", range, stage: "recompress", message: "压缩后仍超出配额，请删除不再需要的历史对话" },
+            skippedAtMessageCount: null,
+          });
+          return;
+        }
+        setExtractionState({
+          phase: { phase: "failed", range, stage: "recompress", message: rcResult.error },
+          skippedAtMessageCount: null,
+        });
+        return;
+      }
+
+      // Recompress succeeded — retry the original ingest with the same batchSeq.
+      const meta = recompressMetaRef.current;
+      if (!meta) {
+        setExtractionState({
+          phase: { phase: "failed", range, stage: "recompress", message: "内部错误：缺少批次元数据" },
+          skippedAtMessageCount: null,
+        });
+        return;
+      }
+      const retryResult = await ingestMemory(stored.token, {
+        sessionId: currentSession!.id!,
+        batchSeq: meta.batchSeq,
+        content: extracted,
+      });
+
+      if (retryResult.kind === "error") {
+        setExtractionState({
+          phase: { phase: "failed", range, stage: "ingest", message: retryResult.error },
+          skippedAtMessageCount: null,
+        });
+        return;
+      }
+
+      // Success — tag and resume.
+      recompressMetaRef.current = null;
+      setExtractionState({ phase: { phase: "idle" }, skippedAtMessageCount: null });
+      const p = pendingSendRef.current;
+      if (p) {
+        const updatedBase = p.baseMessages.map((m: Message) =>
+          m.id === meta.rangeLastMsgId ? meta.taggedMsg : m,
+        );
+        pendingSendRef.current = { ...p, baseMessages: updatedBase };
+        setMessages((prev) =>
+          prev.map((m) => (m.id === meta.rangeLastMsgId ? meta.taggedMsg : m)),
+        );
+        pendingSendRef.current = null;
+        await sendChat(p.content, p.atts, updatedBase);
+      }
+    } catch (err: any) {
+      if (err?.name === "AbortError") {
+        setExtractionState({ phase: { phase: "idle" }, skippedAtMessageCount: messages.length });
+        const p = pendingSendRef.current;
+        if (p) { pendingSendRef.current = null; await sendChat(p.content, p.atts, p.baseMessages); }
+        return;
+      }
+      setExtractionState({
+        phase: { phase: "failed", range, stage: "recompress", message: err?.message || String(err) },
+        skippedAtMessageCount: null,
+      });
+    }
+  };
+
+  /** User cancelled the recompress prompt — discard this extraction. */
+  const cancelRecompress = async () => {
+    setExtractionState({
+      phase: { phase: "idle" },
+      skippedAtMessageCount: messages.length,
+    });
+    const p = pendingSendRef.current;
+    if (p) { pendingSendRef.current = null; await sendChat(p.content, p.atts, p.baseMessages); }
   };
 
   const skipExtraction = async () => {
@@ -1890,6 +2079,35 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
             }
             onConfirm={confirmExtraction}
             onCancel={skipExtraction}
+          />
+        );
+      })()}
+
+      {/* Persistent memory recompress prompt */}
+      {extractionState.phase.phase === "recompressPrompting" && (() => {
+        const p = extractionState.phase as {
+          phase: "recompressPrompting";
+          range: import("../lib/memoryExtraction").ExtractionRange;
+          extracted: string;
+          batches: import("../lib/knowledgeApi").MemoryBatch[];
+          estimate: import("../lib/memoryExtraction").TokenEstimate;
+        };
+        const { batches, estimate } = p;
+        return (
+          <ConfirmDialog
+            isOpen={true}
+            title="记忆配额已满"
+            confirmText="压缩并继续"
+            cancelText="取消，丢弃本次提炼"
+            message={
+              <div className="space-y-2 text-left">
+                <p>记忆配额已满，需要将已有的 {batches.length} 个批次合并压缩后才能存入本次结果。</p>
+                <p>压缩会调用模型进行一次合并，预计消耗约 {estimate.totalTokens} tokens。</p>
+                <p>如果压缩后仍超配额，本次提炼结果将被丢弃。</p>
+              </div>
+            }
+            onConfirm={confirmRecompress}
+            onCancel={cancelRecompress}
           />
         );
       })()}
