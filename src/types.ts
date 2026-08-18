@@ -309,6 +309,7 @@ export type LlmProviderKind =
   | "anthropic"
   | "openai"
   | "deepseek"
+  | "opencode-go"
   | "ollama"
   | "custom";
 

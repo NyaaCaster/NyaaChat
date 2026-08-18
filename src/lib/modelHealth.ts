@@ -1,6 +1,6 @@
 import { LlmProvider, ModelCapability, ModelEntry, ModelHealth } from "../types";
 import { providerToApiSettings } from "./providers";
-import { normalizeBaseUrl } from "./api";
+import { normalizeBaseUrl, routeApiProxyUrl } from "./api";
 
 /**
  * Smallest possible chat-completion probe. We send a 1-character prompt and
@@ -75,7 +75,7 @@ async function pingOpenAI(
     "Content-Type": "application/json",
   };
   if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
-  const res = await fetch(`${baseUrl}/chat/completions`, {
+  const res = await fetch(routeApiProxyUrl(baseUrl, "chat/completions"), {
     method: "POST",
     headers,
     body: JSON.stringify({
@@ -150,7 +150,7 @@ async function probeOpenAIStructured(
     "Content-Type": "application/json",
   };
   if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
-  const res = await fetch(`${baseUrl}/chat/completions`, {
+  const res = await fetch(routeApiProxyUrl(baseUrl, "chat/completions"), {
     method: "POST",
     headers,
     body: JSON.stringify({

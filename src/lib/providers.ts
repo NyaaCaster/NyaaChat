@@ -61,6 +61,16 @@ export const QINY_ENDPOINTS: QinyEndpoint[] = [
 export const DEFAULT_QINY_ENDPOINT = QINY_ENDPOINTS[0];
 
 /**
+ * OpenCode Go — OpenAI-compatible gateway (opencode.ai "Go" subscription).
+ * The base URL serves `/chat/completions`, `/models` and `/responses` with
+ * `Authorization: Bearer <api-key>`; see the upstream routes
+ * `packages/console/app/src/routes/zen/go/v1/*` in the opencode repo.
+ * Target of the "获取 API Key" link in the provider editor.
+ */
+export const OPENCODE_GO_BASE_URL = "https://opencode.ai/zen/go/v1";
+export const OPENCODE_GO_API_KEY_URL = "https://opencode.ai/go?ref=TZCVZ4X21V";
+
+/**
  * Resolve which access point a stored baseUrl belongs to by hostname. Tolerant
  * of either the `/v1` or full `/v1/chat/completions` form. Falls back to the
  * default (`.com`) for unrecognized / empty values so legacy settings keep
@@ -127,6 +137,13 @@ export const LLM_PROVIDER_PRESETS: LlmProviderPresetMeta[] = [
     kind: "deepseek",
     name: "DeepSeek",
     baseUrl: "https://api.deepseek.com/v1",
+    apiFormat: "openai",
+    baseUrlEditable: false,
+  },
+  {
+    kind: "opencode-go",
+    name: "OpenCode Go",
+    baseUrl: OPENCODE_GO_BASE_URL,
     apiFormat: "openai",
     baseUrlEditable: false,
   },
@@ -300,7 +317,12 @@ export function providerToApiSettings(
     apiFormat: provider.apiFormat,
     // isStreaming is sourced globally from AppState now — caller must patch
     // it after calling this helper. autoConnect is no longer wired in v2.
-    apiProvider: provider.kind === "qiny" || provider.kind === "ollama" ? "custom" : provider.kind,
+    apiProvider:
+      provider.kind === "qiny" ||
+      provider.kind === "ollama" ||
+      provider.kind === "opencode-go"
+        ? "custom"
+        : provider.kind,
   };
 }
 

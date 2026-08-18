@@ -3,6 +3,7 @@ import Anthropic from "@lobehub/icons/es/Anthropic";
 import Gemini from "@lobehub/icons/es/Gemini";
 import DeepSeek from "@lobehub/icons/es/DeepSeek";
 import Ollama from "@lobehub/icons/es/Ollama";
+import OpenCode from "@lobehub/icons/es/OpenCode";
 import ComfyUI from "@lobehub/icons/es/ComfyUI";
 import { Palette } from "lucide-react";
 import { ImageProviderKind, LlmProviderKind } from "../../types";
@@ -32,6 +33,8 @@ export function LlmProviderIcon({ kind, size = 18 }: IconProps & { kind: LlmProv
       return <OpenAI size={size} />;
     case "deepseek":
       return <DeepSeek.Color size={size} />;
+    case "opencode-go":
+      return <OpenCode size={size} />;
     case "ollama":
       return <Ollama size={size} />;
     case "custom":

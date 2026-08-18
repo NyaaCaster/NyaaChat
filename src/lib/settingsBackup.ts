@@ -2,7 +2,7 @@ import { AppState, ImageProvider, LlmProvider, ModelEntry } from "../types";
 import { wordCheckTemplates } from "./WordCheckTemplates";
 import { wordCountTemplates } from "./WordCountTemplates";
 import { COVER_MARKER, loadCover, saveCover } from "./coverStorage";
-import { COMFYUI_FIXED_NAME, defaultComfyFields } from "./providers";
+import { COMFYUI_FIXED_NAME, createDefaultLlmProviders, defaultComfyFields } from "./providers";
 import { MIN_THRESHOLD_PCT, MAX_THRESHOLD_PCT, DEFAULT_THRESHOLD_PCT } from "./contextBudget";
 
 const EXPORT_KIND = "nyaachat_settings_export";
@@ -443,6 +443,16 @@ function validateImportPayload(raw: unknown): ImportResult {
     );
   }
 
+  // Built-in LLM provider presets — old archives predate newer built-ins
+  // (e.g. opencode-go). Without backfilling, importers would permanently
+  // miss presets that can't be added manually. Existing providers keep
+  // their state and order; missing presets are inserted at canonical spots.
+  if (Array.isArray(filled.llmProviders)) {
+    filled.llmProviders = ensureBuiltinLlmProviders(
+      filled.llmProviders as LlmProvider[],
+    );
+  }
+
   // --- v6 backfills: persistent memory ---
   // Old archives predate the feature; importing one must never silently turn
   // on plaintext server-side storage, so this defaults to false regardless.
@@ -478,9 +488,43 @@ const VALID_LLM_KINDS = new Set([
   "anthropic",
   "openai",
   "deepseek",
+  "opencode-go",
   "ollama",
   "custom",
 ]);
+
+/**
+ * Ensure every built-in LLM provider preset exists in an imported provider
+ * list. Old archives predate newer built-ins (e.g. OpenCode Go); without
+ * this they'd be permanently missing after import — built-ins can't be
+ * added manually, they only come from the preset seeds. Existing providers
+ * keep their exact objects (enabled / apiKey / models / order untouched);
+ * each missing preset is created with defaults and inserted right after
+ * its nearest earlier built-in in canonical preset order, so e.g.
+ * opencode-go lands between deepseek and ollama on fresh imports.
+ */
+export function ensureBuiltinLlmProviders(list: LlmProvider[]): LlmProvider[] {
+  const fresh = createDefaultLlmProviders();
+  const missing = fresh.filter((fp) => !list.some((p) => p.kind === fp.kind));
+  if (missing.length === 0) return list;
+
+  const prevKindByKind = new Map<string, string | null>();
+  fresh.forEach((fp, i) => {
+    prevKindByKind.set(fp.kind, i === 0 ? null : fresh[i - 1].kind);
+  });
+
+  const out = [...list];
+  for (const fp of missing) {
+    const prevKind = prevKindByKind.get(fp.kind) ?? null;
+    let insertAt = 0;
+    if (prevKind) {
+      const idx = out.findIndex((p) => p.kind === prevKind);
+      if (idx >= 0) insertAt = idx + 1;
+    }
+    out.splice(insertAt, 0, fp);
+  }
+  return out;
+}
 const VALID_IMAGE_KINDS = new Set([
   "qiny",
   "openai-custom",

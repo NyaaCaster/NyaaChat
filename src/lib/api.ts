@@ -231,6 +231,37 @@ export function normalizeBaseUrl(raw: string): string {
 }
 
 /**
+ * Route an upstream API request through the same-origin nginx proxy when the
+ * upstream host isn't reliably reachable from arbitrary client networks.
+ *
+ * opencode.ai sits behind Cloudflare's overseas edge, so browser-side direct
+ * fetches fail ("Failed to fetch") on many client networks even though the
+ * server reaches it fine. The app therefore routes every opencode.ai request
+ * to the local `nginx.conf` location `/api/opencode-go/`, which reverse-
+ * proxies to `https://opencode.ai/zen/go/v1`. Browser traffic then only ever
+ * touches this deployment's own origin. Mirrors the comfyui-fixed pattern
+ * (frontend never talks to the real upstream).
+ *
+ * Any baseUrl that isn't an opencode.ai URL is left untouched, so all other
+ * providers keep their direct (CORS-enabled) calls.
+ */
+export function routeApiProxyUrl(baseUrl: string, path: string): string {
+  const cleanPath = path.replace(/^\//, "");
+  try {
+    const u = new URL(baseUrl);
+    if (
+      u.hostname === "opencode.ai" &&
+      (u.pathname === "/zen/go" || u.pathname.startsWith("/zen/go/"))
+    ) {
+      return `/api/opencode-go/${cleanPath}`;
+    }
+  } catch {
+    // Not an absolute URL — leave as-is (already-relative proxy path).
+  }
+  return `${baseUrl}/${cleanPath}`;
+}
+
+/**
  * Reject anything that's not https:// (or http:// to a loopback host for
  * local dev). Without this, a malicious / mistyped config could send the
  * Authorization header to an attacker-controlled http endpoint, or trigger
@@ -346,7 +377,7 @@ async function callOpenAIOnce(
   const { apiKey, model, isStreaming } = settings;
   const baseUrl = normalizeBaseUrl(settings.baseUrl);
   assertSafeBaseUrl(baseUrl);
-  const url = `${baseUrl}/chat/completions`;
+  const url = routeApiProxyUrl(baseUrl, "chat/completions");
 
   const requestBody: any = {
     model,
@@ -785,7 +816,7 @@ async function callAnthropicOnce(
   const { apiKey, model, isStreaming } = settings;
   const baseUrl = normalizeBaseUrl(settings.baseUrl);
   assertSafeBaseUrl(baseUrl);
-  const url = `${baseUrl}/messages`;
+  const url = routeApiProxyUrl(baseUrl, "messages");
 
   // Prompt cache: only enable on the official Anthropic host. Third-party
   // gateways are inconsistent — most pass `cache_control` through unchanged
@@ -1147,7 +1178,7 @@ export async function fetchModels(
   // the user a precise error from the server.
   assertSafeBaseUrl(baseUrl);
 
-  const url = `${baseUrl}/models`;
+  const url = routeApiProxyUrl(baseUrl, "models");
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
 
   if (format === 'anthropic') {

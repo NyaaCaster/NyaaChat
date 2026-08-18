@@ -10,6 +10,7 @@ import { bypassTemplates } from "./lib/bypassTemplates";
 import { wordCheckTemplates } from "./lib/WordCheckTemplates";
 import { wordCountTemplates } from "./lib/WordCountTemplates";
 import { COMFYUI_FIXED_NAME, createDefaultImageProviders, createDefaultLlmProviders, defaultComfyFields, inferProvider } from "./lib/providers";
+import { ensureBuiltinLlmProviders } from "./lib/settingsBackup";
 import { newId } from "./lib/id";
 import { loadLastSessionId, loadSessions, saveLastSessionId } from "./lib/sessionStorage";
 import { getItem, setItem, removeItem } from "./lib/idbStorage";
@@ -599,7 +600,10 @@ export default function App() {
           currentCharacterId:
             parsed.currentCharacterId || DEFAULT_SETTINGS.currentCharacterId,
           llmProviders: Array.isArray(parsed.llmProviders) && parsed.llmProviders.length > 0
-            ? parsed.llmProviders
+            ? // Old local archives predate newer built-in presets (e.g.
+            // opencode-go); merge them in so upgrading accounts still see
+            // the full preset list. Existing providers keep their state.
+            ensureBuiltinLlmProviders(parsed.llmProviders)
             : DEFAULT_SETTINGS.llmProviders,
           imageProviders: Array.isArray(parsed.imageProviders) && parsed.imageProviders.length > 0
             ? normalizeImageProviders(parsed.imageProviders)

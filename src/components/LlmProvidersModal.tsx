@@ -45,7 +45,7 @@ import { CAPABILITY_META as SHARED_CAPABILITY_META } from "./icons/capabilityMet
 import { ManageModelsModal } from "./ManageModelsModal";
 import { newId } from "../lib/id";
 import { normalizeBaseUrl } from "../lib/api";
-import { QINY_ENDPOINTS, resolveQinyEndpoint, type QinyEndpoint } from "../lib/providers";
+import { OPENCODE_GO_API_KEY_URL, QINY_ENDPOINTS, resolveQinyEndpoint, type QinyEndpoint } from "../lib/providers";
 import { probeModel } from "../lib/modelHealth";
 import { resolveContextWindow, FALLBACK_CONTEXT_WINDOW } from "../lib/contextBudget";
 
@@ -695,7 +695,7 @@ function ProviderDetail({
       <Field
         label="API Key"
         actionSlot={
-          provider.kind === "qiny" && (
+          provider.kind === "qiny" ? (
             <a
               href={resolveQinyEndpoint(provider.baseUrl).apiKeyUrl}
               target="_blank"
@@ -704,7 +704,16 @@ function ProviderDetail({
             >
               获取 API Key
             </a>
-          )
+          ) : provider.kind === "opencode-go" ? (
+            <a
+              href={OPENCODE_GO_API_KEY_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[11px] font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:underline transition-colors"
+            >
+              获取 API Key
+            </a>
+          ) : undefined
         }
       >
         <ApiKeyInput
