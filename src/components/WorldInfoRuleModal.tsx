@@ -182,7 +182,24 @@ export function WorldInfoRuleModal({
       setKeywordDraft("");
       return;
     }
-    setKeywords([...keywords, keyword]);
+    setKeywords((prev) => [...prev, keyword]);
+    setKeywordDraft("");
+  };
+
+  // Add button: if the input contains English commas, split it into multiple
+  // trigger words (each comma-separated part becomes its own trigger word).
+  // Otherwise behave exactly like addKeyword (a single trigger word).
+  const handleAddKeywords = () => {
+    const trimmed = keywordDraft.trim();
+    if (!trimmed) return;
+    const parts = trimmed.split(",").map((kw) => kw.trim()).filter(Boolean);
+    setKeywords((prev) => {
+      const next = [...prev];
+      for (const kw of parts) {
+        if (kw && !next.includes(kw)) next.push(kw);
+      }
+      return next;
+    });
     setKeywordDraft("");
   };
 
@@ -427,7 +444,7 @@ export function WorldInfoRuleModal({
                   />
                   <button
                     type="button"
-                    onClick={addKeyword}
+                    onClick={handleAddKeywords}
                     className="px-4 py-3 bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 hover:bg-gray-50 dark:hover:bg-white/10 text-gray-700 dark:text-gray-300 text-sm font-medium rounded-2xl transition-all flex items-center gap-1"
                   >
                     <Plus size={14} /> 添加
