@@ -334,8 +334,14 @@ export function ChatComposer({
             the full toolbar width — left-anchored to the toolbar's leading
             edge — and use `max-w-full` to never overflow the viewport on
             narrow screens. The model picker cards keep their own
-            self-anchored relative wrappers, so they're unaffected. */}
-        <div className="flex items-center gap-2 mb-2 px-1 flex-wrap relative">
+            self-anchored relative wrappers, so they're unaffected.
+
+            Deliberately NO `flex-wrap`: tools and model cards must stay on
+            one row even on narrow portrait phones. The tool buttons are
+            `flex-shrink-0` (fixed width), the `flex-1` spacer collapses,
+            and the model-card group (below) is `min-w-0` so it *shrinks*
+            (card labels truncate) instead of the row ever wrapping. */}
+        <div className="flex items-center gap-2 mb-2 px-1 relative">
           <ToolbarIconButton
             onClick={() => fileInputRef.current?.click()}
             title="添加附件"
@@ -360,8 +366,10 @@ export function ChatComposer({
               so McpToolsCard anchors to the toolbar row, not to this 32-px
               icon button — that's how its `left-0` lines up with the
               toolbar's leading edge and `max-w-full` clamps it to the
-              viewport width on phones. */}
-          <div ref={mcpCardRef}>
+              viewport width on phones. `flex-shrink-0` keeps the icon
+              button from compressing when the non-wrapping row runs
+              short of space. */}
+          <div ref={mcpCardRef} className="flex-shrink-0">
             <ToolbarIconButton
               onClick={() =>
                 setOpenPicker((cur) => (cur === "mcp" ? null : "mcp"))
@@ -390,65 +398,72 @@ export function ChatComposer({
 
           <span className="flex-1" />
 
-          {showImageCard && (
+          {/* The two model cards are glued into one non-wrapping `min-w-0` group —
+            image card left, chat card right — so they can never split across
+            rows. The toolbar row itself never wraps either; this group is the
+            unit that shrinks (labels truncate) to fit narrow portrait
+            phones, keeping tools and both cards on a single line. */}
+          <div className="flex items-center gap-2 min-w-0">
+            {showImageCard && (
+              <ModelCard
+                ref={imageCardRef}
+                icon={
+                  activeImage ? (
+                    <ImageProviderIcon kind={activeImage.kind} size={14} />
+                  ) : (
+                    <ImagePlus size={14} className="text-gray-400" />
+                  )
+                }
+                fallbackIcon={<ImagePlus size={14} className="text-gray-400" />}
+                hasSelection={!!activeImageModelId}
+                label={activeImageModelId || "选择画图模型"}
+                isOpen={openPicker === "image"}
+                onClick={() =>
+                  setOpenPicker((cur) => (cur === "image" ? null : "image"))
+                }
+                accentClass="text-purple-600 dark:text-purple-400"
+                dropdown={
+                  <ProviderPicker
+                    providers={imagePickerProviders}
+                    emptyHint="未启用任何生图模型供应商,先去『设置 → 生图模型设置』启用"
+                    activeProviderId={settings.currentImageProviderId}
+                    activeModelId={activeImageModelId}
+                    onSelect={handleSelectImageModel}
+                    variant="image"
+                  />
+                }
+              />
+            )}
+
             <ModelCard
-              ref={imageCardRef}
+              ref={llmCardRef}
               icon={
-                activeImage ? (
-                  <ImageProviderIcon kind={activeImage.kind} size={14} />
+                activeLlm ? (
+                  <LlmProviderIcon kind={activeLlm.kind} size={14} />
                 ) : (
-                  <ImagePlus size={14} className="text-gray-400" />
+                  <MessageSquare size={14} className="text-gray-400" />
                 )
               }
-              fallbackIcon={<ImagePlus size={14} className="text-gray-400" />}
-              hasSelection={!!activeImageModelId}
-              label={activeImageModelId || "选择画图模型"}
-              isOpen={openPicker === "image"}
+              fallbackIcon={<MessageSquare size={14} className="text-gray-400" />}
+              hasSelection={!!activeLlmModelId}
+              label={activeLlmModelId || "选择聊天模型"}
+              isOpen={openPicker === "llm"}
               onClick={() =>
-                setOpenPicker((cur) => (cur === "image" ? null : "image"))
+                setOpenPicker((cur) => (cur === "llm" ? null : "llm"))
               }
-              accentClass="text-purple-600 dark:text-purple-400"
+              accentClass="text-blue-600 dark:text-blue-400"
               dropdown={
                 <ProviderPicker
-                  providers={imagePickerProviders}
-                  emptyHint="未启用任何生图模型供应商,先去『设置 → 生图模型设置』启用"
-                  activeProviderId={settings.currentImageProviderId}
-                  activeModelId={activeImageModelId}
-                  onSelect={handleSelectImageModel}
-                  variant="image"
+                  providers={llmPickerProviders}
+                  emptyHint="未启用任何对话模型供应商,先去『设置 → 对话模型设置』启用"
+                  activeProviderId={settings.currentLlmProviderId}
+                  activeModelId={activeLlmModelId}
+                  onSelect={handleSelectLlmModel}
+                  variant="llm"
                 />
               }
             />
-          )}
-
-          <ModelCard
-            ref={llmCardRef}
-            icon={
-              activeLlm ? (
-                <LlmProviderIcon kind={activeLlm.kind} size={14} />
-              ) : (
-                <MessageSquare size={14} className="text-gray-400" />
-              )
-            }
-            fallbackIcon={<MessageSquare size={14} className="text-gray-400" />}
-            hasSelection={!!activeLlmModelId}
-            label={activeLlmModelId || "选择聊天模型"}
-            isOpen={openPicker === "llm"}
-            onClick={() =>
-              setOpenPicker((cur) => (cur === "llm" ? null : "llm"))
-            }
-            accentClass="text-blue-600 dark:text-blue-400"
-            dropdown={
-              <ProviderPicker
-                providers={llmPickerProviders}
-                emptyHint="未启用任何对话模型供应商,先去『设置 → 对话模型设置』启用"
-                activeProviderId={settings.currentLlmProviderId}
-                activeModelId={activeLlmModelId}
-                onSelect={handleSelectLlmModel}
-                variant="llm"
-              />
-            }
-          />
+          </div>
         </div>
 
         {/* Input form */}
@@ -613,15 +628,19 @@ const ModelCard = React.forwardRef<HTMLDivElement, ModelCardProps>(
       // toolbar row (which IS relative) so it spans toolbar width on
       // narrow screens and never overflows the viewport. Anchoring to the
       // 32-px button wrapper would force `right-0 + w-72` to extend 288px
-      // leftward, which clips off-screen the moment the wrapping toolbar
-      // pushes a card to the second row at left edge. The ref still
-      // captures the wrapper (and its descendant popover) for outside-
-      // click detection — that uses DOM containment, not layout.
-      <div ref={ref}>
+      // leftward, which clips off-screen. The ref still captures the
+      // wrapper (and its descendant popover) for outside-click detection —
+      // that uses DOM containment, not layout.
+      // `min-w-0` on this wrapper is required for the shrink chain inside
+      // the non-wrapping toolbar row: group (min-w-0) → card wrapper
+      // (min-w-0) → button (min-w-0 + max-w-[180px]) → truncated label.
+      // Without it the wrapper's `min-width:auto` would freeze at its full
+      // content width and the row could not compress the cards.
+      <div ref={ref} className="min-w-0">
         <button
           type="button"
           onClick={onClick}
-          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-all max-w-[180px] ${
+          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-all max-w-[180px] min-w-0 ${
             isOpen
               ? "border-blue-400 bg-blue-50 dark:bg-blue-500/10"
               : hasSelection
