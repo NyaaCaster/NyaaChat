@@ -40,13 +40,11 @@ export function KnowledgeBaseModal({ isOpen, onClose }: KnowledgeBaseModalProps)
   // session
   const [session, setSession] = useState<StoredAccount | null>(null);
   const [hydrated, setHydrated] = useState(false);
-  const [loggingIn, setLoggingIn] = useState(false);
+  const [loggingIn] = useState(false);
 
   // data
   const [kbs, setKbs] = useState<KnowledgeBase[]>([]);
   const [kbMax, setKbMax] = useState(3);
-  const [catfood, setCatfood] = useState(0);
-  const [embedConfigured, setEmbedConfigured] = useState(true);
   const [loading, setLoading] = useState(false);
 
   // sub-modals
@@ -83,14 +81,12 @@ export function KnowledgeBaseModal({ isOpen, onClose }: KnowledgeBaseModalProps)
     setSession(stored);
     setHydrated(true);
 
-    // Fetch live profile to get current kbMax / catfood from server
+    // Fetch live profile to get current kbMax from server
     // (may have changed since the IDB-cached login, e.g. migration 5→3).
     const profileRes = await fetchProfile(stored.token);
     if (profileRes.kind === "ok") {
-      setCatfood(profileRes.data.profile.catfood ?? 0);
       setKbMax(profileRes.data.profile.kbMax ?? 3);
     } else {
-      setCatfood(stored.profile.catfood ?? 0);
       setKbMax(stored.profile.kbMax ?? 3);
     }
 
@@ -104,7 +100,6 @@ export function KnowledgeBaseModal({ isOpen, onClose }: KnowledgeBaseModalProps)
     if (kbRes.kind === "ok") setKbs(kbRes.data.items);
     if (cfgRes.kind === "ok") {
       const configured = cfgRes.data.configured;
-      setEmbedConfigured(configured);
       if (!configured && !autoOpenedConfig) {
         setAutoOpenedConfig(true);
         // small delay so the main modal renders first
@@ -130,7 +125,6 @@ export function KnowledgeBaseModal({ isOpen, onClose }: KnowledgeBaseModalProps)
       const stored = await loadStoredAccount();
       if (stored && (!session || stored.token !== session.token)) {
         setSession(stored);
-        setCatfood(stored.profile.catfood ?? 0);
         setKbMax(stored.profile.kbMax ?? 3);
         // re-load data with new token
         const [kbRes, cfgRes] = await Promise.all([
@@ -140,7 +134,6 @@ export function KnowledgeBaseModal({ isOpen, onClose }: KnowledgeBaseModalProps)
         if (kbRes.kind === "ok") setKbs(kbRes.data.items);
         if (cfgRes.kind === "ok") {
           const configured = cfgRes.data.configured;
-          setEmbedConfigured(configured);
           if (!configured && !autoOpenedConfig) {
             setAutoOpenedConfig(true);
             setTimeout(() => setIsEmbeddingOpen(true), 200);
@@ -149,21 +142,6 @@ export function KnowledgeBaseModal({ isOpen, onClose }: KnowledgeBaseModalProps)
       }
     })();
   }, [isAccountOpen, isOpen, session, autoOpenedConfig]);
-
-  // create KB
-  const handleCreate = useCallback(async () => {
-    if (creating) return;
-    // Paid-feature guard: if at KB limit, show confirm dialog offering expansion.
-    if (kbs.length >= kbMax) {
-      if (kbMax >= KB_HARD_LIMIT) {
-        flash("err", `知识库数量已达最大值（${KB_HARD_LIMIT}）`);
-      } else {
-        setKbCreateBlocked(true);
-      }
-      return;
-    }
-    await doCreateKb();
-  }, [token, creating, kbs.length, kbMax]);
 
   // execute KB creation (called directly or after expand+confirm)
   const doCreateKb = useCallback(async () => {
@@ -182,7 +160,22 @@ export function KnowledgeBaseModal({ isOpen, onClose }: KnowledgeBaseModalProps)
     } else {
       flash("err", res.kind === "network" ? "服务器无法连接" : "创建失败");
     }
-  }, [token, creating, kbMax]);
+  }, [token, kbMax]);
+
+  // create KB
+  const handleCreate = useCallback(async () => {
+    if (creating) return;
+    // Paid-feature guard: if at KB limit, show confirm dialog offering expansion.
+    if (kbs.length >= kbMax) {
+      if (kbMax >= KB_HARD_LIMIT) {
+        flash("err", `知识库数量已达最大值（${KB_HARD_LIMIT}）`);
+      } else {
+        setKbCreateBlocked(true);
+      }
+      return;
+    }
+    await doCreateKb();
+  }, [creating, kbs.length, kbMax, doCreateKb]);
 
   // Expand-after-create-blocked: expand, then auto-create
   const handleExpandThenCreate = useCallback(async () => {
@@ -193,7 +186,6 @@ export function KnowledgeBaseModal({ isOpen, onClose }: KnowledgeBaseModalProps)
     if (res.kind === "ok") {
       const profile = res.data.profile;
       setKbMax(profile.kbMax);
-      setCatfood(profile.catfood);
       if (session) {
         const next = { token: session.token, profile };
         setSession(next);
@@ -212,7 +204,7 @@ export function KnowledgeBaseModal({ isOpen, onClose }: KnowledgeBaseModalProps)
             : res.error || "扩容失败",
       );
     }
-  }, [expanding, token, session, doCreateKb]);
+  }, [token, session, doCreateKb]);
 
   // delete KB
   const handleDeleteConfirm = useCallback(async () => {
@@ -233,7 +225,7 @@ export function KnowledgeBaseModal({ isOpen, onClose }: KnowledgeBaseModalProps)
     if (expanding || kbMax >= KB_HARD_LIMIT) return;
     setExpandPrompt(false);
     setPendingExpandKb(true);
-  }, [expanding, kbMax, catfood]);
+  }, [expanding, kbMax]);
 
   // execute expansion after confirm
   const executeExpand = useCallback(async () => {
@@ -244,7 +236,6 @@ export function KnowledgeBaseModal({ isOpen, onClose }: KnowledgeBaseModalProps)
     if (res.kind === "ok") {
       const profile = res.data.profile;
       setKbMax(profile.kbMax);
-      setCatfood(profile.catfood);
       if (session) {
         const next = { token: session.token, profile };
         setSession(next);
@@ -261,10 +252,9 @@ export function KnowledgeBaseModal({ isOpen, onClose }: KnowledgeBaseModalProps)
             : res.error || "扩容失败",
       );
     }
-  }, [expanding, token, session]);
+  }, [token, session]);
 
   const handleEmbeddingSaved = useCallback(() => {
-    setEmbedConfigured(true);
     // Refresh KB list in case something changed
     if (token) {
       listKb(token).then((res) => {
@@ -276,9 +266,6 @@ export function KnowledgeBaseModal({ isOpen, onClose }: KnowledgeBaseModalProps)
   const handleKbUpdated = useCallback((updated: KnowledgeBase) => {
     setKbs((prev) => prev.map((k) => (k.id === updated.id ? updated : k)));
   }, []);
-
-  const inputCls =
-    "w-full px-3 py-2 text-sm bg-transparent border border-gray-200 dark:border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-shadow";
 
   // --- render: login gate ---
   const renderBody = () => {

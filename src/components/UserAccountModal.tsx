@@ -408,7 +408,6 @@ function AccountPanel({
   const KB_STEP = 2;
   const KB_HARD_LIMIT = 50;
   const STORAGE_COST = 5;
-  const STORAGE_STEP = 12 * 1024 * 1024; // 12 MB
   const COMFY_PACK_COST = 5;
   const COMFY_PACK_STEP = 30;
 

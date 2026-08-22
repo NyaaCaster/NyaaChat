@@ -6,7 +6,6 @@ import {
   getEmbeddingConfig,
   saveEmbeddingConfig,
   healthCheckEmbedding,
-  type EmbeddingConfigState,
 } from "../lib/knowledgeApi";
 
 interface EmbeddingConfigModalProps {
@@ -121,7 +120,7 @@ export function EmbeddingConfigModal({
         res.kind === "network" ? "服务器无法连接" : res.error || "保存失败";
       flash("err", msg);
     }
-  }, [token, baseUrl, model, apiKey, healthStatus, onSaved]);
+  }, [token, baseUrl, model, apiKey, healthStatus, onSaved, onClose]);
 
   // auto-save on close if dirty
   const handleClose = useCallback(async () => {

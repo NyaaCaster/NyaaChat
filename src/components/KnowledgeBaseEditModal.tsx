@@ -95,7 +95,7 @@ export function KnowledgeBaseEditModal({
         setDocs(docRes.data.items);
       }
     })();
-  }, [isOpen, token, initialKb.id]);
+  }, [isOpen, token, initialKb]);
 
   // rename
   const saveName = useCallback(async () => {

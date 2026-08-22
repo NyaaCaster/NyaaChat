@@ -49,12 +49,8 @@ export function loadLastSessionId(): string | null {
 export async function saveSession(session: ChatSession): Promise<void> {
   const all = (sessionsCache ?? []).filter((s) => s.id !== session.id);
   sessionsCache = [session, ...all];
-  try {
-    await setItem(STORAGE_KEY, JSON.stringify(sessionsCache));
-  } catch (err: any) {
-    // Surface quota / IO errors so the auto-save path can show a warning.
-    throw err;
-  }
+  // Quota / IO errors propagate to the auto-save path, which surfaces a warning.
+  await setItem(STORAGE_KEY, JSON.stringify(sessionsCache));
 }
 
 export async function deleteSession(id: string): Promise<void> {

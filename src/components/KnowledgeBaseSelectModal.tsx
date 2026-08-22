@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Book, Check, Loader2, Plus } from "lucide-react";
+import { Book, Check, Plus } from "lucide-react";
 import { BaseModal } from "./BaseModal";
 import type { KnowledgeBase } from "../lib/knowledgeApi";
 

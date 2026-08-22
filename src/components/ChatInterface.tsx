@@ -27,7 +27,6 @@ import {
   searchMemory,
   listMemoryBatches,
   recompressMemory,
-  type MemorySearchResult,
 } from "../lib/knowledgeApi";
 import {
   applyPlaceholders,

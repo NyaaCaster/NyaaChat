@@ -86,14 +86,11 @@ export function CharacterSelectionModal({
   };
 
   const [charUsage, setCharUsage] = useState<number>(0);
-  const refreshCharUsage = () => {
-    estimateCharacterStorage(settings.characters || []).then(setCharUsage);
-  };
 
   useEffect(() => {
     if (!isOpen) return;
     setNotice(null);
-    refreshCharUsage();
+    estimateCharacterStorage(settings.characters || []).then(setCharUsage);
     (async () => {
     const stored = await loadStoredAccount();
     setAccount(stored?.profile.account ?? null);

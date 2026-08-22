@@ -59,7 +59,6 @@ import { deleteSharedCharacter } from "../lib/sharedCharacterApi";
 import {
   type AccountProfile,
   loadStoredAccount,
-  saveStoredAccount,
   clearStoredAccount,
 } from "../lib/sharedAccountApi";
 

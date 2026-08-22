@@ -45,11 +45,23 @@ export default tseslint.config(
     },
   },
   {
-    files: ["vite.config.ts", "eslint.config.js", "ext-host/**/*.js", "shared-server/**/*.js", "scripts/**/*.mjs"],
+    files: ["vite.config.ts", "eslint.config.js", "ext-host/**/*.js", "shared-server/**/*.js", "nyaachat-knowledge/**/*.js", "scripts/**/*.mjs"],
     languageOptions: {
       globals: {
         ...globals.node,
       },
+    },
+  },
+  {
+    // The two private sub-services are plain Node ESM; let them use the same
+    // `^_` ignore convention as src/ (e.g. the `{ ok: _unused, ...clean }`
+    // destructuring pattern in account.js is intentional, not dead code).
+    files: ["shared-server/**/*.js", "nyaachat-knowledge/**/*.js"],
+    rules: {
+      "@typescript-eslint/no-unused-vars": [
+        "warn",
+        { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
+      ],
     },
   },
 );

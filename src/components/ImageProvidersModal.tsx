@@ -112,6 +112,14 @@ export function ImageProvidersModal({
   const [account, setAccount] = useState<StoredAccount | null>(null);
   const [isAccountOpen, setIsAccountOpen] = useState(false);
 
+  // Primitive derived from settings each render, so the effect below can
+  // depend on the value itself rather than the (frequently recreated)
+  // settings.imageProviders array — resetting the selection only when the
+  // fixed ComfyUI provider's id actually changes, not on every unrelated
+  // imageProviders mutation (e.g. saving a model edit elsewhere in the modal).
+  const comfyFixedId =
+    settings.imageProviders.find((p: any) => p.kind === "comfyui-fixed")?.id ?? "";
+
   useEffect(() => {
     if (!providers.find((p) => p.id === selectedId) && providers[0]) {
       setSelectedId(providers[0].id);
@@ -120,8 +128,7 @@ export function ImageProvidersModal({
 
   useEffect(() => {
     if (isOpen) {
-      const comfyId = settings.imageProviders.find((p: any) => p.kind === "comfyui-fixed")?.id;
-      if (comfyId) setSelectedId(comfyId);
+      if (comfyFixedId) setSelectedId(comfyFixedId);
       setMobileView("list");
       loadStoredAccount().then((stored) => {
         setAccount(stored);
@@ -138,7 +145,7 @@ export function ImageProvidersModal({
         }
       });
     }
-  }, [isOpen]);
+  }, [isOpen, comfyFixedId]);
 
   const handleProfile = (profile: AccountProfile) => {
     setAccount((prev) => prev ? { ...prev, profile } : prev);

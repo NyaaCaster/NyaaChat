@@ -194,7 +194,7 @@ export function CharacterEditModal({
   // Assemble the character from the current (possibly edited) modal state, plus
   // the card data this modal has no editor for (regex / extensions / shared
   // metadata) carried from initialCharacter. Shared by both export formats.
-  const buildCurrentCharacter = (): CharacterSettings => ({
+  const buildCurrentCharacter = useCallback((): CharacterSettings => ({
     id: initialCharacter?.id || cardIdRef.current,
     name: name.trim(),
     description: description.trim(),
@@ -212,7 +212,7 @@ export function CharacterEditModal({
     ...(initialCharacter?.intro ? { intro: initialCharacter.intro } : {}),
     ...(initialCharacter?.shared ? { shared: initialCharacter.shared } : {}),
     ...(initialCharacter?.owner ? { owner: initialCharacter.owner } : {}),
-  });
+  }), [initialCharacter, name, description, firstMes, worldInfo, coverRemoved]);
 
   /** Resolve the cover blob to use as the export PNG's pixel carrier: the
    *  pending (just-cropped) blob if any, else the one already in IndexedDB,
@@ -362,7 +362,7 @@ export function CharacterEditModal({
   const persistCharacter = useCallback(() => {
     if (!name.trim()) return;
     onSave(buildCurrentCharacter());
-  }, [name, description, firstMes, worldInfo, onSave]);
+  }, [name, onSave, buildCurrentCharacter]);
 
   return (
     <>
