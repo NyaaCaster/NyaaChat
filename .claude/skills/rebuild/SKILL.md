@@ -29,7 +29,40 @@ python rebuild.py
 python rebuild.py --no-cache
 ```
 
+**只重建被修改到的镜像**（默认优先，见「只重建被修改的镜像」节）：
+
+```
+python rebuild.py --only=nyaachat-app        # 前端 nginx 镜像（改 UI / 样式 / 前端代码时最常用）
+python rebuild.py --only=nyaachat-ext-host   # 扩展运行时
+python rebuild.py --only=nyaachat-shared     # 共享后端
+python rebuild.py --only=nyaachat-knowledge  # 知识库后端
+```
+
 依赖仅需系统自带 Python 3.8+ 解释器与 `docker` CLI，不引入额外运行时。
+
+## 只重建被修改的镜像（MUST）
+
+**只 rebuild 本次改动所影响的镜像，禁止无脑全量 rebuild。**
+
+- NyaaChat 由 4 个镜像组成，改动通常只落在其中一个子项目的代码上：
+  `nyaachat-app`（前端 nginx）、`nyaachat-ext-host`（扩展运行时）、
+  `nyaachat-shared`（共享后端）、`nyaachat-knowledge`（知识库后端）。
+- 镜像与源码对应关系：
+
+  | 镜像 | 源码 | 典型改动 |
+  | --- | --- | --- |
+  | `nyaachat-app` | 根目录前端（`src/`、`public/`、根 `Dockerfile`、`nginx.conf`） | 前端组件 / 样式 / 静态资源 |
+  | `nyaachat-ext-host` | `ext-host/` | 扩展运行时 / 网络白名单 |
+  | `nyaachat-shared` | `shared-server/` | 共享角色后端 |
+  | `nyaachat-knowledge` | `nyaachat-knowledge/` | 知识库后端 |
+
+- 判断方法：先 `git status` / `git diff --stat` 看改动落在哪个子目录，据此选 `--only`。
+- 全量 rebuild（不带 `--only`）仅在以下场景使用：同时改了多个子项目的代码、或用户明确要求
+  完整 rebuild。**不要**因为"省事"或"保险"就全量跑。
+- 为什么必须这样（踩坑记录，2026-08-22）：脚本是**先全部构建成功、再统一推送**。全量跑时，
+  `nyaachat-knowledge` 拉取 `node:20-slim` 基础镜像连续两次网络 EOF 失败，脚本
+  `sys.exit(1)` 中止，**已构建好的 app 镜像也没能被推送**，上线被无关子项目阻塞。
+  只跑 `python rebuild.py --only=nyaachat-app` 一次成功。
 
 ## 扩展 registry 自动生成
 
@@ -59,15 +92,26 @@ python rebuild.py --no-cache
 ## 执行规则
 
 - 执行前确认工作目录是项目根目录（含 `docker-compose.yml`）。
+- **执行前先确认本次改动涉及哪些子项目**（`git status` / `git diff --stat`），只 rebuild 被修改到的镜像（`--only`，见上文），不要无脑全量 rebuild。
 - 脚本本身已包含：生成 `public/extensions/registry.json` → 构建（默认带缓存）→ 清理 dangling 镜像 → `docker compose up -d` 按需重建容器 → 列出运行中容器。`up -d` 只在镜像 hash 或 service 配置变化时重建容器，volume（如 `image-cache`）自动保留。不要再额外手动执行这些步骤。
 - 执行后向用户简要汇报：脚本是否成功结束、当前运行中的容器状态。
 
 ## macmini 部署
 
-本地 `rebuild.py` 构建推送后，推送 `.env.linux`（不是 `.env`！）到 macmini 并重启容器：
+**按改动类型判断是否推送 `.env`**（纯前端 / 镜像内代码改动不需要传）：
+
+- 改动只在镜像内（如前端代码），`rebuild.py` 构建推送镜像后，macmini 直接 `restart.py`
+  拉取新镜像即可，**不传 `.env`**：
 
 ```bash
-scp .env.linux U-MacMini-1:/root/DockerContainer/nyaachat/.env && ssh U-MacMini-1 "export PATH=\$PATH:/snap/bin && cd /root/DockerContainer/nyaachat && python3 restart.py"
+ssh macmini "export PATH=\$PATH:/snap/bin && cd /root/DockerContainer/nyaachat && python3 restart.py"
+```
+
+- 仅当本次改动确实涉及 `.env` 的运行时变量时，才推送 `.env.linux`（不是 `.env`！）
+  到 macmini 再重启：
+
+```bash
+scp .env.linux macmini:/root/DockerContainer/nyaachat/.env && ssh macmini "export PATH=\$PATH:/snap/bin && cd /root/DockerContainer/nyaachat && python3 restart.py"
 ```
 
 > **为什么用 `.env.linux`？** `.env` 的 `PRIVATE_DOCKER_REGISTRY_HOST=localhost:5000` 供 Windows 推送用；`.env.linux` 的 `=192.168.31.142:5000` 供 macmini 拉取用。scp 时以 `.env.linux` 覆盖 macmini 上的 `.env` 文件名，两边各取所需。
@@ -81,10 +125,13 @@ scp .env.linux U-MacMini-1:/root/DockerContainer/nyaachat/.env && ssh U-MacMini-
 **只要 `.env` 中发生了影响 macmini 发布侧运行时行为的变更（如 `MCP_HOST`、`NYAAACOUNT_*`、`PRIVATE_DOCKER_REGISTRY_*` 等容器内通过 `env_file` / envsubst / `process.env` 读取的变量），即使本次不需要 rebuild，也必须单独推送 `.env` 并重启 macmini 容器：**
 
 ```bash
-scp .env.linux U-MacMini-1:/root/DockerContainer/nyaachat/.env && ssh U-MacMini-1 "export PATH=\$PATH:/snap/bin && cd /root/DockerContainer/nyaachat && python3 restart.py"
+scp .env.linux macmini:/root/DockerContainer/nyaachat/.env && ssh macmini "export PATH=\$PATH:/snap/bin && cd /root/DockerContainer/nyaachat && python3 restart.py"
 ```
 
-> 反之，纯 build-time 变量（如 `VITE_*`、Vite `define` 注入等）已随镜像走，`.env` 推送不是必需的，但**默认一律推送**以避免遗漏。
+> 反之，纯 build-time 变量（如 `VITE_*`、Vite `define` 注入等）已随镜像走——**改动只在
+> 镜像内（纯前端 / 后端代码）时，`.env` 不需要推送**，macmini 侧的 `.env` 保持不变，
+> 直接 `restart.py` 拉新镜像即可（参考 2026-08-22 纯前端样式修复上线：未传 `.env`）。
+> **不要为了"保险"而一律推送 `.env`**——只有本次改动确实改了 `.env` 的运行时变量才需要推送。
 
 ## 不要做的事
 
