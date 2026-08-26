@@ -172,6 +172,7 @@ export function LlmProvidersModal({
           <MessageSquare size={16} className="text-blue-600 dark:text-blue-400" />
         }
         maxWidth="max-w-5xl"
+        closeOnBackdrop={false}
       >
         <div className="pv-layout h-[600px] max-h-[70vh]">
           {/* Provider list pane */}

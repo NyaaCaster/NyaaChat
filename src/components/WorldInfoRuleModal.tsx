@@ -359,6 +359,7 @@ export function WorldInfoRuleModal({
         title={initialRule ? "编辑规则条目" : "添加规则条目"}
         titleIcon={<Globe size={16} className="text-blue-600 dark:text-blue-400" />}
         maxWidth="max-w-lg"
+        closeOnBackdrop={false}
         footer={
           <div className="flex gap-3">
             <button

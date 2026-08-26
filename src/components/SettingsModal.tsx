@@ -345,6 +345,7 @@ export function SettingsModal({
         title="设置"
         titleIcon={<SettingsIcon size={16} className="text-blue-600 dark:text-blue-400" />}
         maxWidth="max-w-lg"
+        closeOnBackdrop={false}
       >
         <div className="p-4 sm:p-6 space-y-8">
           <SectionHeading>模型设置</SectionHeading>

@@ -164,6 +164,7 @@ export function UserAccountModal({ isOpen, onClose }: UserAccountModalProps) {
       title="用户账号"
       titleIcon={<CatCanIcon size={20} />}
       maxWidth="max-w-md"
+      closeOnBackdrop={false}
     >
       {!session ? (
         <AuthForm onAuthed={applyProfile} />

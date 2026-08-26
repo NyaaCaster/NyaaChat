@@ -152,6 +152,7 @@ export function RegexScriptEditModal({
       title={initialScript ? "编辑正则脚本" : "新建正则脚本"}
       titleIcon={<Regex size={16} className="text-blue-600 dark:text-blue-400" />}
       maxWidth="max-w-xl"
+      closeOnBackdrop={false}
       footer={
         <div className="flex gap-3">
           <button

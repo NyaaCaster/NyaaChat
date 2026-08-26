@@ -147,6 +147,7 @@ export function EmbeddingConfigModal({
       title="嵌入模型配置"
       titleIcon={<Settings size={16} className="text-blue-600 dark:text-blue-400" />}
       maxWidth="max-w-md"
+      closeOnBackdrop={false}
       footer={
         <div className="flex items-center justify-between gap-3">
           <button

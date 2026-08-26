@@ -287,6 +287,7 @@ export function KnowledgeBaseEditModal({
         }
         titleIcon={<FileText size={16} className="text-blue-600 dark:text-blue-400" />}
         maxWidth="max-w-lg"
+        closeOnBackdrop={false}
         footer={
           <>
             <input

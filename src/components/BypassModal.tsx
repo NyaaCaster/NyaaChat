@@ -233,6 +233,7 @@ export function BypassModal({ isOpen, onClose, settings, onSave, onSendMessage }
         title="绕过机制 (Bypass)"
         titleIcon={<Flame size={16} className="text-red-500" />}
         maxWidth="max-w-2xl"
+        closeOnBackdrop={false}
         bodyClassName="bypass-scrollbar"
         footer={
           <div className="flex flex-col-reverse sm:flex-row justify-end sm:space-x-4">

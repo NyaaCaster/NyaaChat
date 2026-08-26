@@ -69,6 +69,7 @@ export function UserRoleEditModal({
       onClose={onClose}
       title={initialUserRole ? "编辑用户角色" : "创建用户角色"}
       maxWidth="max-w-lg"
+      closeOnBackdrop={false}
       footer={
         <div className="flex gap-3">
           <button

@@ -145,6 +145,7 @@ export function RegexModal({ isOpen, onClose, character, onUpdateCharacterRegex 
         title="正则"
         titleIcon={<Regex size={16} className="text-blue-500" />}
         maxWidth="max-w-xl"
+        closeOnBackdrop={false}
         footer={
           !showScopedHint ? (
             <>

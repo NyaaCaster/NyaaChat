@@ -297,6 +297,7 @@ export function CharacterShareModal({
       title={mode === "update" ? "发布更新" : "角色分享"}
       titleIcon={<CloudUpload size={16} className="text-blue-500" />}
       maxWidth="max-w-lg"
+      closeOnBackdrop={false}
       footer={
         <div className="space-y-2">
           {error && (

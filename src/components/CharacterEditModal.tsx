@@ -1,5 +1,26 @@
 import React, { useState, useCallback } from "react";
-import { Save, Plus, Download, Upload, Edit2, Trash2, FileJson, Cat, ImagePlus, X, CloudUpload, Book } from "lucide-react";
+import {
+  closestCenter,
+  DndContext,
+  DragEndEvent,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import {
+  restrictToParentElement,
+  restrictToVerticalAxis,
+} from "@dnd-kit/modifiers";
+import { Save, Plus, Download, Upload, Edit2, Trash2, FileJson, Cat, ImagePlus, X, CloudUpload, Book, GripVertical } from "lucide-react";
 import { CharacterSettings, WorldInfoRule } from "../types";
 import { newId } from "../lib/id";
 import { convertToSillyTavernCharacter } from "../lib/sillyTavernExport";
@@ -355,6 +376,29 @@ export function CharacterEditModal({
     }
   };
 
+  // Drag-to-reorder of world-info entries. Only the list order changes — the
+  // entry objects are untouched, and the new array order is what gets saved
+  // verbatim (handleSave) and feeds prompt assembly (chatPipeline renders
+  // rules in saved array order), so "UI top = prompt earlier" holds by
+  // construction without touching the pipeline.
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 5 },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    }),
+  );
+
+  const handleRuleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIdx = worldInfo.findIndex((r) => r.id === active.id);
+    const newIdx = worldInfo.findIndex((r) => r.id === over.id);
+    if (oldIdx === -1 || newIdx === -1) return;
+    setWorldInfo((prev) => arrayMove(prev, oldIdx, newIdx));
+  };
+
   /** Persist the character (without closing the modal). Used before opening
    *  login or KB manager from within WorldInfoRuleModal, so rule edits aren't
    *  lost. Uses buildCurrentCharacter which assembles the full character from
@@ -371,6 +415,7 @@ export function CharacterEditModal({
         onClose={onClose}
         title={mode === "shared-author" ? "编辑共享角色" : initialCharacter ? "编辑角色" : "创建角色"}
         maxWidth="max-w-lg"
+        closeOnBackdrop={false}
         footer={
           <div className="space-y-2">
             {mode === "shared-author" && importError && (
@@ -512,76 +557,34 @@ export function CharacterEditModal({
                 </label>
               </div>
 
-              <div className="space-y-2 mb-4">
-                {worldInfo.map((rule) => (
-                  <div
-                    key={rule.id}
-                    className="flex items-center justify-between p-3 bg-gray-50 dark:bg-white/[0.03] border border-gray-100 dark:border-white/5 rounded-xl group transition-all"
-                  >
-                    <div className="flex items-center gap-3 overflow-hidden">
-                      <button
-                        onClick={() => handleToggleRule(rule.id)}
-                        className={`flex-shrink-0 w-8 h-4 rounded-full relative transition-colors ${
-                          rule.enabled ? "bg-blue-500" : "bg-gray-300 dark:bg-gray-600"
-                        }`}
-                        aria-label={rule.enabled ? "禁用规则" : "启用规则"}
-                      >
-                        <div
-                          className={`absolute top-0.5 w-3 h-3 rounded-full bg-white shadow-sm transition-transform ${
-                            rule.enabled ? "translate-x-4.5" : "translate-x-0.5"
-                          }`}
-                        />
-                      </button>
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">
-                          {rule.name}
-                        </p>
-                        <div className="flex items-center gap-2 mt-0.5">
-                          <span
-                            className={`text-[10px] px-1 rounded ${
-                              rule.triggerType === "permanent"
-                                ? "bg-blue-100 dark:bg-blue-900/30 text-blue-600"
-                                : "bg-green-100 dark:bg-green-900/30 text-green-600"
-                            }`}
-                          >
-                            {rule.triggerType === "permanent" ? "永久" : "关键字"}
-                          </span>
-                          <span className="text-[10px] text-gray-500 dark:text-gray-400">
-                            {rule.position === "system" ? "⚙系统" : "🤖角色"}
-                          </span>
-                          {rule.hard && (
-                            <span className="text-[10px] px-1 rounded bg-red-100 dark:bg-red-900/30 text-red-600">
-                              硬约束
-                            </span>
-                          )}
-                          {rule.linkedKbIds && rule.linkedKbIds.length > 0 && (
-                            <span className="text-[10px] px-1 rounded bg-purple-100 dark:bg-purple-900/30 text-purple-600 flex items-center gap-0.5">
-                              <Book size={10} />{rule.linkedKbIds.length}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => handleEditRule(rule)}
-                        className="p-1.5 text-gray-400 hover:text-blue-500 hover:bg-white dark:hover:bg-white/10 rounded-lg transition-all"
-                        aria-label="编辑规则"
-                      >
-                        <Edit2 size={14} />
-                      </button>
-                      <button
-                        onClick={() => handleDeleteRule(rule.id)}
-                        className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-white dark:hover:bg-white/10 rounded-lg transition-all"
-                        aria-label="删除规则"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
+              {worldInfo.length > 0 && (
+                <p className="text-[10px] text-gray-400 dark:text-gray-500 mb-2">
+                  拖拽左侧把手调整条目顺序：越靠上，提示词中的逻辑位置越靠前（保存后生效）
+                </p>
+              )}
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragEnd={handleRuleDragEnd}
+                modifiers={[restrictToVerticalAxis, restrictToParentElement]}
+              >
+                <SortableContext
+                  items={worldInfo.map((r) => r.id)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  <div className="space-y-2 mb-4">
+                    {worldInfo.map((rule) => (
+                      <SortableWorldInfoRow
+                        key={rule.id}
+                        rule={rule}
+                        onToggle={() => handleToggleRule(rule.id)}
+                        onEdit={() => handleEditRule(rule)}
+                        onDelete={() => handleDeleteRule(rule.id)}
+                      />
+                    ))}
                   </div>
-                ))}
-              </div>
+                </SortableContext>
+              </DndContext>
 
               <button
                 onClick={handleAddRule}
@@ -655,5 +658,124 @@ export function CharacterEditModal({
         </div>
       </BaseModal>
     </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// World-info rule row (drag-sortable). Ordering is the source of truth for
+// prompt assembly: chatPipeline renders rules in the saved array order, so a
+// drag here becomes "earlier in the list = earlier in the prompt" (within the
+// fixed global prompt structure — permanent entries live in the static prefix,
+// keyword entries in <session_rules>, hard/soft sectioned — which this drag
+// must not and does not re-arrange).
+// ---------------------------------------------------------------------------
+
+interface SortableWorldInfoRowProps {
+  rule: WorldInfoRule;
+  onToggle: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+}
+
+function SortableWorldInfoRow({
+  rule,
+  onToggle,
+  onEdit,
+  onDelete,
+}: SortableWorldInfoRowProps) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: rule.id });
+
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    zIndex: isDragging ? 10 : "auto",
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className="flex items-center justify-between p-3 bg-gray-50 dark:bg-white/[0.03] border border-gray-100 dark:border-white/5 rounded-xl group transition-all"
+    >
+      <div className="flex items-center gap-3 overflow-hidden">
+        <button
+          type="button"
+          {...attributes}
+          {...listeners}
+          className="p-1 cursor-grab active:cursor-grabbing text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 touch-none flex-shrink-0"
+          aria-label={`拖动调整 ${rule.name} 的顺序`}
+        >
+          <GripVertical size={14} />
+        </button>
+        <button
+          onClick={onToggle}
+          className={`flex-shrink-0 w-8 h-4 rounded-full relative transition-colors ${
+            rule.enabled ? "bg-blue-500" : "bg-gray-300 dark:bg-gray-600"
+          }`}
+          aria-label={rule.enabled ? "禁用规则" : "启用规则"}
+        >
+          <div
+            className={`absolute top-0.5 w-3 h-3 rounded-full bg-white shadow-sm transition-transform ${
+              rule.enabled ? "translate-x-4.5" : "translate-x-0.5"
+            }`}
+          />
+        </button>
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">
+            {rule.name}
+          </p>
+          <div className="flex items-center gap-2 mt-0.5">
+            <span
+              className={`text-[10px] px-1 rounded ${
+                rule.triggerType === "permanent"
+                  ? "bg-blue-100 dark:bg-blue-900/30 text-blue-600"
+                  : "bg-green-100 dark:bg-green-900/30 text-green-600"
+              }`}
+            >
+              {rule.triggerType === "permanent" ? "永久" : "关键字"}
+            </span>
+            <span className="text-[10px] text-gray-500 dark:text-gray-400">
+              {rule.position === "system" ? "⚙系统" : "🤖角色"}
+            </span>
+            {rule.hard && (
+              <span className="text-[10px] px-1 rounded bg-red-100 dark:bg-red-900/30 text-red-600">
+                硬约束
+              </span>
+            )}
+            {rule.linkedKbIds && rule.linkedKbIds.length > 0 && (
+              <span className="text-[10px] px-1 rounded bg-purple-100 dark:bg-purple-900/30 text-purple-600 flex items-center gap-0.5">
+                <Book size={10} />
+                {rule.linkedKbIds.length}
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-1">
+        <button
+          onClick={onEdit}
+          className="p-1.5 text-gray-400 hover:text-blue-500 hover:bg-white dark:hover:bg-white/10 rounded-lg transition-all"
+          aria-label="编辑规则"
+        >
+          <Edit2 size={14} />
+        </button>
+        <button
+          onClick={onDelete}
+          className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-white dark:hover:bg-white/10 rounded-lg transition-all"
+          aria-label="删除规则"
+        >
+          <Trash2 size={14} />
+        </button>
+      </div>
+    </div>
   );
 }
