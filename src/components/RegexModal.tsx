@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { Regex, Plus, Pencil, Trash2, ArrowUp, ArrowDown, Upload } from "lucide-react";
 import type { CharacterSettings, RegexScript } from "../types";
 import { BaseModal } from "./BaseModal";
+import { DeleteConfirmDialog } from "./DeleteConfirmDialog";
 import { loadGlobalRegexScripts, saveGlobalRegexScripts, parseImportedRegexScripts } from "../compat";
 import { RegexScriptEditModal } from "./RegexScriptEditModal";
 
@@ -48,6 +49,7 @@ export function RegexModal({ isOpen, onClose, character, onUpdateCharacterRegex 
   const [scripts, setScripts] = useState<RegexScript[]>([]);
   const [editing, setEditing] = useState<RegexScript | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<RegexScript | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -89,8 +91,7 @@ export function RegexModal({ isOpen, onClose, character, onUpdateCharacterRegex 
     persist(scripts.map((s) => (s.id === id ? { ...s, disabled: !s.disabled } : s)));
 
   const remove = (script: RegexScript) => {
-    if (!window.confirm(`删除正则脚本「${script.scriptName}」？`)) return;
-    persist(scripts.filter((s) => s.id !== script.id));
+    setPendingDelete(script);
   };
 
   const move = (index: number, dir: -1 | 1) => {
@@ -295,6 +296,17 @@ export function RegexModal({ isOpen, onClose, character, onUpdateCharacterRegex 
         />,
         document.body,
       )}
+
+      <DeleteConfirmDialog
+        isOpen={pendingDelete !== null}
+        onConfirm={() => {
+          if (pendingDelete) {
+            persist(scripts.filter((s) => s.id !== pendingDelete.id));
+            setPendingDelete(null);
+          }
+        }}
+        onCancel={() => setPendingDelete(null)}
+      />
     </>
   );
 }

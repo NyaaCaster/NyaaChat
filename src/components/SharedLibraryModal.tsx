@@ -37,6 +37,7 @@ import {
 } from "lucide-react";
 import { BaseModal } from "./BaseModal";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { DeleteConfirmDialog } from "./DeleteConfirmDialog";
 import { CharacterShareModal, type SharePrefill } from "./CharacterShareModal";
 import { UserAccountModal } from "./UserAccountModal";
 import type { CharacterSettings } from "../types";
@@ -750,22 +751,10 @@ export function SharedLibraryModal({
         />
       )}
 
-      {/* Delete confirm (own card). Destructive; second confirmation per design. */}
-      <ConfirmDialog
+      {/* Delete confirm (own card). Blocked while the request is in flight. */}
+      <DeleteConfirmDialog
         isOpen={!!pendingDelete}
-        title="删除共享角色"
-        destructive
-        confirmText={deleteBusy ? "删除中…" : "确认删除"}
-        message={
-          <>
-            确定要从共享角色库中删除
-            <span className="font-medium text-gray-900 dark:text-gray-100">
-              「{pendingDelete?.name}」
-            </span>
-            吗？删除后该角色将无法被浏览或使用，且<span className="font-medium">无法恢复</span>。
-            已持有此角色的用户将无法再获取更新。
-          </>
-        }
+        busy={deleteBusy}
         onConfirm={() => void confirmDelete()}
         onCancel={() => { if (!deleteBusy) setPendingDelete(null); }}
       />

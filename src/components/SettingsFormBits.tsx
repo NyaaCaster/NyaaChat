@@ -1,5 +1,6 @@
-import { useEffect, useId, useState } from "react";
+import { useId, useState } from "react";
 import { Trash2 } from "lucide-react";
+import { DeleteConfirmDialog } from "./DeleteConfirmDialog";
 
 /**
  * Small, reusable form primitives shared by the v2 settings modals
@@ -90,57 +91,43 @@ interface DeleteModelButtonProps {
 }
 
 /**
- * Two-step delete icon for saved-model rows. First click arms (turns red),
- * second click within 3s confirms; the armed state auto-resets so a stray
- * click can't linger as a landmine. No modal — deleting a still-listed
- * model is recoverable via 管理模型, and for delisted (orphaned) models
- * removal is the whole point.
+ * Delete icon for saved-model rows. Opens the shared delete-confirmation
+ * dialog (DeleteConfirmDialog) — consistent with the character / provider /
+ * regex / KB delete flows. Removing a still-listed model is recoverable via
+ * 管理模型, but the double-confirmation keeps every destructive entry point
+ * uniform.
  */
 export function DeleteModelButton({
   onConfirm,
   disabled = false,
   disabledReason,
 }: DeleteModelButtonProps) {
-  const [arming, setArming] = useState(false);
-
-  useEffect(() => {
-    if (!arming) return;
-    const t = setTimeout(() => setArming(false), 3000);
-    return () => clearTimeout(t);
-  }, [arming]);
-
-  useEffect(() => {
-    if (disabled) setArming(false);
-  }, [disabled]);
+  const [pending, setPending] = useState(false);
 
   const title = disabled
     ? disabledReason || "暂不可删除"
-    : arming
-      ? "再次点击确认删除"
-      : "从模型列表中删除";
+    : "从模型列表中删除";
 
   return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={() => {
-        if (!arming) {
-          setArming(true);
-          return;
-        }
-        setArming(false);
-        onConfirm();
-      }}
-      onBlur={() => setArming(false)}
-      className={`p-1 rounded-md flex-shrink-0 transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
-        arming
-          ? "text-white bg-red-500 hover:bg-red-600"
-          : "text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10"
-      }`}
-      aria-label={title}
-      title={title}
-    >
-      <Trash2 size={13} className={arming ? "animate-pulse" : ""} />
-    </button>
+    <>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => setPending(true)}
+        className="p-1 rounded-md flex-shrink-0 transition-colors disabled:opacity-40 disabled:cursor-not-allowed text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10"
+        aria-label={title}
+        title={title}
+      >
+        <Trash2 size={13} />
+      </button>
+      <DeleteConfirmDialog
+        isOpen={pending}
+        onConfirm={() => {
+          setPending(false);
+          onConfirm();
+        }}
+        onCancel={() => setPending(false)}
+      />
+    </>
   );
 }

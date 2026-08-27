@@ -15,6 +15,7 @@ import { useCoverObjectUrl } from "../hooks/useCoverObjectUrl";
 import { estimateCharacterStorage, DEFAULT_CHARACTER_STORAGE_QUOTA } from "../lib/storageEstimate";
 import { BaseModal } from "./BaseModal";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { DeleteConfirmDialog } from "./DeleteConfirmDialog";
 import { CharacterEditModal } from "./CharacterEditModal";
 import { CharacterShareModal, type SharePrefill } from "./CharacterShareModal";
 import { SharedLibraryModal } from "./SharedLibraryModal";
@@ -443,9 +444,7 @@ export function CharacterSelectionModal({
     flash("ok", `「${fresh.name}」的更新已发布。`);
   };
 
-  const sharedCount = (settings.characters || []).filter((c) => c.shared).length;  const pendingDeleteCharacter = pendingDeleteId
-    ? settings.characters.find((c) => c.id === pendingDeleteId)
-    : null;
+  const sharedCount = (settings.characters || []).filter((c) => c.shared).length;
 
   return (
     <>
@@ -646,18 +645,8 @@ export function CharacterSelectionModal({
         </div>
       </BaseModal>
 
-      <ConfirmDialog
+      <DeleteConfirmDialog
         isOpen={pendingDeleteId !== null}
-        title="删除角色"
-        message={
-          pendingDeleteCharacter
-            ? pendingDeleteCharacter.shared
-              ? `确定要从本地删除共享角色「${pendingDeleteCharacter.name}」吗？删除后账号共享卡槽占用 -1，此操作不可撤销。`
-              : `确定要删除角色「${pendingDeleteCharacter.name}」吗？此操作不可撤销。`
-            : "确定要删除该角色吗？此操作不可撤销。"
-        }
-        destructive
-        confirmText="删除"
         onConfirm={handleDeleteConfirm}
         onCancel={() => setPendingDeleteId(null)}
       />

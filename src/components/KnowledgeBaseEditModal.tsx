@@ -8,7 +8,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { BaseModal } from "./BaseModal";
-import { ConfirmDialog } from "./ConfirmDialog";
+import { DeleteConfirmDialog } from "./DeleteConfirmDialog";
 import {
   getKb,
   updateKb,
@@ -388,16 +388,8 @@ export function KnowledgeBaseEditModal({
         </div>
       </BaseModal>
 
-      <ConfirmDialog
+      <DeleteConfirmDialog
         isOpen={pendingDeleteDoc !== null}
-        title="删除文档"
-        message={
-          pendingDeleteDoc
-            ? `确定要删除文档「${pendingDeleteDoc.name}」吗？此操作不可恢复，文档的所有分块和向量数据将被永久清除。`
-            : ""
-        }
-        destructive
-        confirmText="删除"
         onConfirm={handleDeleteDoc}
         onCancel={() => setPendingDeleteDoc(null)}
       />

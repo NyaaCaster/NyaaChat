@@ -33,6 +33,7 @@ import {
 import { exportCharacterPng, imageBlobToCoverWebp } from "../lib/pngCard";
 import { loadCover, saveCover, deleteCover, COVER_MARKER } from "../lib/coverStorage";
 import { BaseModal } from "./BaseModal";
+import { DeleteConfirmDialog } from "./DeleteConfirmDialog";
 import { WorldInfoRuleModal } from "./WorldInfoRuleModal";
 import { KnowledgeBaseModal } from "./KnowledgeBaseModal";
 import { ImageCropModal } from "./ImageCropModal";
@@ -68,6 +69,7 @@ export function CharacterEditModal({
   const [worldInfo, setWorldInfo] = useState<WorldInfoRule[]>([]);
   const [isRuleModalOpen, setIsRuleModalOpen] = useState(false);
   const [editingRule, setEditingRule] = useState<WorldInfoRule | null>(null);
+  const [pendingDeleteRuleId, setPendingDeleteRuleId] = useState<string | null>(null);
   const [isExportChooserOpen, setIsExportChooserOpen] = useState(false);
   const [isKbManagerOpen, setIsKbManagerOpen] = useState(false);
 
@@ -361,7 +363,13 @@ export function CharacterEditModal({
   };
 
   const handleDeleteRule = (id: string) => {
-    setWorldInfo((prev) => prev.filter((r) => r.id !== id));
+    setPendingDeleteRuleId(id);
+  };
+
+  const handleConfirmDeleteRule = () => {
+    if (!pendingDeleteRuleId) return;
+    setWorldInfo((prev) => prev.filter((r) => r.id !== pendingDeleteRuleId));
+    setPendingDeleteRuleId(null);
   };
 
   const handleToggleRule = (id: string) => {
@@ -604,6 +612,12 @@ export function CharacterEditModal({
         initialRule={editingRule}
         onPersistCharacter={persistCharacter}
         onOpenKnowledgeBase={() => setIsKbManagerOpen(true)}
+      />
+
+      <DeleteConfirmDialog
+        isOpen={pendingDeleteRuleId !== null}
+        onConfirm={handleConfirmDeleteRule}
+        onCancel={() => setPendingDeleteRuleId(null)}
       />
 
       <ImageCropModal

@@ -37,7 +37,7 @@ import {
 } from "lucide-react";
 import { ApiFormat, AppState, LlmProvider, ModelCapability, ModelEntry } from "../types";
 import { BaseModal } from "./BaseModal";
-import { ConfirmDialog } from "./ConfirmDialog";
+import { DeleteConfirmDialog } from "./DeleteConfirmDialog";
 import { ApiKeyInput } from "./ApiKeyInput";
 import { Field, FieldHint, ToggleSwitch, DeleteModelButton } from "./SettingsFormBits";
 import { LlmProviderIcon } from "./icons/providerIcons";
@@ -262,24 +262,8 @@ export function LlmProvidersModal({
           </div>
         </div>
       </BaseModal>
-      <ConfirmDialog
+      <DeleteConfirmDialog
         isOpen={!!pendingDelete}
-        title="删除供应商"
-        destructive
-        confirmText="删除"
-        message={
-          pendingDelete ? (
-            <>
-              将永久删除自定义供应商
-              <span className="font-semibold text-gray-900 dark:text-gray-100 mx-1">
-                {pendingDelete.name}
-              </span>
-              ,其下保存的 API Key 与模型列表也会一并清除。该操作不可撤销。
-            </>
-          ) : (
-            ""
-          )
-        }
         onConfirm={handleConfirmDelete}
         onCancel={() => setPendingDeleteId(null)}
       />

@@ -8,6 +8,8 @@ interface ConfirmDialogProps {
   confirmText?: string;
   cancelText?: string;
   destructive?: boolean;
+  /** Disables the confirm button while true (e.g. an async request is running). */
+  confirmDisabled?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -19,6 +21,7 @@ export function ConfirmDialog({
   confirmText = "确定",
   cancelText = "取消",
   destructive = false,
+  confirmDisabled = false,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
@@ -38,8 +41,9 @@ export function ConfirmDialog({
           </button>
           <button
             onClick={onConfirm}
+            disabled={confirmDisabled}
             data-autofocus
-            className={`px-4 py-2 text-sm font-medium text-white rounded-xl transition-colors ${
+            className={`px-4 py-2 text-sm font-medium text-white rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
               destructive
                 ? "bg-red-600 hover:bg-red-700"
                 : "bg-blue-600 hover:bg-blue-700"

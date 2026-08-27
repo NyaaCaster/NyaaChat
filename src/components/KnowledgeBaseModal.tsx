@@ -3,6 +3,7 @@ import { Book, Plus, Settings, Edit2, Trash2, Loader2, AlertTriangle, IdCard } f
 import { CatCanIcon } from "./icons/CatCanIcon";
 import { BaseModal } from "./BaseModal";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { DeleteConfirmDialog } from "./DeleteConfirmDialog";
 import { UserAccountModal } from "./UserAccountModal";
 import { EmbeddingConfigModal } from "./EmbeddingConfigModal";
 import { KnowledgeBaseEditModal } from "./KnowledgeBaseEditModal";
@@ -519,16 +520,8 @@ export function KnowledgeBaseModal({ isOpen, onClose }: KnowledgeBaseModalProps)
         />
       )}
 
-      <ConfirmDialog
+      <DeleteConfirmDialog
         isOpen={pendingDeleteKb !== null}
-        title="删除知识库"
-        message={
-          pendingDeleteKb
-            ? `确定要删除知识库「${pendingDeleteKb.name}」吗？删除后所有文档和向量数据将永久丢失，此操作不可撤销。`
-            : ""
-        }
-        destructive
-        confirmText="删除"
         onConfirm={handleDeleteConfirm}
         onCancel={() => setPendingDeleteKb(null)}
       />
