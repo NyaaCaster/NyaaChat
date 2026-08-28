@@ -20,6 +20,15 @@ export function inferProvider(baseUrl: string, apiFormat?: ApiFormat): ApiProvid
 // in use by older code paths during the migration.
 // ---------------------------------------------------------------------------
 
+/**
+ * Ollama 本地部署不要求 API Key 鉴权：服务端未设置 `OLLAMA_API_KEY` 时
+ * 忽略 Authorization 头（任意值均放行），设置了则要求匹配该值
+ * （官方文档 https://docs.ollama.com/api/authentication）。
+ * 因此 Ollama 的配置界面不需要用户填写 API Key —— 请求统一携带此
+ * 非空占位令牌，既满足"本地任意非空字符串即可通过"，也避免空 Bearer。
+ */
+export const OLLAMA_PLACEHOLDER_API_KEY = "ollama";
+
 // ---------------------------------------------------------------------------
 // QinyAPI access points. The provider is reachable through two interchangeable
 // hosts; the user picks one in the LLM / image provider editors. The LLM path
@@ -312,7 +321,13 @@ export function providerToApiSettings(
 ): ApiSettings {
   return {
     baseUrl: provider.baseUrl,
-    apiKey: provider.apiKey,
+    // Ollama: API key is optional at the config layer — always send a
+    // non-empty placeholder so the Authorization header is never blank
+    // (checked elsewhere as `if (apiKey)`).
+    apiKey:
+      provider.kind === "ollama"
+        ? provider.apiKey || OLLAMA_PLACEHOLDER_API_KEY
+        : provider.apiKey,
     model: modelId ?? provider.lastUsedModel ?? provider.models[0]?.id ?? "",
     apiFormat: provider.apiFormat,
     // isStreaming is sourced globally from AppState now — caller must patch

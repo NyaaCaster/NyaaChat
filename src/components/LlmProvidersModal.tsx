@@ -676,38 +676,52 @@ function ProviderDetail({
         </Field>
       )}
 
-      {/* API Key */}
-      <Field
-        label="API Key"
-        actionSlot={
-          provider.kind === "qiny" ? (
-            <a
-              href={resolveQinyEndpoint(provider.baseUrl).apiKeyUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-[11px] font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:underline transition-colors"
-            >
-              获取 API Key
-            </a>
-          ) : provider.kind === "opencode-go" ? (
-            <a
-              href={OPENCODE_GO_API_KEY_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-[11px] font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:underline transition-colors"
-            >
-              获取 API Key
-            </a>
-          ) : undefined
-        }
-      >
-        <ApiKeyInput
-          value={draftApiKey}
-          onChange={setDraftApiKey}
-          onBlur={handleApiKeyBlur}
-          placeholder="sk-..."
-        />
-      </Field>
+      {/* API Key — hidden for Ollama: its local server accepts any non-empty
+          token (or ignores auth entirely), so prompting for a real key would
+          be noise. Requests always carry OLLAMA_PLACEHOLDER_API_KEY. */}
+      {provider.kind === "ollama" ? (
+        <Field label="API Key">
+          <div className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-[#1A1A1A] text-sm text-gray-500 dark:text-gray-400 leading-relaxed">
+            Ollama 本地部署无需 API Key，请求将自动携带占位令牌
+            <code className="mx-1 font-mono text-xs bg-gray-100 dark:bg-white/10 rounded px-1 py-0.5">
+              ollama
+            </code>
+            （本地服务不校验，或接受任意非空值）。
+          </div>
+        </Field>
+      ) : (
+        <Field
+          label="API Key"
+          actionSlot={
+            provider.kind === "qiny" ? (
+              <a
+                href={resolveQinyEndpoint(provider.baseUrl).apiKeyUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[11px] font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:underline transition-colors"
+              >
+                获取 API Key
+              </a>
+            ) : provider.kind === "opencode-go" ? (
+              <a
+                href={OPENCODE_GO_API_KEY_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[11px] font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:underline transition-colors"
+              >
+                获取 API Key
+              </a>
+            ) : undefined
+          }
+        >
+          <ApiKeyInput
+            value={draftApiKey}
+            onChange={setDraftApiKey}
+            onBlur={handleApiKeyBlur}
+            placeholder="sk-..."
+          />
+        </Field>
+      )}
 
       {/* 模型列表 */}
       <Field label="模型列表">
