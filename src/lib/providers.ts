@@ -318,6 +318,7 @@ export function createDefaultImageProviders(): ImageProvider[] {
 export function providerToApiSettings(
   provider: LlmProvider,
   modelId?: string,
+  opencodeSessionId?: string,
 ): ApiSettings {
   return {
     baseUrl: provider.baseUrl,
@@ -333,11 +334,12 @@ export function providerToApiSettings(
     // isStreaming is sourced globally from AppState now — caller must patch
     // it after calling this helper. autoConnect is no longer wired in v2.
     apiProvider:
-      provider.kind === "qiny" ||
-      provider.kind === "ollama" ||
-      provider.kind === "opencode-go"
+      provider.kind === "qiny" || provider.kind === "ollama"
         ? "custom"
         : provider.kind,
+    ...(provider.kind === "opencode-go" && opencodeSessionId
+      ? { opencodeSessionId }
+      : {}),
   };
 }
 

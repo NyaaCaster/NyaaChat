@@ -397,6 +397,9 @@ async function callOpenAIOnce(
   if (apiKey) {
     headers['Authorization'] = `Bearer ${apiKey}`;
   }
+  if (settings.apiProvider === 'opencode-go' && settings.opencodeSessionId) {
+    headers['x-opencode-session'] = settings.opencodeSessionId;
+  }
 
   const response = await fetch(url, {
     method: 'POST',

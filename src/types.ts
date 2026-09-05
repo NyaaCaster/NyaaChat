@@ -43,7 +43,7 @@ export interface Message {
 
 export type ApiFormat = "openai" | "anthropic";
 
-export type ApiProvider = "custom" | "openai" | "anthropic" | "gemini" | "deepseek";
+export type ApiProvider = "custom" | "openai" | "anthropic" | "gemini" | "deepseek" | "opencode-go";
 
 export interface ApiSettings {
   baseUrl: string;
@@ -52,6 +52,8 @@ export interface ApiSettings {
   isStreaming?: boolean;
   apiFormat?: ApiFormat;
   apiProvider?: ApiProvider;
+  /** Stable per-chat identifier required by the OpenCode Go gateway. */
+  opencodeSessionId?: string;
   autoConnect?: boolean;
 }
 
@@ -356,6 +358,8 @@ export interface ImageProvider {
 
 export interface ChatSession {
   id: string;
+  /** Stable opaque session identifier for OpenCode Go requests in this chat. */
+  opencodeSessionId?: string;
   characterId: string;
   characterName: string;
   messages: Message[];

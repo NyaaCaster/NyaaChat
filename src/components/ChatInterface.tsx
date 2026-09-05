@@ -140,6 +140,12 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const previousMessageIdsRef = useRef<string[]>([]);
+  // OpenCode Go requires one stable request identifier per logical chat. Keep a
+  // draft identifier before the first autosave, then persist it with the chat.
+  const opencodeSessionIdRef = useRef<string | null>(currentSession?.opencodeSessionId ?? null);
+  useEffect(() => {
+    opencodeSessionIdRef.current = currentSession?.opencodeSessionId ?? null;
+  }, [currentSession?.id, currentSession?.opencodeSessionId]);
 
   // Persistent memory extraction state.
   const [extractionState, setExtractionState] = useState<ExtractionState>({
@@ -288,7 +294,10 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
       const s = settingsRef.current;
       const provider = getActiveLlmProvider(s);
       if (!provider) return null;
-      return { ...providerToApiSettings(provider), isStreaming: false };
+      return {
+        ...providerToApiSettings(provider, undefined, opencodeSessionIdRef.current ?? undefined),
+        isStreaming: false,
+      };
     });
     return () => setGenerateApiResolver(null);
   }, []);
@@ -388,8 +397,14 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
     // the first model in the provider's list. An empty model means no model
     // is configured at all and the user has to add one via 管理模型 first.
     const activeProvider = getActiveLlmProvider(settings);
+    if (activeProvider?.kind === "opencode-go" && !opencodeSessionIdRef.current) {
+      opencodeSessionIdRef.current = newId();
+    }
     const activeApi: ApiSettings | null = activeProvider
-      ? { ...providerToApiSettings(activeProvider), isStreaming: settings.isStreaming }
+      ? {
+          ...providerToApiSettings(activeProvider, undefined, opencodeSessionIdRef.current ?? undefined),
+          isStreaming: settings.isStreaming,
+        }
       : null;
 
     // apiKey is exempt for Ollama-style local servers; baseUrl + model
@@ -910,8 +925,14 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
     }
 
     const activeProvider = getActiveLlmProvider(settings);
+    if (activeProvider?.kind === "opencode-go" && !opencodeSessionIdRef.current) {
+      opencodeSessionIdRef.current = newId();
+    }
     const activeApi = activeProvider
-      ? { ...providerToApiSettings(activeProvider), isStreaming: false }
+      ? {
+          ...providerToApiSettings(activeProvider, undefined, opencodeSessionIdRef.current ?? undefined),
+          isStreaming: false,
+        }
       : null;
     if (!activeApi) {
       setExtractionState({
@@ -1277,6 +1298,7 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
     const timer = setTimeout(async () => {
       const session: ChatSession = {
         id: currentSession?.id ?? newId(),
+        ...(opencodeSessionIdRef.current ? { opencodeSessionId: opencodeSessionIdRef.current } : {}),
         characterId: currentSession?.characterId ?? currentCharacter?.id ?? "default",
         characterName: currentSession?.characterName ?? charName,
         messages,
@@ -1315,6 +1337,7 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
   }, [messages]);
 
   const clearChat = () => {
+    opencodeSessionIdRef.current = null;
     onSessionChange(null);
     setMessages(buildFirstMes(currentCharacter));
   };
