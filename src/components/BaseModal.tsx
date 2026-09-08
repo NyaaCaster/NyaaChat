@@ -56,20 +56,31 @@ export function BaseModal({
   const dialogRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
 
+  // Keep the latest onClose in a ref so the open/close effect below can depend
+  // on `isOpen` alone. Call sites pass inline arrows, so a parent re-render
+  // (e.g. a settings write while a nested dialog is open) would otherwise
+  // re-run the effect and re-push this modal onto the stack — hoisting the
+  // outer modal above a nested one and sending ESC to the wrong dialog.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
   useEffect(() => {
     if (!isOpen) return;
     const previouslyFocused = document.activeElement as HTMLElement | null;
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    modalStack.push(onClose);
+    const closeSelf = () => onCloseRef.current();
+    modalStack.push(closeSelf);
 
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         // Only react when this is the topmost modal on the stack — nested
         // modals would otherwise all close from a single ESC.
-        if (modalStack[modalStack.length - 1] !== onClose) return;
+        if (modalStack[modalStack.length - 1] !== closeSelf) return;
         e.stopPropagation();
-        onClose();
+        closeSelf();
         return;
       }
       if (e.key === "Tab" && dialogRef.current) {
@@ -105,13 +116,13 @@ export function BaseModal({
     return () => {
       document.removeEventListener("keydown", handleKey);
       document.body.style.overflow = prevOverflow;
-      const idx = modalStack.indexOf(onClose);
+      const idx = modalStack.indexOf(closeSelf);
       if (idx >= 0) modalStack.splice(idx, 1);
       clearTimeout(t);
       // Restore focus to the trigger so keyboard users don't get lost.
       previouslyFocused?.focus?.();
     };
-  }, [isOpen, onClose]);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
