@@ -1,4 +1,25 @@
 # 更新历史
+## v1.5.5
+Github Commit: [4440b81](https://github.com/NyaaCaster/NyaaChat/commit/4440b8178da27ffc1a1305916070127ddf3186e4)
+
+发布日期：2026-09-09
+
+### ✨ 新功能
+- 手动添加模型（模型列表「添加模型」按钮 + 显示名称）
+- 规则条目拖拽排序
+- 统一删除确认窗口
+
+### 🔧 优化
+- Ollama 免填 API Key
+- 关键词规则逗号批量添加触发词
+- 含保存内容的弹窗不再点遮罩关闭
+- 手机端工具栏与模型卡片保持一行
+- OpenCode Go 会话标识兼容
+
+### 🔧 修复
+- 弹窗叠层时按 ESC 关错窗口
+
+---
 ## v1.5.3
 Github Commit: [34205c9](https://github.com/NyaaCaster/NyaaChat/commit/34205c9c49f99c88aadd1e5f933d00a2458df08c)
 
