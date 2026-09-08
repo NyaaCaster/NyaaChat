@@ -43,6 +43,7 @@ import { Field, FieldHint, ToggleSwitch, DeleteModelButton } from "./SettingsFor
 import { LlmProviderIcon } from "./icons/providerIcons";
 import { CAPABILITY_META as SHARED_CAPABILITY_META } from "./icons/capabilityMeta";
 import { ManageModelsModal } from "./ManageModelsModal";
+import { AddModelModal } from "./AddModelModal";
 import { newId } from "../lib/id";
 import { normalizeBaseUrl } from "../lib/api";
 import { OPENCODE_GO_API_KEY_URL, QINY_ENDPOINTS, resolveQinyEndpoint, type QinyEndpoint } from "../lib/providers";
@@ -81,6 +82,7 @@ export function LlmProvidersModal({
   const [mobileView, setMobileView] = useState<"list" | "detail">("list");
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [manageModelsForId, setManageModelsForId] = useState<string | null>(null);
+  const [addModelForId, setAddModelForId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!providers.find((p) => p.id === selectedId) && providers[0]) {
@@ -96,6 +98,7 @@ export function LlmProvidersModal({
   const pendingDelete = providers.find((p) => p.id === pendingDeleteId) ?? null;
   const manageModelsFor =
     providers.find((p) => p.id === manageModelsForId) ?? null;
+  const addModelFor = providers.find((p) => p.id === addModelForId) ?? null;
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -244,6 +247,7 @@ export function LlmProvidersModal({
                     provider={selected}
                     onUpdate={updateProvider}
                     onOpenManage={() => setManageModelsForId(selected.id)}
+                    onOpenAddModel={() => setAddModelForId(selected.id)}
                     onRequestDelete={
                       selected.kind === "custom"
                         ? () => setPendingDeleteId(selected.id)
@@ -273,6 +277,23 @@ export function LlmProvidersModal({
           onClose={() => setManageModelsForId(null)}
           provider={manageModelsFor}
           onUpdate={updateProvider}
+        />
+      )}
+      {addModelFor && (
+        <AddModelModal
+          isOpen={!!addModelFor}
+          onClose={() => setAddModelForId(null)}
+          provider={addModelFor}
+          onAdd={(entry) =>
+            updateProvider({
+              ...addModelFor,
+              models: [...addModelFor.models, entry],
+              // Same rule as 管理模型: adding the first model auto-enables the
+              // provider; removing models never auto-disables it.
+              enabled:
+                addModelFor.models.length === 0 ? true : addModelFor.enabled,
+            })
+          }
         />
       )}
     </>
@@ -365,6 +386,8 @@ interface ProviderDetailProps {
   provider: LlmProvider;
   onUpdate: (next: LlmProvider) => void;
   onOpenManage: () => void;
+  /** Opens the manual "添加模型" dialog (models the upstream list omits). */
+  onOpenAddModel: () => void;
   /** Provided only for kind === "custom". Built-in presets can't be removed. */
   onRequestDelete?: () => void;
   settings: AppState;
@@ -375,6 +398,7 @@ function ProviderDetail({
   provider,
   onUpdate,
   onOpenManage,
+  onOpenAddModel,
   onRequestDelete,
   settings,
   onSave,
@@ -726,7 +750,7 @@ function ProviderDetail({
       {/* 模型列表 */}
       <Field label="模型列表">
         <div className="rounded-xl border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-[#1A1A1A] overflow-hidden">
-          <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-200 dark:border-white/10 bg-white/50 dark:bg-black/20">
+          <div className="flex flex-wrap items-center gap-2 px-3 py-2 border-b border-gray-200 dark:border-white/10 bg-white/50 dark:bg-black/20">
             <button
               type="button"
               onClick={onOpenManage}
@@ -742,6 +766,15 @@ function ProviderDetail({
             >
               <ListChecks size={14} />
               管理模型
+            </button>
+            <button
+              type="button"
+              onClick={onOpenAddModel}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-gray-200 dark:border-white/10 bg-white dark:bg-white/5 text-gray-700 dark:text-gray-300 hover:border-gray-300 dark:hover:border-white/20 hover:bg-gray-50 dark:hover:bg-white/10 transition-all"
+              title="手动添加供应商模型清单之外的模型（如内测/测试用模型）"
+            >
+              <Plus size={14} />
+              添加模型
             </button>
             {isHealthTesting ? (
               <button
@@ -871,8 +904,20 @@ function ModelRow({
           disabled={deleteDisabled}
           disabledReason="健康测试进行中，暂不可删除"
         />
-        <span className="font-mono text-gray-700 dark:text-gray-300 truncate min-w-0 flex-shrink-[2]">
-          {entry.id}
+        <span className="min-w-0 flex-shrink-[2] flex items-baseline gap-1.5">
+          <span className="min-w-0 font-mono text-gray-700 dark:text-gray-300 truncate">
+            {entry.id}
+          </span>
+          {/* 显示名称 — set by the manual 添加模型 dialog; purely a label, the
+              request always carries entry.id. */}
+          {entry.name && (
+            <span
+              className="min-w-0 flex-shrink-[4] text-[11px] text-gray-400 dark:text-gray-500 truncate"
+              title={entry.name}
+            >
+              {entry.name}
+            </span>
+          )}
         </span>
         <CapabilityIcons capabilities={entry.capabilities} />
 

@@ -229,6 +229,9 @@ export function ChatComposer({
   const activeLlm = getActiveLlmProvider(settings);
   const activeLlmModelId =
     activeLlm?.lastUsedModel || activeLlm?.models[0]?.id || null;
+  // 卡片标签优先用显示名称（与下拉行同一规则）；未填则回落到模型 ID。
+  const activeLlmModelName =
+    activeLlm?.models.find((m) => m.id === activeLlmModelId)?.name || null;
   const activeImage = getActiveImageProvider(settings);
   const activeImageModelId =
     activeImage?.lastUsedModel || activeImage?.models[0]?.id || null;
@@ -446,7 +449,8 @@ export function ChatComposer({
               }
               fallbackIcon={<MessageSquare size={14} className="text-gray-400" />}
               hasSelection={!!activeLlmModelId}
-              label={activeLlmModelId || "选择聊天模型"}
+              label={activeLlmModelName || activeLlmModelId || "选择聊天模型"}
+              labelClassName={activeLlmModelName ? "font-sans" : "font-mono"}
               isOpen={openPicker === "llm"}
               onClick={() =>
                 setOpenPicker((cur) => (cur === "llm" ? null : "llm"))
@@ -616,11 +620,14 @@ interface ModelCardProps {
   onClick: () => void;
   dropdown: React.ReactNode;
   accentClass: string;
+  /** Font class for the label; display names read better in sans, raw model
+   *  ids in mono. Defaults to mono. */
+  labelClassName?: string;
 }
 
 const ModelCard = React.forwardRef<HTMLDivElement, ModelCardProps>(
   function ModelCard(
-    { icon, fallbackIcon, hasSelection, label, isOpen, onClick, dropdown, accentClass },
+    { icon, fallbackIcon, hasSelection, label, isOpen, onClick, dropdown, accentClass, labelClassName = "font-mono" },
     ref,
   ) {
     return (
@@ -651,7 +658,7 @@ const ModelCard = React.forwardRef<HTMLDivElement, ModelCardProps>(
           <span className="w-4 h-4 flex items-center justify-center flex-shrink-0">
             {hasSelection ? icon : fallbackIcon}
           </span>
-          <span className="truncate font-mono">{label}</span>
+          <span className={`truncate ${labelClassName}`}>{label}</span>
         </button>
         {isOpen && (
           <div className="absolute bottom-full right-0 mb-2 w-72 max-w-full max-h-80 overflow-y-auto rounded-xl border border-gray-200 dark:border-white/10 bg-white dark:bg-[#1A1A1A] shadow-elevation-3 z-30">
@@ -724,7 +731,14 @@ function ProviderPicker<P extends LlmProvider | ImageProvider>({
                   >
                     {variant === "llm" && <HealthDot health={m.health} />}
                     <span className="flex-1 min-w-0 flex items-center gap-1.5">
-                      <span className="truncate">{m.id}</span>
+                      {/* 有显示名称就只显示显示名称（这就是它的意义）；真实
+                          模型 ID 仍可通过悬浮查看，请求也始终用 m.id。 */}
+                      <span
+                        className={`min-w-0 truncate ${m.name ? "font-sans" : ""}`}
+                        title={m.name ? m.id : undefined}
+                      >
+                        {m.name || m.id}
+                      </span>
                       {isActive && (
                         <span className="text-[10px] font-sans flex-shrink-0">
                           当前
