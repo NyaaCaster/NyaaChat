@@ -1870,7 +1870,10 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentSession?.id]);
 
-  const isBypassActive = settings.bypass.enabled;
+  // Bypass indicator for the header flame. ClavisSalomonis used to drive this
+  // via `bypass.enabled`; that module is retired, so the indicator now follows
+  // the AnswererFlagalac target selection (any non-"none" target = active).
+  const isBypassActive = settings.bypass.answererFlagalac.target !== "none";
 
   return (
     <div className="flex flex-col h-screen bg-[#FCFCFD] dark:bg-[#0A0A0A] text-gray-900 dark:text-gray-100 font-sans selection:bg-blue-500/30 selection:text-blue-900 dark:selection:text-blue-100 transition-colors duration-300">

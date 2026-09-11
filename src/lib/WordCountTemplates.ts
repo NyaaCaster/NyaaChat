@@ -1,10 +1,13 @@
 /**
  * RosettaStone 模块的默认配置 —— 一组**第一方输出约束**条目。
  *
- * 这些条目与 ClavisSalomonis（绕过机制）无关，因此从 bypassTemplates.ts 中
- * 独立抽出。结构效仿 lib/WordCheckTemplates.ts：`Record<键, 模板>`。治理逻辑
- * 与 bypassTemplates 一致：允许用户在 BypassModal 的 RosettaStone 模块内自行
- * 编辑、用各条目自带的「重置」图标按钮还原为这里配置的对应 `content`。
+ * ⚠️ 该文件最初从 bypassTemplates.ts 中抽出（当时二者共存于同一套模板体系）；
+ * ClavisSalomonis（旧 bypass 模块）已彻底退役、bypassTemplates.ts 与其注入链路
+ * 一并删除，RosettaStone 只是保留了自己的条目结构，与任何已退役模块无关。
+ *
+ * 结构效仿 lib/WordCheckTemplates.ts：`Record<键, 模板>`。治理逻辑一致：允许用户
+ * 在 BypassModal 的 RosettaStone 模块内自行编辑、用各条目自带的「重置」图标按钮
+ * 还原为这里配置的对应 `content`。
  *
  * 注入位置见 src/lib/chatPipeline.ts：每个已启用且非空的条目合入动态尾部单条
  * system 消息里的 `<output_constraints>` 块（贴近生成点的近因位置，软档措辞，

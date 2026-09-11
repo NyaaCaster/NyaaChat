@@ -73,25 +73,15 @@ export interface ImageApiSettings {
   baseUrl?: string;
 }
 
+/** Bypass 系统各模块的设置。
+ *
+ *  **ClavisSalomonis 已于本轮彻底退役**：原先的 `enabled` / `templateName` /
+ *  七个模板开关 / `customTemplates` 全部删除，注入链路（lib/bypassTemplates.ts
+ *  的 injectBypassPrompts）随模块一起移除。存量存档中的这些键由
+ *  App.tsx 的 migrateV9ToV10 与 lib/settingsBackup.ts 的导入回填清除。
+ *  历史原因：该模块 UI 早已从 BypassModal 下线（唯一开关在被注释的代码块内），
+ *  导致开启过的存档既会静默注入模板、又无法从界面关闭。 */
 export interface BypassSettings {
-  enabled: boolean;
-  templateName?: string;
-  identityReset: boolean;
-  scenarioFramework: boolean;
-  aiSelfPersuasion: boolean;
-  roleplayInduction: boolean;
-  safetyStatement: boolean;
-  creativeGuidance: boolean;
-  disclaimer: boolean;
-  customTemplates: {
-    identityReset: string;
-    scenarioFramework: string;
-    aiSelfPersuasion: string;
-    roleplayInduction: string;
-    safetyStatement: string;
-    creativeGuidance: string;
-    disclaimer: string;
-  };
   /** RuleBreaker (WordCheck) editable texts. Persisted so user edits survive
    *  across sessions. Defaults live in lib/WordCheckTemplates.ts. */
   opusChecks: {
@@ -100,10 +90,10 @@ export interface BypassSettings {
     op2Check: string;
   };
   /** RosettaStone — first-party OUTPUT constraints. Standalone module, NOT a
-   *  bypass: independent of `enabled` (ClavisSalomonis), each entry toggled on
-   *  its own. Enabled+non-empty entries are merged into the dynamic tail's
-   *  <output_constraints> block (see lib/chatPipeline.ts). Editable-text
-   *  defaults live in lib/WordCountTemplates.ts (keyed by WordCountKey).
+   *  bypass: each entry toggled on its own. Enabled+non-empty entries are
+   *  merged into the dynamic tail's <output_constraints> block (see
+   *  lib/chatPipeline.ts). Editable-text defaults live in
+   *  lib/WordCountTemplates.ts (keyed by WordCountKey).
    *  `wordCount` defaults off; `languageConstraint` defaults on. */
   wordCount: {
     enabled: boolean;
@@ -112,6 +102,17 @@ export interface BypassSettings {
   languageConstraint: {
     enabled: boolean;
     template: string;
+  };
+  /** AnswererFlagalac —— 审核绕过目标（单选）。独立模块：`target` 为 "none"
+   *  （默认）时本模块不生效，选中其他条目时启用对应目标的绕过逻辑。可选条目、
+   *  显示名称与默认值统一定义在 lib/FlagalacTemplates.ts —— 新增/下线目标只改
+   *  那一个文件。
+   *
+   *  这里刻意用宽类型 `string` 而非字面量联合：条目清单是数据而非类型，新增
+   *  一个模型版本不应要求同步改类型定义。读取时统一走 resolveFlagalacTarget()
+   *  收敛到已知 id（未知/失效值回落 "none"）。 */
+  answererFlagalac: {
+    target: string;
   };
 }
 

@@ -6,9 +6,9 @@
 import React, { useState, useEffect, lazy, Suspense, useRef } from "react";
 import { AppState, LogEntry } from "./types";
 import { ChatInterface, type ChatInterfaceHandle } from "./components/ChatInterface";
-import { bypassTemplates } from "./lib/bypassTemplates";
 import { wordCheckTemplates } from "./lib/WordCheckTemplates";
 import { wordCountTemplates } from "./lib/WordCountTemplates";
+import { FLAGALAC_NONE_ID, resolveFlagalacTarget } from "./lib/FlagalacTemplates";
 import { COMFYUI_FIXED_NAME, createDefaultImageProviders, createDefaultLlmProviders, defaultComfyFields, inferProvider } from "./lib/providers";
 import { ensureBuiltinLlmProviders } from "./lib/settingsBackup";
 import { newId } from "./lib/id";
@@ -79,7 +79,7 @@ function stripSensitiveLogMeta(meta: unknown): unknown {
 // with per-provider apiKey/baseUrl/models. The legacy single-endpoint `api`
 // and `imageApi` blocks are retained on AppState during the transition until
 // chatPipeline is switched over (phase 3).
-const SCHEMA_VERSION = 9;
+const SCHEMA_VERSION = 10;
 
 function migrate(raw: any): any {
   if (!raw || typeof raw !== "object") return raw;
@@ -109,8 +109,53 @@ function migrate(raw: any): any {
   if (v < 9) {
     raw = migrateV8ToV9(raw);
   }
+  if (v < 10) {
+    raw = migrateV9ToV10(raw);
+  }
 
   return raw;
+}
+
+/**
+ * v9 → v10: ClavisSalomonis 模块彻底退役。
+ *
+ * 该模块的 UI 早已从 BypassModal 下线（唯一开关残留在被注释的代码块里），
+ * 但 `injectBypassPrompts()` 仍以 `bypass.enabled` 为唯一门控在静态前缀
+ * index 1 注入 7 条模板 —— 于是"曾开启过"的存量存档会静默注入、且用户无法从
+ * 界面关闭（见 .docs/AnswererFlagalac-可行性考察汇总.md §11 的 R1）。
+ *
+ * 本轮连同注入链路一起删除，故该迁移把存档里遗留的全部相关键清除，避免死
+ * 数据继续被 spread 回来并重新落盘。导入备份的同类清理见 lib/settingsBackup.ts。
+ */
+const RETIRED_BYPASS_KEYS = [
+  "enabled",
+  "templateName",
+  "identityReset",
+  "scenarioFramework",
+  "aiSelfPersuasion",
+  "roleplayInduction",
+  "safetyStatement",
+  "creativeGuidance",
+  "disclaimer",
+  "customTemplates",
+  // Retired even earlier (moved into `wordCount`), listed here so a single
+  // strip covers every dead bypass-level key a legacy save may still carry.
+  "wordCountControl",
+] as const;
+
+function stripRetiredBypassKeys(bypass: unknown): Record<string, unknown> {
+  const src = (bypass && typeof bypass === "object" ? bypass : {}) as Record<string, unknown>;
+  const out: Record<string, unknown> = { ...src };
+  for (const key of RETIRED_BYPASS_KEYS) delete out[key];
+  return out;
+}
+
+function migrateV9ToV10(raw: any): any {
+  return {
+    ...raw,
+    bypass: stripRetiredBypassKeys(raw.bypass),
+    _version: 10,
+  };
 }
 
 /**
@@ -118,6 +163,9 @@ function migrate(raw: any): any {
  * 若此前开启过该机制，其 `bypass.enabled` 仍会留存在 localStorage 中且无界面可关。
  * 该迁移在每个客户端下次加载配置时统一将其强制置为 false，使其被动失效。
  * RosettaStone / RuleBreaker 等同弹窗内的独立模块不受影响。
+ *
+ * 注：v9 → v10 起该模块整体退役，上述字段已被彻底删除，本迁移仅保留用于
+ * 维持历史迁移链的完整性。
  */
 function migrateV7ToV8(raw: any): any {
   const bypass =
@@ -402,32 +450,14 @@ function pickLlmProviderKind(api: any): LlmProviderKind {
 
 const DEFAULT_SETTINGS: AppState = {
   bypass: {
-    enabled: false,
-    identityReset: true,
-    scenarioFramework: true,
-    aiSelfPersuasion: true,
-    roleplayInduction: true,
-    safetyStatement: true,
-    creativeGuidance: false,
-    disclaimer: false,
-    templateName: "默认模板",
-    customTemplates: {
-      identityReset: bypassTemplates.identityReset.content,
-      scenarioFramework: bypassTemplates.scenarioFramework.content,
-      aiSelfPersuasion: bypassTemplates.aiSelfPersuasion.content,
-      roleplayInduction: bypassTemplates.roleplayInduction.content,
-      safetyStatement: bypassTemplates.safetyStatement.content,
-      creativeGuidance: bypassTemplates.creativeGuidance.content,
-      disclaimer: bypassTemplates.disclaimer.content,
-    },
     opusChecks: {
       gemini31Check: wordCheckTemplates.gemini31Check.content,
       op1Check: wordCheckTemplates.op1Check.content,
       op2Check: wordCheckTemplates.op2Check.content,
     },
-    // RosettaStone — standalone output constraints (independent of the
-    // ClavisSalomonis `enabled` switch above). 字数控制 default off,
-    // 语言约束 default on.
+    // RosettaStone — standalone output constraints. 字数控制 default off,
+    // 语言约束 default on. (ClavisSalomonis has been retired entirely; its
+    // fields and their injection path no longer exist.)
     wordCount: {
       enabled: false,
       template: wordCountTemplates.wordCount.content,
@@ -435,6 +465,11 @@ const DEFAULT_SETTINGS: AppState = {
     languageConstraint: {
       enabled: true,
       template: wordCountTemplates.languageConstraint.content,
+    },
+    // AnswererFlagalac — single-select bypass target. "none" (no bypass) is
+    // the default; the selectable entries live in lib/FlagalacTemplates.ts.
+    answererFlagalac: {
+      target: FLAGALAC_NONE_ID,
     },
   },
   userRoles: [
@@ -526,12 +561,17 @@ export default function App() {
     if (saved) {
       try {
         const parsed = migrate(JSON.parse(saved));
-        // Strip obsolete `wordCountControl` keys (boolean on bypass, string on
-        // customTemplates) that legacy saves carry — they moved to `wordCount`
-        // and would otherwise linger via the spreads below and get re-persisted.
-        const { wordCountControl: _legacyWcOn, ...legacyBypass } = (parsed.bypass ?? {}) as any;
-        const { wordCountControl: _legacyWcTpl, ...legacyCustomTemplates } =
-          (parsed.bypass?.customTemplates ?? {}) as any;
+        // Defensive strip: migrateV9ToV10 already removed the retired
+        // ClavisSalomonis keys, but a hand-edited save claiming _version 10
+        // could still carry them — drop them (and the even older
+        // `wordCountControl`) so the spread below can never re-persist dead data.
+        const legacyBypass = stripRetiredBypassKeys(parsed.bypass);
+        // Legacy edited word-count text used to live under
+        // customTemplates.wordCountControl; carry it over before the strip.
+        const legacyWordCountTemplate =
+          typeof parsed.bypass?.customTemplates?.wordCountControl === "string"
+            ? (parsed.bypass.customTemplates.wordCountControl as string)
+            : undefined;
         const parsedOpusChecks = (parsed.bypass?.opusChecks ?? {}) as Record<string, string | undefined>;
         const migratedOpusChecks = {
           ...DEFAULT_SETTINGS.bypass.opusChecks,
@@ -559,10 +599,6 @@ export default function App() {
           bypass: {
             ...DEFAULT_SETTINGS.bypass,
             ...legacyBypass,
-            customTemplates: {
-              ...DEFAULT_SETTINGS.bypass.customTemplates,
-              ...legacyCustomTemplates,
-            },
             opusChecks: migratedOpusChecks,
             // RosettaStone output constraints. Legacy saves had no `wordCount`
             // (defaults off) and never had `languageConstraint` (defaults on).
@@ -571,14 +607,21 @@ export default function App() {
             // legacy on/off boolean is intentionally dropped.
             wordCount: {
               ...DEFAULT_SETTINGS.bypass.wordCount,
-              ...(parsed.bypass?.customTemplates?.wordCountControl
-                ? { template: parsed.bypass.customTemplates.wordCountControl }
-                : {}),
+              ...(legacyWordCountTemplate ? { template: legacyWordCountTemplate } : {}),
               ...(parsed.bypass?.wordCount || {}),
             },
             languageConstraint: {
               ...DEFAULT_SETTINGS.bypass.languageConstraint,
               ...(parsed.bypass?.languageConstraint || {}),
+            },
+            // AnswererFlagalac — normalise the persisted target id so a target
+            // that was retired from lib/FlagalacTemplates.ts (or a hand-edited
+            // localStorage value) can never leave the radio list with nothing
+            // selected. Unknown values fall back to「无」.
+            answererFlagalac: {
+              ...DEFAULT_SETTINGS.bypass.answererFlagalac,
+              ...(parsed.bypass?.answererFlagalac || {}),
+              target: resolveFlagalacTarget(parsed.bypass?.answererFlagalac?.target),
             },
           },
           userRoles: (() => {

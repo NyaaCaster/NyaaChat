@@ -1,6 +1,7 @@
 import { AppState, ImageProvider, LlmProvider, ModelEntry } from "../types";
 import { wordCheckTemplates } from "./WordCheckTemplates";
 import { wordCountTemplates } from "./WordCountTemplates";
+import { FLAGALAC_NONE_ID, resolveFlagalacTarget } from "./FlagalacTemplates";
 import { loadCover, saveCover } from "./coverStorage";
 import { COMFYUI_FIXED_NAME, createDefaultLlmProviders, defaultComfyFields } from "./providers";
 import { MIN_THRESHOLD_PCT, MAX_THRESHOLD_PCT, DEFAULT_THRESHOLD_PCT } from "./contextBudget";
@@ -11,10 +12,14 @@ const EXPORT_KIND = "nyaachat_settings_export";
  *  toggle/depth. v5 adds bypass sub-fields (opusChecks, wordCount,
  *  languageConstraint), isWebSearchEnabled / isStreaming validation, and
  *  ComfyUI image-provider field normalisation. v6 adds persistent-memory fields
- *  (isMemoryEnabled, memoryThresholdPct, modelContextOverrides). Older files are
- *  still accepted and backfilled during import. */
-const EXPORT_VERSION = 6;
-const SUPPORTED_IMPORT_VERSIONS = new Set([2, 3, 4, 5, 6]);
+ *  (isMemoryEnabled, memoryThresholdPct, modelContextOverrides). v7 adds the
+ *  AnswererFlagalac single-select bypass target (`bypass.answererFlagalac`).
+ *  v8 drops the retired ClavisSalomonis bypass fields (`bypass.enabled`,
+ *  `templateName`, the seven template toggles, `customTemplates`) — imports
+ *  carrying them have those keys stripped during backfill.
+ *  Older files are still accepted and backfilled during import. */
+const EXPORT_VERSION = 8;
+const SUPPORTED_IMPORT_VERSIONS = new Set([2, 3, 4, 5, 6, 7, 8]);
 
 export interface ExportPayload {
   _kind: typeof EXPORT_KIND;
@@ -345,6 +350,20 @@ function validateImportPayload(raw: unknown): ImportResult {
     }
   }
 
+  // v7 fields: AnswererFlagalac single-select bypass target. Pre-v7 archives
+  // lack it entirely — accepted and backfilled below (to「无」).
+  if (obj._version >= 7) {
+    const bp = s.bypass as Record<string, unknown> | undefined;
+    const af = bp?.answererFlagalac as Record<string, unknown> | undefined;
+    if (af !== undefined) {
+      if (!af || typeof af !== "object" || Array.isArray(af)) {
+        issues.push("bypass.answererFlagalac 必须是对象");
+      } else if (af.target !== undefined && typeof af.target !== "string") {
+        issues.push("bypass.answererFlagalac.target 必须是字符串");
+      }
+    }
+  }
+
   if (issues.length > 0) {
     const shown = issues.slice(0, 5).join("; ");
     const more = issues.length > 5 ? ` (还有 ${issues.length - 5} 项)` : "";
@@ -407,6 +426,28 @@ function validateImportPayload(raw: unknown): ImportResult {
   }
   const bp = filled.bypass as Record<string, unknown>;
 
+  // Retired ClavisSalomonis keys (v7 exports and older carry them). The module
+  // — including its injection path — has been removed, so an imported archive
+  // must not be able to reintroduce `bypass.enabled` and silently re-inject the
+  // seven templates (the R1 defect: the only switch was inside a commented-out
+  // block, so the state was unmanageable from the UI). Strip unconditionally;
+  // `wordCountControl` is retired for the same "dead data" reason.
+  for (const key of [
+    "enabled",
+    "templateName",
+    "identityReset",
+    "scenarioFramework",
+    "aiSelfPersuasion",
+    "roleplayInduction",
+    "safetyStatement",
+    "creativeGuidance",
+    "disclaimer",
+    "customTemplates",
+    "wordCountControl",
+  ]) {
+    delete bp[key];
+  }
+
   // WordCheck (opusChecks)
   if (!bp.opusChecks || typeof bp.opusChecks !== "object" || Array.isArray(bp.opusChecks)) {
     bp.opusChecks = {
@@ -434,6 +475,21 @@ function validateImportPayload(raw: unknown): ImportResult {
     if (typeof lc.enabled !== "boolean") lc.enabled = true;
     if (typeof lc.template !== "string" || !(lc.template as string).trim())
       lc.template = wordCountTemplates.languageConstraint.content;
+  }
+
+  // AnswererFlagalac — always converge to a currently-known target id:
+  // pre-v7 archives have no such field, and an archive may carry an id that was
+  // retired from lib/FlagalacTemplates.ts. Either way the radio list must always
+  // have exactly one entry selected, so missing/unknown →「无」.
+  if (
+    !bp.answererFlagalac ||
+    typeof bp.answererFlagalac !== "object" ||
+    Array.isArray(bp.answererFlagalac)
+  ) {
+    bp.answererFlagalac = { target: FLAGALAC_NONE_ID };
+  } else {
+    const af = bp.answererFlagalac as Record<string, unknown>;
+    af.target = resolveFlagalacTarget(af.target);
   }
 
   // ComfyUI image-provider normalisation

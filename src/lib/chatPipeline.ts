@@ -1,5 +1,4 @@
 import { ApiMessage, VOLATILE_PART_FLAG } from "./api";
-import { injectBypassPrompts } from "./bypassTemplates";
 import { AppState, CharacterSettings, Message, Attachment, WorldInfoRule } from "../types";
 import { SearchResult } from "./searchApi";
 import { type KbSearchResult } from "./knowledgeApi";
@@ -499,7 +498,7 @@ export function buildRequestMessages(args: BuildRequestArgs): ApiMessage[] {
       blocks.push(`<session_rules>\n${tailParts.join("\n\n")}\n</session_rules>`);
     }
     // RosettaStone: first-party OUTPUT constraints (字数控制 + 语言约束) —
-    // independent of ClavisSalomonis (bypass.enabled) and of world info. They
+    // independent of world info and of every other bypass module. They
     // live at the generation point (recency) and ride the SAME single trailing
     // system message as <session_rules> via one shared <output_constraints>
     // block. One trailing system message is an invariant api.ts depends on
@@ -522,12 +521,7 @@ export function buildRequestMessages(args: BuildRequestArgs): ApiMessage[] {
       : [];
   })();
 
-  return injectBypassPrompts(
-    [...systemMessages, ...history, ...tailMessages],
-    settings,
-    charName,
-    userName,
-  );
+  return [...systemMessages, ...history, ...tailMessages];
 }
 
 /**
