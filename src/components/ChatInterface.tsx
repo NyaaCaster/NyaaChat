@@ -801,13 +801,16 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
         mcpAdvertisedToolNames: advertisedToolNames,
       });
 
+      // Request-side entry: url / model / advertised tools only. The rendered
+      // prompt ("renderedMessages" — system / bypass / world-info / history) is
+      // deliberately NOT attached: it is the outgoing payload and must never be
+      // readable from the GUI or from any browser-side inspection.
       onAddLog({
         direction: "request",
         content: "Sending chat completion request",
         meta: {
           url: activeApi.baseUrl,
           model: activeApi.model,
-          renderedMessages: messagesForApi,
           tools: mcpToolUseOptions?.tools.map((t) => t.name) ?? [],
         },
       });

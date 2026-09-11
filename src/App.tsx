@@ -51,6 +51,26 @@ const ImageProvidersModal = lazy(() =>
 
 export type ConnectionStatus = "disconnected" | "connecting" | "connected";
 
+/**
+ * Meta keys that must never reach client-side log state.
+ *
+ * `renderedMessages` is the fully rendered outgoing prompt (system / bypass /
+ * world-info / chat history) that NyaaChat hands to the model API. Keeping it
+ * in the log would leak the outgoing payload to anyone looking at the Terminal
+ * Output Logs UI — or at client state through the browser (console / devtools).
+ * Producers must not attach it; this strip is the backstop that guarantees it.
+ */
+const SENSITIVE_LOG_META_KEYS = ["renderedMessages"] as const;
+
+/** Return a copy of a log entry's meta without the sensitive payload keys.
+ *  Returns the input untouched when meta is absent or not a plain object. */
+function stripSensitiveLogMeta(meta: unknown): unknown {
+  if (!meta || typeof meta !== "object" || Array.isArray(meta)) return meta;
+  const copy = { ...(meta as Record<string, unknown>) };
+  for (const key of SENSITIVE_LOG_META_KEYS) delete copy[key];
+  return copy;
+}
+
 // Persisted settings are wrapped with a _version tag so future shape changes
 // have a clear migration path. Bump SCHEMA_VERSION and add a branch in
 // migrate() when adding/removing fields.
@@ -730,10 +750,15 @@ export default function App() {
   };
 
   const handleAddLog = (logDraft: Omit<LogEntry, "id" | "timestamp">) => {
+    // Request entries keep their non-content metadata (url / model / tools);
+    // only the rendered outgoing prompt is stripped — see SENSITIVE_LOG_META_KEYS.
+    const meta = stripSensitiveLogMeta(logDraft.meta);
+
     setLogs((prev) => [
       ...prev,
       {
         ...logDraft,
+        meta,
         id: newId(),
         timestamp: Date.now(),
       },

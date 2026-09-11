@@ -372,6 +372,11 @@ export interface ChatSession {
 export interface LogEntry {
   id: string;
   timestamp: number;
+  /**
+   * "request" entries are shown in the Terminal Output Logs with their
+   * non-content metadata only (url / model / tools): the rendered outgoing
+   * prompt is stripped on ingestion (see App.handleAddLog).
+   */
   direction: "request" | "response" | "error" | "info";
   content: string;
   meta?: any;
