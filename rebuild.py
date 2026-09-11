@@ -18,6 +18,7 @@ Neither value is ever hardcoded in this file.
 """
 
 import argparse
+import json
 import os
 import subprocess
 import sys
@@ -162,12 +163,51 @@ def docker_push(host: str, image_name: str, tag: str, secrets: list[str]):
 # registry cleanup
 # ---------------------------------------------------------------------------
 
+# Media types a manifest HEAD/GET may answer with. registry:2 cannot pick a
+# representation without them and replies 404 for every tag — which silently
+# turned the old keep-only-latest cleanup into a no-op (all tags accumulated).
+MANIFEST_ACCEPT = ", ".join([
+    "application/vnd.docker.distribution.manifest.v2+json",
+    "application/vnd.docker.distribution.manifest.list.v2+json",
+    "application/vnd.oci.image.manifest.v1+json",
+    "application/vnd.oci.image.index.v1+json",
+])
+
+
+def manifest_digest(registry_url: str, image_name: str, reference: str) -> str:
+    """Resolve a tag (or digest) to its manifest digest, '' when unavailable."""
+    req = request.Request(
+        f"{registry_url}/v2/{image_name}/manifests/{reference}",
+        headers={"Accept": MANIFEST_ACCEPT},
+        method="HEAD",
+    )
+    with request.urlopen(req, timeout=10) as resp:
+        return resp.headers.get("Docker-Content-Digest", "")
+
+
+def delete_manifest(registry_url: str, image_name: str, digest: str) -> bool:
+    """Delete one manifest by digest. Returns True on 200/202."""
+    req = request.Request(
+        f"{registry_url}/v2/{image_name}/manifests/{digest}",
+        method="DELETE",
+    )
+    with request.urlopen(req, timeout=10) as resp:
+        return resp.status in (200, 202)
+
+
 def registry_cleanup(registry_url: str, host: str, image_name: str, sha: str, secrets: list[str]):
-    """Delete all remote tags except the current SHA and 'latest'."""
+    """Delete obsolete remote tags, never touching a digest we must keep.
+
+    registry:2 has no per-tag delete: DELETE addresses a *manifest digest*, and
+    every tag pointing at it dies with it. Back-to-back builds of the same
+    source are content-identical, so an obsolete tag can share its digest with
+    the tags we keep — deleting that digest would wipe the image just published.
+    Therefore: resolve the kept tags first and skip any obsolete tag whose
+    digest is one of theirs.
+    """
     print(f"Registry cleanup for {image_name} (keep-only-latest)...")
     try:
         req = request.Request(f"{registry_url}/v2/{image_name}/tags/list")
-        import json
         with request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode())
         all_tags = data.get("tags") or []
@@ -176,29 +216,51 @@ def registry_cleanup(registry_url: str, host: str, image_name: str, sha: str, se
         return
 
     keep = {sha, "latest"}
+
+    # Digests behind the tags we must keep — never delete these.
+    protected: set[str] = set()
+    for tag in sorted(keep):
+        if tag not in all_tags:
+            continue
+        try:
+            digest = manifest_digest(registry_url, image_name, tag)
+        except Exception as e:
+            print(f"  Skip {image_name}:{tag}: {mask(str(e), secrets)}")
+            continue
+        if digest:
+            protected.add(digest)
+    if not protected:
+        # Cannot tell friend from foe — better to leave the registry alone.
+        print("  [WARN] No kept tag could be resolved; skipping cleanup.")
+        return
+
     obsolete = [t for t in all_tags if t not in keep]
     if not obsolete:
         print(f"  No obsolete remote tags for {image_name}.")
         return
 
+    deleted: set[str] = set()
     for tag in obsolete:
         try:
-            head_req = request.Request(
-                f"{registry_url}/v2/{image_name}/manifests/{tag}",
-                method="HEAD",
-            )
-            with request.urlopen(head_req, timeout=10) as resp:
-                digest = resp.headers.get("Docker-Content-Digest", "")
-            if digest:
-                del_req = request.Request(
-                    f"{registry_url}/v2/{image_name}/manifests/{digest}",
-                    method="DELETE",
-                )
-                with request.urlopen(del_req, timeout=10) as resp:
-                    if resp.status in (200, 202):
-                        print(f"  Deleted {image_name}:{tag}")
-                    else:
-                        print(f"  Delete {image_name}:{tag} -> HTTP {resp.status}")
+            digest = manifest_digest(registry_url, image_name, tag)
+        except Exception as e:
+            print(f"  Skip {image_name}:{tag}: {mask(str(e), secrets)}")
+            continue
+        if not digest:
+            print(f"  Skip {image_name}:{tag}: no manifest digest")
+            continue
+        if digest in protected:
+            print(f"  Keep {image_name}:{tag} (digest shared with a kept tag)")
+            continue
+        if digest in deleted:
+            print(f"  Skip {image_name}:{tag}: digest already deleted")
+            continue
+        try:
+            if delete_manifest(registry_url, image_name, digest):
+                deleted.add(digest)
+                print(f"  Deleted {image_name}:{tag}")
+            else:
+                print(f"  Delete {image_name}:{tag} -> unexpected status")
         except Exception as e:
             print(f"  Skip {image_name}:{tag}: {mask(str(e), secrets)}")
 
