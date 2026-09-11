@@ -380,6 +380,15 @@ embedding.js — 调用用户配置的嵌入 API (OpenAI 兼容 /v1/embeddings)
 - System prompt 内置 7 维度分析框架（主体身份、主体肖像切片、场景构图、氛围与情绪、视点、视觉词汇、约束）。
 - 输出 5-7 段流畅英文自然语言描述 (~300-400 words)。
 - 服务端通过 `COMFYUI_FIXED_T2I_AGENT_API_MODEL` 强制指定模型，前端无法切换。
+- **推理预算**：`deepseek-flash` / `deepseek-v4-pro` 均为推理模型，隐藏思考 token 与正文共享
+  `max_tokens` 预算。实测 `max_tokens<=128` 时预算被思考吃光（`finish_reason=length`、正文为空），
+  因此代理强制 `max_tokens` 下限 512、默认 1600。
+- **思考开关**：`COMFYUI_FIXED_T2I_AGENT_API_REASONING=off`（默认）时请求带
+  `reasoning_effort: "none"`——实测 completion tokens −49%、延迟 −34%，输出质量（段数/词数/
+  细节保真/纯英文）不降。注意 `enable_thinking`、`chat_template_kwargs`、`reasoning.enabled`、
+  `include_reasoning` 会被该端点**静默忽略**（不报错但仍推理），不可依赖。
+- 代理返回前剥离 `reasoning_content`（前端只读 `choices[0].message.content`）；正文为空时返回
+  `502 t2i_agent_empty_completion` 而不是空 200，便于定位配置问题。
 - 失败回退：T2I Agent 不可用时 → 用户聊天 LLM 兜底 → 模板化提示词构建器兜底。
 
 ### 9.4 图片代理缓存
@@ -530,7 +539,9 @@ docker compose -f docker-compose.knowledge.yml up -d  # 知识库后端 (:5108)
 | `COMFYUI_FIXED_URL` | ComfyUI 实例地址 |
 | `COMFYUI_FIXED_TOKEN` | ComfyUI 实例认证 token |
 | `COMFYUI_FIXED_T2I_AGENT_ENABLE` | T2I Agent 功能开关 |
-| `COMFYUI_FIXED_T2I_AGENT_API_*` | T2I Agent 的 LLM 配置 |
+| `COMFYUI_FIXED_T2I_AGENT_API_*` | T2I Agent 的 LLM 配置（`_BASEURL` / `_APIKEY` / `_MODEL` 为必备三项） |
+| `COMFYUI_FIXED_T2I_AGENT_API_MAX_TOKENS` | 提示词输出上限（默认 1600，代码内置下限 512） |
+| `COMFYUI_FIXED_T2I_AGENT_API_REASONING` | 是否保留模型思考 `on`/`off`（默认 off） |
 | `TTS_*` | TTS 端点白名单和预设 |
 | `NYAAACOUNT_API_TOKEN` | NyaaAcount 通信共享密钥 |
 | `PRIVATE_DOCKER_REGISTRY_HOST` | Docker 镜像仓库地址 |
