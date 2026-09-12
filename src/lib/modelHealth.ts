@@ -310,14 +310,19 @@ const KNOWN_LIMITS: Array<{ pattern: RegExp; limits: ModelLimits }> = [
   // 修前它落到下面的 `/^gemini-/` 兜底（32K / 8.2K）⇒ 属推断错误，本条修正之。
   // 该规则同时覆盖 gemini-3.7-flash / 3.5-* / 3-flash 等（NyaaQiny 表中同为 1000/64）。
   { pattern: /gemini-3/, limits: { contextWindow: 1_000_000, maxOutput: 65_536 } },
-  // 2026-09-13 真机实测（QinyAPI 默认组与 GCP 组各 2 发，两模型 × 两分组结果一致）：
+  // 2026-09-13 真机实测（直连 QinyAPI `/v1/chat/completions`；共 11 发 = 默认组 7 + GCP 组 4：
+  //   上下文 2 模型 × 2 组各 1 发 = 4、`max_tokens: 65537` 拒绝 2 模型 × 2 组 = 4、
+  //   `65536` 接受 2 模型 × 默认组 = 2、填充料标定 1）：
   //   输入 1,058,357 tok ⇒ 400「The input token count (1058357) exceeds the maximum number
-  //   of tokens allowed (1048576)」；`max_tokens: 65536` ⇒ 200、`65537` ⇒ 400
-  //   「maxOutputTokens ... supported range is from 1 (inclusive) to 65537 (exclusive)」。
-  //   ⇒ 2.5-pro / 2.5-flash 同为 **1,048,576 / 65,536**；修前 pro 的 2M 与两者的 8.2K 输出
-  //   （1.5 系遗留值与兜底值）均属推断错误，本条修正之（与 NyaaQiny 表的 1000K / 64K 一致）。
-  { pattern: /gemini-2.*pro/, limits: { contextWindow: 1_048_576, maxOutput: 65_536 } },
-  { pattern: /gemini-2.*flash/, limits: { contextWindow: 1_048_576, maxOutput: 65_536 } },
+  //   of tokens allowed (1048576)」（默认组与 GCP 组同值、同报文）；`max_tokens: 65536` ⇒ 200、
+  //   `65537` ⇒ 400「maxOutputTokens ... supported range is from 1 (inclusive) to 65537 (exclusive)」。
+  //   ⇒ **只有 2.5 系有实测**：1,048,576 / 65,536；修前 pro 的 2M（1.5 系遗留值）与两者 8.2K 输出
+  //   （兜底值）均属推断错误，本条修正之（与 NyaaQiny 表的 1000K / 64K 一致）。
+  // ⚠️ 作用域刻意收窄到 `2\.5`：2.0 系本渠道不提供、**也未实测**，故仍走下面两条旧估算值
+  //   （2.0 的输出按官方是 8K，不得因族级匹配被顺带改成 64K）。2.5 行必须在它们之前。
+  { pattern: /gemini-2\.5/, limits: { contextWindow: 1_048_576, maxOutput: 65_536 } },
+  { pattern: /gemini-2.*pro/, limits: { contextWindow: 2_000_000, maxOutput: 8_192 } },
+  { pattern: /gemini-2.*flash/, limits: { contextWindow: 1_000_000, maxOutput: 8_192 } },
   { pattern: /gemini-1\.5-pro/, limits: { contextWindow: 2_000_000, maxOutput: 8_192 } },
   { pattern: /gemini-1\.5-flash/, limits: { contextWindow: 1_000_000, maxOutput: 8_192 } },
   { pattern: /^gemini-/, limits: { contextWindow: 32_000, maxOutput: 8_192 } },
