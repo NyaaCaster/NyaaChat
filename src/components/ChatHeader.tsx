@@ -105,10 +105,13 @@ export function ChatHeader({
             <CircleQuestionMark size={18} />
           </a>
           {isBypassActive && (
+            // 窄屏（手机竖屏）隐藏：右侧的 Bypass 按钮本身已有红色激活态，
+            // 这个胶囊只是重复提示，却会挤压右对齐的全屏/控制台/Bypass/设置 按钮组。
+            // `hidden sm:inline-flex` = 视口 <640px 时不渲染占位，≥640px 恢复。
             <motion.span
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
-              className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] font-medium bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20"
+              className="hidden sm:inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] font-medium bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20"
             >
               <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.6)]"></span>
               Bypass

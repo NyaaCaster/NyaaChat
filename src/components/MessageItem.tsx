@@ -13,6 +13,10 @@ import { ImageViewerModal } from "./ImageViewerModal";
 import { CoverViewerModal } from "./CoverViewerModal";
 import { downloadImage } from "../lib/imageApi";
 import { applyPlaceholders } from "../lib/chatPipeline";
+import {
+  decodeFlagalacUnicodeEscapes,
+  encodeFlagalacUnicodeEscapes,
+} from "../lib/flagalacUnicode";
 import { getRegexedString, regex_placement, FrontendCard, splitFrontendContent } from "../compat";
 import type { RegexScript } from "../types";
 
@@ -115,6 +119,44 @@ function renderTextWithQuotes(children: React.ReactNode): React.ReactNode {
   return children;
 }
 
+// ─── AnswererFlagalac · 编辑通道（t9 / Q-08 方案 b）──────────────────────────
+//
+// 落库文本保持模型原文的转义形态（D-27/D-28：下一轮请求把历史原样发出去，读得懂的
+// 过滤器会毁掉整个机制）。但编辑框直接显示 `\u5982\u6b64` 没法用，于是编辑通道做
+// "显示明文 / 存回转义"：
+//   · 进入编辑或重置缓冲 → `toFlagalacEditDisplay`（解码 = 用户所见）；
+//   · 保存 → `fromFlagalacEditDisplay`（重新转义后再交给 onEdit）。
+// 两者都以 `src/lib/flagalacUnicode.ts` 为**唯一来源**，本组件不自带格式字面量。
+//
+// 门控（`enabled` = 父级下发的 `decodeFlagalacEscapes`，见 ChatInterface 的
+// `isFlagalacUnicodeEncodingEnabled`）为 false 时两个函数都是恒等：模块关闭 /
+// 阵地制作关闭时，编辑与保存对文本逐字节不改写（零差异）。
+//
+// ⚠️ 两条**语义等价变化**（用户拍板接受的代价，复核时不要当成字符损坏）：
+//   ① ASCII 转义折叠：`\u0041` → `A`（编码器只转义非 ASCII，所以"解码→重新编码"
+//      会把落库文本里本就存在的 ASCII 转义折成真 ASCII；文本语义不变）；
+//   ② 十六进制转小写：`\u{1F600}` → `\u{1f600}`（编码器用 `toString(16)`）。
+//   外加一条体积变化：重新编码是**全量**转义（只要含非 ASCII 就整条改写），编辑
+//   保存后该条 stored 文本会明显变长 —— 语义不变，模型照读。
+// 不变量（t14 判据；⚠️ **公式适用域已按 t14 报告的 H4 更正**，规范见 SSOT §8.5 规范三）：
+//   · **通用形态**：`decode(encode(x)) === decode(x)` —— 即"编码不改变『解码所见』"。
+//     （⚠️ 本注释原文在这里写的是 `=== x`，**那只对明文域成立**；含完整 `\uXXXX` 字面量的输入是反例。）
+//   · **明文域**（不含完整 `\uXXXX` 字面量）：`decode(encode(x)) === x`。
+//   · **编辑器稳定**：`decode(encode(decode(s))) === decode(s)` 且再套一轮不变。
+//   · **两方向互逆**（F16）**只在「规范形态域」成立**（非 ASCII 全转义 + 十六进制小写 + 无冗余 ASCII 转义）；
+//     非规范输入（`\u0041`、明文/转义混排等）**不互逆** ⇒ 此时要求是「**往返稳定 + 无字符损坏**」。
+//   · **不要**拿 `encode(decode(x)) === x` 当幂等判据 —— 它只对"已是转义形态"的输入成立。
+
+/** 存储形态（转义原文）→ 编辑框显示形态（明文）。未启用时恒等。 */
+export function toFlagalacEditDisplay(stored: string, enabled: boolean): string {
+  return enabled ? decodeFlagalacUnicodeEscapes(stored) : stored;
+}
+
+/** 编辑框显示形态（明文）→ 交给 onEdit 的**存储形态**（重新转义）。未启用时恒等。 */
+export function fromFlagalacEditDisplay(display: string, enabled: boolean): string {
+  return enabled ? encodeFlagalacUnicodeEscapes(display) : display;
+}
+
 interface MessageItemProps {
   message: Message;
   userName?: string;
@@ -131,6 +173,23 @@ interface MessageItemProps {
   /** Optional live progress text (ComfyUI queue + step %) shown over the
    *  placeholder while THIS bubble renders. Undefined for the OpenAI path. */
   imageProgressText?: string;
+  /** t17: transient AnswererFlagalac tool-channel retry notice for THIS bubble
+   *  (e.g. "[answerer-flagalac] 第 2/4 次尝试未产出正文（判为失败），正在重试…" or
+   *  the terminal "已停止重试"). Rendered in the EMPTY body while the retry
+   *  window is open — the console log alone leaves the bubble blank for up to
+   *  92 s, which reads as a freeze.
+   *
+   *  Display-only and never persisted: the parent keeps it in separate React
+   *  state (NOT in `message.content` / `messages`), so it cannot reach the
+   *  request body or the saved chat. The parent also keys it to the turn's
+   *  message id and clears it in sendChat's `finally`, so it cannot paint on
+   *  another bubble or survive the turn.
+   *
+   *  PRIMITIVE on purpose (undefined = no notice, string = notice): the value
+   *  is referentially stable when nothing changed, so React.memo keeps skipping
+   *  every other bubble; when a notice arrives the string genuinely differs and
+   *  the memo correctly re-renders this one. */
+  retryNoticeText?: string;
   /** True while ANY chat / image request is in flight. Disables generate &
    *  regenerate buttons across all bubbles so clicks don't get silently
    *  dropped by the parent's loading guard. */
@@ -146,6 +205,28 @@ interface MessageItemProps {
   mesid?: number;
   /** Controls NyaaChat's native JS-Slash-Runner-style iframe renderer. */
   frontendRenderingEnabled?: boolean;
+  /** AnswererFlagalac `unicodeEncoding` is in effect for this chat (F-2).
+   *  Only then may the stored text's `\uXXXX` escapes be decoded for display and
+   *  copy — with the option off the stored text must render byte-for-byte
+   *  unchanged, exactly as before this module existed. The parent resolves it
+   *  from `isFlagalacUnicodeEncodingEnabled(settings.bypass?.answererFlagalac)`
+   *  and passes a primitive boolean, so MessageItem's memo is not busted.
+   *
+   *  Known trade-off (deliberate, t2/F-1 + t1/F-2): gating means history that was
+   *  ALREADY stored in escape form while 阵地制作 was on shows as literal `\uXXXX`
+   *  after the user switches the option off (the stored bytes are the model's
+   *  original text and are never rewritten). We accept that in exchange for the
+   *  hard requirement 「未启用时零差异」: an ordinary chat that never enabled the
+   *  option must render/copy unchanged (`\u0041` in pasted JSON stays `\u0041`).
+   *  Mitigation for a reader who switched it off: re-enable 阵地制作 for that
+   *  target and the same history is readable again (nothing was lost).
+   *  TODO(t12): register this as a known limitation in the SSOT / 阶段交接.
+   *
+   *  The same flag also drives the EDIT path (t9, Q-08 方案 b): the textarea shows
+   *  the decoded 明文 and a save re-encodes it before handing it to `onEdit`, so the
+   *  stored value stays in escape form (the next request's history keeps the
+   *  cross-turn protection). With the flag off both paths are no-ops. */
+  decodeFlagalacEscapes?: boolean;
   /** Object URL of the active character's cover (512×768). When present and the
    *  bubble is a character (assistant) text bubble, it shows as a feathered
    *  side image on PC and a feathered top-right avatar on mobile, and opens the
@@ -164,10 +245,12 @@ export const MessageItem = React.memo(function MessageItem({
   onRegenerateImage,
   imageGenerating,
   imageProgressText,
+  retryNoticeText,
   busy,
   regexScripts,
   mesid,
   frontendRenderingEnabled = true,
+  decodeFlagalacEscapes = false,
   coverUrl,
 }: MessageItemProps) {
   const [copiedMsg, setCopiedMsg] = useState(false);
@@ -177,19 +260,56 @@ export const MessageItem = React.memo(function MessageItem({
   const [viewerOpen, setViewerOpen] = useState(false);
   const [coverViewerOpen, setCoverViewerOpen] = useState(false);
   const editRef = useRef<HTMLTextAreaElement>(null);
+  // ─── t24：编辑会话的**门控快照** ─────────────────────────────────────────
+  //
+  // F-B（t14 反例）：保存时读**当前** prop 的话，"打开编辑（阵地制作 ON）→ 把选项
+  // 关掉 → 保存"会让 `editStored` 退化为恒等，把含非 ASCII 的**明文**写进
+  // `message.content`（随后经 buildRequestMessages 原样出站，D-27 跨轮防护失效）。
+  // 修法：在 `handleStartEdit` 把当轮门控快照进 ref，显示与保存共用这一颗 ——
+  // "编辑→保存"因此始终闭合在同一个语义域内。用 ref（不是 state）是为了让
+  // 保存发生在同一次事件里也能读到刚写入的值（state 要等下一次渲染）。
+  const editGateRef = useRef(decodeFlagalacEscapes);
 
   // Resolve {{user}} / {{char}} for display. Fallbacks mirror the send path
   // (ChatInterface) so a placeholder renders the same name that would be sent.
   const resolvedUser = userName || "user";
   const resolvedChar = charName || "AI助手";
+  // Role flags are read by the edit channel (t24/F-A role split) as well as by the
+  // render/button sections below, so they are resolved once, early, and reused.
+  const isUser = message.role === "user";
+  const isSystem = message.role === "system";
+
+  // ─── AnswererFlagalac · 编辑通道（t9 / Q-08 方案 b；语义与代价见文件顶部的
+  // `toFlagalacEditDisplay` 注释块）────────────────────────────────────────
+  //
+  // 编辑缓冲一律是**显示形态（明文）**；转义只发生在保存那一刻。
+  //
+  // 门控一律取**编辑会话快照** `editGateRef.current`（t24 / F-B），不再直接读当前
+  // prop —— 否则编辑期间翻转选项会改变保存语义。未进入编辑时快照无意义，但 save
+  // 只可能在编辑会话内发生。
+  //
+  // F-A（t14 反例）：**用户自己的消息**不进转义通道。D-28 的契约是"界面显示 / 编辑 /
+  // 落盘仍是用户原文"，出站那一份才由 chatPipeline 编码。所以保存时按 role 分流：
+  //   · role === "user"     → 直接落用户编辑后的**原文**（保持 D-28）；
+  //   · role !== "user"     → 写回转义形态（保住助手历史的跨轮防护）。
+  // 分流用 `isUser`（下面 `message.role === "user"` 的那颗布尔），与渲染/按钮同源。
+  const editDisplay = (stored: string) =>
+    toFlagalacEditDisplay(stored, decodeFlagalacEscapes);
+  const editStored = (display: string) =>
+    fromFlagalacEditDisplay(display, editGateRef.current);
 
   // Refresh the editing buffer when the underlying message changes from
   // outside (e.g. streaming finished after a regenerate). Only resync while
   // not actively editing — otherwise the user's in-flight changes would
-  // get clobbered.
+  // get clobbered. t9: the buffer holds the DISPLAY form (明文) when the
+  // unicodeEncoding gate is on, so an option flip must re-sync it too.
   useEffect(() => {
-    if (!editing) setEditValue(message.content);
-  }, [message.content, editing]);
+    if (!editing) {
+      setEditValue(
+        toFlagalacEditDisplay(message.content, decodeFlagalacEscapes),
+      );
+    }
+  }, [message.content, editing, decodeFlagalacEscapes]);
 
   // Auto-focus the textarea when entering edit mode.
   useEffect(() => {
@@ -200,9 +320,17 @@ export const MessageItem = React.memo(function MessageItem({
   }, [editing]);
 
   const handleCopyMsg = async () => {
-    // Copy what the user sees (placeholders resolved), not the raw source.
+    // Copy what the user sees: placeholders resolved AND, when AnswererFlagalac's
+    // unicodeEncoding option is in effect, the model's `\uXXXX` escapes decoded
+    // (the stored text keeps them deliberately — see decodeFlagalacUnicodeEscapes).
+    // F-2: the decode is GATED — with the option off the copied text is the stored
+    // text byte-for-byte.
     const ok = await copyToClipboard(
-      applyPlaceholders(message.content, resolvedUser, resolvedChar),
+      applyPlaceholders(
+        (decodeFlagalacEscapes ? decodeFlagalacUnicodeEscapes(message.content) : message.content),
+        resolvedUser,
+        resolvedChar,
+      ),
     );
     if (!ok) return;
     setCopiedMsg(true);
@@ -210,39 +338,59 @@ export const MessageItem = React.memo(function MessageItem({
   };
 
   const handleStartEdit = () => {
-    setEditValue(message.content);
+    // t24/F-B: snapshot the gate for this edit session BEFORE anything else, so
+    // display and save share one semantic domain even if the option is toggled
+    // while the textarea is open.
+    editGateRef.current = decodeFlagalacEscapes;
+    // 显示形态（明文）进缓冲 —— 与渲染 / 复制看到的一致。
+    setEditValue(toFlagalacEditDisplay(message.content, editGateRef.current));
     setEditing(true);
   };
 
   const handleSaveEdit = () => {
-    const trimmed = editValue;
-    if (trimmed === message.content) {
+    // t24/F-A: role split. A USER message stays the user's literal text (SSOT
+    // D-28: 界面显示/编辑/落盘仍是用户原文 — only the OUTBOUND copy is encoded
+    // by chatPipeline). Any other role goes back to escape form so the model's
+    // history keeps the cross-turn protection (D-27).
+    // t24/F-B: the escape decision uses `editGateRef.current` (snapshot taken in
+    // handleStartEdit), never the live prop, so flipping the option mid-edit
+    // cannot degrade this into "write plaintext into a persisted field".
+    const stored = isUser ? editValue : editStored(editValue);
+    if (stored === message.content) {
       setEditing(false);
       return;
     }
-    onEdit?.(message.id, trimmed);
+    onEdit?.(message.id, stored);
     setEditing(false);
   };
 
   const handleCancelEdit = () => {
-    setEditValue(message.content);
+    setEditValue(editDisplay(message.content));
     setEditing(false);
   };
-
-  const isUser = message.role === "user";
-  const isSystem = message.role === "system";
 
   // Run the display-regex pass once; reuse it for both front-end-card
   // detection and markdown rendering. Regex sees the raw source (capture groups
   // operate on the original text, before name substitution).
+  //
+  // AnswererFlagalac (unicodeEncoding, plan A): the STORED text keeps the
+  // model's `\uXXXX` escapes on purpose — it is what the next request sends as
+  // history, and an upstream filter that can read it defeats the option. The
+  // decode therefore happens here, for display only (and for copy above).
+  //
+  // F-2: gated by the parent's `decodeFlagalacEscapes` (resolved from
+  // `isFlagalacUnicodeEncodingEnabled`). With the option off this is a no-op —
+  // a literal `\uXXXX` in an ordinary chat (JSON, regex, code) renders unchanged.
   const regexedContent = React.useMemo(() => {
-    const raw = message.content || "...";
+    const raw =
+      (decodeFlagalacEscapes ? decodeFlagalacUnicodeEscapes(message.content) : message.content) ||
+      "...";
     const placement =
       message.role === "user" ? regex_placement.USER_INPUT : regex_placement.AI_OUTPUT;
     return regexScripts && regexScripts.length
       ? getRegexedString(raw, placement, regexScripts, { isMarkdown: true })
       : raw;
-  }, [message.content, message.role, regexScripts]);
+  }, [message.content, message.role, regexScripts, decodeFlagalacEscapes]);
 
   // Front-end card: render fenced HTML card blocks in iframes, while preserving
   // surrounding prose as normal Markdown. Only assistant/non-edit bubbles are
@@ -438,6 +586,27 @@ export const MessageItem = React.memo(function MessageItem({
                     {imageProgressText}
                   </span>
                 )}
+              </div>
+            ) : retryNoticeText && !message.content.trim() ? (
+              // t17: AnswererFlagalac tool-channel retry window. The retry loop
+              // buffers every attempt, so the body is genuinely empty here and
+              // the user would otherwise stare at a blank bubble for up to 92 s.
+              // Same structure/classes as the "正在生成图片…" row above — no new
+              // visual vocabulary, no new colour.
+              //
+              // Deliberately nested inside the markdown body container (NOT as a
+              // sibling of the prose div) so it appears where the text would
+              // have been: with no content yet the prose wrapper has no margins
+              // of its own, so the row sits higher up (directly under the header)
+              // exactly like the image row does — i.e. visible without scrolling.
+              //
+              // Once real text exists the body renders normally instead (the
+              // notice is suppressed, not stacked) — the F-4 terminal notice
+              // "已停止重试" accompanies the flushed last-attempt text and is
+              // still delivered to the console log.
+              <div className="flex items-center gap-2 py-6 px-2 text-sm text-gray-500 dark:text-gray-400">
+                <Loader2 size={16} className="animate-spin text-purple-500" />
+                <span>{retryNoticeText}</span>
               </div>
             ) : editing ? (
               <div className="flex flex-col gap-2">

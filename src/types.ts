@@ -121,11 +121,15 @@ export interface BypassSettings {
     /** 每个目标各自的开关状态与（用户改过的）载荷文本。
      *  - `options`：缺键 ⇒ 用模板里的 defaultEnabled（**新增开关无需迁移**）；
      *    已下线/未知的 option id 在读取时丢弃，不会借旧备份复活。
-     *  - `templates`：只存被用户改过的载荷（等于默认值的条目不落盘）。 */
+     *  - `templates`：⚠️ **已退休（D-30，2026-09-13）** —— 载荷文本已不可由用户改写，
+     *    读写两侧一律忽略该键；**只出现在"读取老存档"路径上**（老备份里可能带着它，
+     *    归一化时被丢弃；导出侧由 `stripRetiredFlagalacTemplates()` 剔除）。
+     *    保留类型只为兼容老存档，**不代表功能存在**。 */
     perTarget: Record<
       string,
       {
         options: Record<string, boolean>;
+        /** ⚠️ **已退休（D-30）**：见上，仅老存档兼容用，读写侧一律忽略。 */
         templates?: Record<string, string>;
       }
     >;

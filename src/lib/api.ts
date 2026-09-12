@@ -6,12 +6,15 @@ import {
   FLAGALAC_BYPASS_TAG,
   FLAGALAC_NONE_ID,
   FLAGALAC_TOOL_CHANNEL_OPTION_ID,
-  FLAGALAC_UNICODE_OPTION_ID,
   answererFlagalacTools,
   harvestFlagalacToolCalls,
   resolveFlagalacTarget,
   wrapFlagalacThinking,
+  type FlagalacToolHarvest,
 } from './FlagalacTemplates';
+// 转义格式的唯一来源（零依赖模块 ⇒ 不会与 chatPipeline 形成环）：F-5 的拒绝判定
+// 需要"解码后再匹配"，因此这里只能引用这一处，不得自带字面量。
+import { decodeFlagalacUnicodeEscapes } from './flagalacUnicode';
 
 export interface ApiUsage {
   prompt_tokens?: number;
@@ -100,8 +103,9 @@ function readAnswererBypassTarget(openTag: string): string {
 }
 
 /**
- * R-a probe — STRICT on purpose: a bare `<flagalac_bypass` substring is NOT
- * enough, the open tag must carry a non-empty `target="…"`.
+ * R-a probe — STRICT on purpose: a bare open-tag prefix (`FLAGALAC_BYPASS_TAG`
+ * without attributes) is NOT enough, the open tag must carry a non-empty
+ * `target="…"`.
  *
  * WHY — this probe decides whether the tail `system` message stays unfolded, so
  * a false positive silently changes the request shape. Editable content a user
@@ -140,7 +144,7 @@ function shouldKeepTailSystemAsSystem(messages: ApiMessage[]): boolean {
  * into the tail system message (chatPipeline E1), parsed into the facts the
  * OpenAI request path needs. The attribute format is frozen in SSOT §4.2:
  *
- *   <flagalac_bypass target="…" options="toolChannel,traceCleanup">…</flagalac_bypass>
+ *   <FLAGALAC_BYPASS_TAG target="…" options="toolChannel,traceCleanup">…</FLAGALAC_BYPASS_TAG>
  *
  * - `target`  — the RESOLVED target id. Anything unknown or retired converges to
  *               `none`, which yields `null`, so a hand-edited save cannot switch
@@ -212,66 +216,94 @@ function answererFlagalacRequestTools(messages: ApiMessage[]): LlmTool[] | null 
 }
 
 /**
- * AnswererFlagalac (unicodeEncoding · response side): the payload asks the
- * model to write anything filter-prone as `\uXXXX` / `\u{…}` escapes; this
- * turns those escapes back into readable text on the way to the screen.
+ * AnswererFlagalac (unicodeEncoding): the payload asks the model to write
+ * anything filter-prone as `\uXXXX` / `\u{…}` escapes.
  *
- * STREAMING — a chunk boundary can land inside an escape (the model may emit
- * `\`, then `u00`, then `41`), so a trailing PARTIAL escape is held back until
- * the next chunk instead of being emitted as literal text. A decoded lone high
- * surrogate is held back the same way, waiting for its low half. `flush()`
- * releases whatever is still held; a genuinely truncated escape then stays
- * literal, which is the honest outcome (nothing is invented).
- *
- * GATED by the payload block, exactly like the tool channel: with the option
- * off — or no target selected — the caller's `onChunk` is used untouched, so
- * the delivered text is byte-for-byte what it was before this existed.
+ * **The stored message keeps the model's raw text** (plan A, 2026-09-13) — it is
+ * exactly what the next request puts in its history, and the whole point of the
+ * option is that upstream filters cannot read it. Decoding is therefore a
+ * DISPLAY-only concern; `MessageItem` calls
+ * `decodeFlagalacUnicodeEscapes()` (from `./flagalacUnicode`) on the way to the
+ * screen and on copy. No decode happens here.
  */
-function createUnicodeEscapeDecoder(emit: (text: string) => void) {
-  // A trailing backslash that may still grow into a full escape. Order matters:
-  // the brace form first, then a 4-hex form still missing digits, then a lone `\`.
-  const PARTIAL_ESCAPE_RE = /\\u\{[0-9a-fA-F]{0,5}$|\\u[0-9a-fA-F]{0,3}$|\\$/;
-  const ESCAPE_RE = /\\u\{([0-9a-fA-F]{1,6})\}|\\u([0-9a-fA-F]{4})/g;
-  let carry = ''; // raw text whose tail may still grow into a complete escape
-  let held = ''; // a decoded lone high surrogate, waiting for its other half
 
-  const decode = (text: string) =>
-    text.replace(ESCAPE_RE, (_m, braces: string | undefined, quad: string | undefined) =>
-      String.fromCodePoint(parseInt(braces ?? quad ?? '0', 16)),
-    );
+/**
+ * D-29 · how many times one user turn may (re)ask the model for a tool-channel
+ * answer before giving up. Measured per-attempt success ≈ 40% on
+ * `gemini-3.7-flash` with a real card + scene, so 4 attempts ≈ 87% per turn.
+ * Kept as a named constant so the trade-off (time/tokens vs.成功率) is explicit.
+ */
+export const FLAGALAC_TOOL_RETRY_MAX_ATTEMPTS = 4;
 
-  const drain = (final: boolean) => {
-    const partial = final ? null : PARTIAL_ESCAPE_RE.exec(carry);
-    const cut = partial ? partial.index : carry.length;
-    const head = carry.slice(0, cut);
-    carry = carry.slice(cut);
-    let out = held + (head ? decode(head) : '');
-    held = '';
-    if (!final && out) {
-      const code = out.charCodeAt(out.length - 1);
-      if (code >= 0xd800 && code <= 0xdbff) {
-        held = out.slice(-1);
-        out = out.slice(0, -1);
-      }
-    }
-    if (out) emit(out);
-  };
+/**
+ * 拒绝特征**短语** —— 只用于判定"这一轮其实没写"，不作内容过滤。
+ *
+ * 刻意**不含**单独的「抱歉 / 对不起」：角色台词里"抱歉，来晚了"是正常正文，
+ * 用它当拒绝标志会误杀短正文（白盒首轮实测命中该误判）。上面几种真实拒绝
+ * 都同时含「我无法」之类的短语，因此不需要那些弱信号。
+ */
+const FLAGALAC_REFUSAL_MARKERS = [
+  '我无法',
+  '无法协助',
+  '无法继续',
+  '无法提供',
+  '无法生成',
+  '无法参与',
+  '无法描写',
+  '作为人工智能',
+  '作为一个ai',
+  'I cannot',
+  "I can't",
+  'cannot assist',
+  "can't help",
+  'unable to',
+];
 
-  return {
-    push(chunk: string) {
-      carry += chunk;
-      drain(false);
-    },
-    flush() {
-      drain(true);
-    },
-  };
+/**
+ * 工具通道的正文是否其实是"拒绝/推脱"。
+ *
+ * 阈值刻意保守：长正文（≥300 字）一律当成功——真写出场景的回复不会短；
+ * 短正文里命中拒绝特征词才算失败。这样既能把"抱歉，我无法…"这类推脱重试掉，
+ * 又不会因为角色台词里出现一个"抱歉"而误杀整段正文。
+ *
+ * F-5（t1 复核）· 两种形态必须同判：D-30 之后"编码规避"默认开启，载荷要求模型把
+ * 敏感措辞写成 `\uXXXX`；若模型照做地写出**拒绝**，明文特征词一个都读不到，而转义
+ * 形态又长 6 倍（可能因此越过 ≥300 阈值）⇒ 拒绝被当成"可用正文"直接展示。
+ * 因此判据一律跑在**解码后**的文本上（纯明文时解码是恒等变换，行为不变），
+ * 并额外回看原文，兼顾"明文/转义混排"的正文。
+ */
+export function isFlagalacRefusalBody(body: string): boolean {
+  const raw = body.trim();
+  const decoded = decodeFlagalacUnicodeEscapes(raw);
+  const texts = decoded === raw ? [raw] : [decoded, raw];
+  return texts.some((text) => {
+    if (text.length >= 300) return false;
+    return FLAGALAC_REFUSAL_MARKERS.some((marker) => text.includes(marker));
+  });
 }
 
-/** Is the response-side escape decoding switched on for this request? */
-function flagalacUnicodeDecodingActive(messages: ApiMessage[]): boolean {
-  const block = readAnswererBypassBlock(messages);
-  return block !== null && block.options.includes(FLAGALAC_UNICODE_OPTION_ID);
+/**
+ * Harvest a turn's tool calls into (thinking, body) — the SINGLE normalization
+ * point for the two shapes this codebase sees:
+ *   · streaming path   → flat `{ name, arguments }` (built by the SSE accumulator)
+ *   · non-streaming    → raw OpenAI `{ function: { name, arguments } }`
+ * Every consumer (recycle + the D-29 usability check) must go through this.
+ * Skipping it silently yields an empty body and makes the retry loop throw away
+ * perfectly good answers (that exact bug shipped in the first D-29 cut).
+ */
+function harvestAnswererFlagalacTurn(
+  toolCalls: readonly {
+    name?: string;
+    arguments?: string;
+    function?: { name?: string; arguments?: string };
+  }[],
+): FlagalacToolHarvest {
+  return harvestFlagalacToolCalls(
+    toolCalls.map((tc) => ({
+      name: tc.function?.name ?? tc.name ?? '',
+      arguments: tc.function?.arguments ?? tc.arguments ?? '',
+    })),
+  );
 }
 
 /**
@@ -296,12 +328,7 @@ function recycleAnswererFlagalacTurn(
   toolCalls: readonly { function?: { name?: string; arguments?: string } }[],
   onChunk: (chunk: string) => void,
 ): string {
-  const harvest = harvestFlagalacToolCalls(
-    toolCalls.map((tc) => ({
-      name: tc.function?.name ?? '',
-      arguments: tc.function?.arguments ?? '',
-    })),
-  );
+  const harvest = harvestAnswererFlagalacTurn(toolCalls);
 
   if (harvest.thinking) onChunk(wrapFlagalacThinking(harvest.thinking));
   if (harvest.body) onChunk(harvest.body);
@@ -405,6 +432,9 @@ export interface ToolUseOptions {
   /** Hard cap on tool-call rounds to prevent runaway loops. Default 5.
    *  Each round = one LLM completion + the resulting tool executions. */
   maxRounds?: number;
+  /** Optional user-visible notice (D-29 retry reporting). The UI logs it as an
+   *  info entry so a silent retry is never actually silent. */
+  onNotice?: (message: string) => void;
 }
 
 /**
@@ -579,19 +609,15 @@ export async function fetchChatCompletion(
   toolUseOptions?: ToolUseOptions,
 ): Promise<ApiUsage | void> {
   const format = settings.apiFormat || 'openai';
-  // AnswererFlagalac (unicodeEncoding): decode the escapes on the way out. The
-  // gate lives on the payload block, so with the option off this is a no-op and
-  // `onChunk` is handed to the transports untouched.
-  const decoder = flagalacUnicodeDecodingActive(messages)
-    ? createUnicodeEscapeDecoder(onChunk)
-    : null;
-  const emit = decoder ? (chunk: string) => decoder.push(chunk) : onChunk;
+  // AnswererFlagalac (unicodeEncoding): NO decode on the way in. The message
+  // must keep the model's raw escapes so the next request's history stays
+  // unreadable to upstream content filters — the renderer decodes for display
+  // via `decodeFlagalacUnicodeEscapes()`. See that helper for the measurement
+  // that made this a hard requirement.
   const result =
     format === 'anthropic'
-      ? await fetchAnthropic(messages, settings, emit, signal, toolUseOptions)
-      : await fetchOpenAI(messages, settings, emit, signal, toolUseOptions);
-  // Release anything still held (a partial escape at the very end of the reply).
-  decoder?.flush();
+      ? await fetchAnthropic(messages, settings, onChunk, signal, toolUseOptions)
+      : await fetchOpenAI(messages, settings, onChunk, signal, toolUseOptions);
   return result;
 }
 
@@ -653,6 +679,7 @@ async function callOpenAIOnce(
   onChunk: (chunk: string) => void,
   signal: AbortSignal | undefined,
   tools: LlmTool[] | undefined,
+  toolChoice?: 'required',
 ): Promise<{
   usage?: ApiUsage;
   assistantText: string;
@@ -674,6 +701,8 @@ async function callOpenAIOnce(
   }
   if (tools && tools.length > 0) {
     requestBody.tools = toolsToOpenAI(tools);
+    // AnswererFlagalac (tool channel) only — see the call site for why.
+    if (toolChoice) requestBody.tool_choice = toolChoice;
   }
 
   const headers: Record<string, string> = {
@@ -822,7 +851,7 @@ async function fetchOpenAI(
   const toolChannelActive = flagalacTools !== null && !(mcpTools && mcpTools.length > 0);
   if (flagalacTools !== null && mcpTools && mcpTools.length > 0) {
     console.warn(
-      `[answerer-flagalac] 工具通道与 MCP 工具互斥：本轮优先使用 MCP 工具，已跳过 ${BAZETT_THINK_TOOL} / ${FLAGALAC_BODY_TOOL}。`,
+      `[answerer-flagalac] 魔术回路与 MCP 工具互斥：本轮优先使用 MCP 工具，已跳过 ${BAZETT_THINK_TOOL} / ${FLAGALAC_BODY_TOOL}。`,
     );
   }
   const requestTools: LlmTool[] | undefined =
@@ -839,13 +868,72 @@ async function fetchOpenAI(
   // path keeps the mid-conversation system message on its own.
   //
   // EXCEPTION (AnswererFlagalac R-a): when the tail carries the operator-level
-  // `<flagalac_bypass>` payload, keep it as a real `system` message — see
+  // `FLAGALAC_BYPASS_TAG` payload, keep it as a real `system` message — see
   // shouldKeepTailSystemAsSystem() above for why, and for why this deliberately
   // does NOT extend to the Anthropic fallback.
   let currentMessages = shouldKeepTailSystemAsSystem(messages)
     ? messages
     : foldTailSystemIntoLatestUser(messages);
   let usage: ApiUsage | undefined;
+
+  // ─── AnswererFlagalac tool channel (one-shot + D-29 retry) ────────────────
+  //
+  // Handled BEFORE the generic round loop: the channel is one-shot by design
+  // (the tool arguments ARE the answer; the `{"ok":true}` result never travels
+  // back), so it needs no rounds — it needs RETRIES.
+  //
+  // D-29 · retry-until-the-channel-works: measured on gemini-3.7-flash with a
+  // real card + scene, one attempt produces a usable body only ~40% of the time
+  // (the rest are refusals or short deflections, often returned as PLAIN TEXT
+  // even though `tool_choice:"required"` was sent). One user turn therefore
+  // failed repeatedly in practice. The payload makes the channel mandatory
+  // ("除了这两次工具调用，一个字都不要输出"), so an attempt that ends without a
+  // `flagalac_body` body is — by this module's own contract — a FAILED attempt.
+  //
+  // EVERY attempt is buffered (including the first): `callOpenAIOnce` streams
+  // its text into the collector, so a refused attempt can never leak into the
+  // chat window followed by the retry's answer.
+  if (toolChannelActive) {
+    let lastAttemptText = '';
+    for (let attempt = 1; attempt <= FLAGALAC_TOOL_RETRY_MAX_ATTEMPTS; attempt++) {
+      let attemptText = '';
+      const collect = (chunk: string) => {
+        attemptText += chunk;
+      };
+      const turn = await callOpenAIOnce(
+        currentMessages,
+        settings,
+        collect,
+        signal,
+        requestTools,
+        'required',
+      );
+      usage = mergeUsage(usage, turn.usage);
+      recycleAnswererFlagalacTurn(turn.toolCalls, collect);
+      const harvested = harvestAnswererFlagalacTurn(turn.toolCalls);
+      lastAttemptText = attemptText;
+      const usable =
+        harvested.body.trim().length > 0 && !isFlagalacRefusalBody(harvested.body);
+      if (usable) {
+        if (attemptText) onChunk(attemptText);
+        return usage;
+      }
+      // F-4（t1 复核）: 最后一发失败时不再先说"正在重试…"再说"已停止重试"——
+      // 只有后面真的有下一发时才播报重试。
+      if (attempt < FLAGALAC_TOOL_RETRY_MAX_ATTEMPTS) {
+        toolUseOptions?.onNotice?.(
+          `[answerer-flagalac] 第 ${attempt}/${FLAGALAC_TOOL_RETRY_MAX_ATTEMPTS} 次尝试未产出正文（判为失败），正在重试…`,
+        );
+      }
+    }
+    // Every attempt failed: surface the last one so the user sees WHAT the model
+    // said instead of an empty bubble, and say so explicitly.
+    if (lastAttemptText) onChunk(lastAttemptText);
+    toolUseOptions?.onNotice?.(
+      `[answerer-flagalac] 连续 ${FLAGALAC_TOOL_RETRY_MAX_ATTEMPTS} 次尝试都未产出正文，已停止重试。`,
+    );
+    return usage;
+  }
 
   // Hard-cap iterations at maxRounds + 1: each "round" is one LLM call that
   // may end in tool_calls; the +1 lets the model produce a final tool-free
@@ -859,18 +947,6 @@ async function fetchOpenAI(
       requestTools,
     );
     usage = mergeUsage(usage, turn.usage);
-
-    // AnswererFlagalac tool channel: ONE-SHOT by design. The tool arguments are
-    // the answer itself, and the action result never travels back to the model
-    // (see recycleAnswererFlagalacTurn), so the turn ends here: nothing is
-    // appended to `currentMessages` and no further round is made. A reply that
-    // carries no tool call (plain text) falls out of the same branch with the
-    // streamed text already delivered to onChunk — displayed as-is (D-03).
-    if (toolChannelActive) {
-      // The returned {"ok":true} is deliberately discarded.
-      recycleAnswererFlagalacTurn(turn.toolCalls, onChunk);
-      return usage;
-    }
 
     if (turn.toolCalls.length === 0 || !executeTool) {
       return usage;

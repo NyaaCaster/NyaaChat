@@ -42,6 +42,7 @@ import {
   collectLinkedKbIds,
   getActivatedKeywordRules,
   isFlagalacTraceCleanupEnabled,
+  isFlagalacUnicodeEncodingEnabled,
 } from "../lib/chatPipeline";
 import { nextBatchSeq, findBoundaryIndex } from "../lib/memoryBoundary";
 import { MessageItem } from "./MessageItem";
@@ -83,7 +84,7 @@ function describeError(err: any): string {
     if (status === 403) return "没有访问权限,请检查 Key 与模型 (403)";
     if (status === 404) return "接口或模型不存在,请检查 Base URL/模型名 (404)";
     if (status === 429) return "触发速率限制或额度不足 (429)";
-    if (status >= 500) return `上游服务错误 (${status}),请稍后重试`;
+    if (status >= 500) return `上游服务异常 (${status})，建议 API 恢复后重发`;
   }
   const msg = err?.message || String(err);
   if (/timeout|超时/i.test(msg)) return "请求超时,请检查网络或代理设置";
@@ -135,6 +136,24 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
   // Transient ComfyUI progress for the bubble currently rendering (queue +
   // step %). Keyed by the generating message id; cleared when it finishes.
   const [comfyProgress, setComfyProgress] = useState<{ id: string; p: ComfyProgress } | null>(null);
+  // t17: transient AnswererFlagalac tool-channel retry notice, rendered INSIDE
+  // the bubble that is currently generating (the console log alone leaves the
+  // bubble blank for the whole retry window — up to 92 s on the real device,
+  // which reads as a freeze). Keyed by the turn's message id so a previous
+  // turn's notice can never paint on a new bubble.
+  //
+  // Kept as two PRIMITIVES (not a `{id, text}` object) on purpose: MessageItem
+  // is React.memo'd, and a freshly allocated object every render would bust the
+  // memo. `undefined`/"" is the "no notice" value and a plain string identity is
+  // stable across re-renders, so the memo skips exactly as before.
+  //
+  // This state is DISPLAY-ONLY: it is never written into `messages`, so it can
+  // never reach the request body or the persisted chat (see the t17 probe
+  // `check-flagalac-retry-bubble.mjs`, which compares request bodies frame by
+  // frame and asserts the payload is byte-identical whether or not notices
+  // fired).
+  const [retryNoticeMsgId, setRetryNoticeMsgId] = useState<string | undefined>(undefined);
+  const [retryNoticeText, setRetryNoticeText] = useState<string | undefined>(undefined);
   // P6: ComfyUI pack login gate + exhausted dialog
   const [isAccountOpen, setIsAccountOpen] = useState(false);
   const [showExhaustedDialog, setShowExhaustedDialog] = useState(false);
@@ -240,6 +259,23 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
         ? [...regexScripts, ...flagalacTraceScripts]
         : regexScripts,
     [regexScripts, flagalacTraceScripts],
+  );
+
+  // AnswererFlagalac unicodeEncoding (D-28/D-27) — display-side gate (F-2).
+  //
+  // The stored text keeps the model's `\uXXXX` escapes on purpose, and MessageItem
+  // decodes them for DISPLAY and COPY. That decode only makes sense while the
+  // option is actually in effect: with it off, a literal `\uXXXX` in an ordinary
+  // chat (pasted JSON / regex / code) must render and copy byte-for-byte. Resolved
+  // here by the same P1 gate the send path uses, then handed down as a primitive
+  // boolean so MessageItem's memo is not busted by a fresh identity.
+  //
+  // Trade-off (see MessageItem's prop doc): turning 阵地制作 off leaves an already
+  // escape-encoded history showing literal `\uXXXX`. Chosen deliberately — 「未启用
+  // 时零差异」 wins; re-enabling the option makes that history readable again.
+  const flagalacDecodeEscapes = React.useMemo(
+    () => isFlagalacUnicodeEncodingEnabled(settings.bypass?.answererFlagalac),
+    [settings.bypass?.answererFlagalac],
   );
 
   const handleStop = () => {
@@ -527,6 +563,11 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
       { id: botMessageId, role: "assistant", content: "", timestamp: Date.now() },
     ]);
     setIsLoading(true);
+    // t17: a new turn owns the bubble status line — never inherit the previous
+    // turn's notice (belt-and-braces next to the msgId key and the isLoading
+    // gate at the render site).
+    setRetryNoticeMsgId(undefined);
+    setRetryNoticeText(undefined);
 
     // Web search runs first when enabled. The chat AbortController is
     // created up-front so the user's Stop button cancels both phases (in
@@ -722,7 +763,12 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
       // block by default. This protects users from the "system prompt
       // talks about tool data the model can't actually invoke" footgun.
       let mcpToolUseOptions:
-        | { tools: LlmTool[]; executeTool: ToolExecutor; onToolEvent: (e: any) => void }
+        | {
+            tools: LlmTool[];
+            executeTool: ToolExecutor;
+            onToolEvent: (e: any) => void;
+            onNotice?: (message: string) => void;
+          }
         | undefined;
       let advertisedToolNames: string[] = [];
       const anyToolEnabled =
@@ -775,6 +821,15 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
                   },
                 });
               },
+              // D-29: surface the AnswererFlagalac tool-channel retries in the
+              // console log so a silent retry is visible to the user.
+              // t17: ALSO mirror the same text into the bubble's status line —
+              // the console is not where the user is looking during a 92 s wait.
+              onNotice: (message: string) => {
+                onAddLog({ direction: "info", content: message });
+                setRetryNoticeMsgId(botMessageId);
+                setRetryNoticeText(message);
+              },
             };
             onAddLog({
               direction: "info",
@@ -817,6 +872,26 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
             hint: "在『管理模型』里给该模型重跑健康检查，或切换到支持工具调用的模型",
           },
         });
+      }
+
+      // The AnswererFlagalac tool channel does not need MCP tools, but it DOES
+      // report retry progress through the same options object (D-29). Keep an
+      // empty shell when no MCP tool is advertised so those notices still reach
+      // the console log — `tools: []` leaves every request shape untouched
+      // (api.ts only sends a `tools` field when the array is non-empty).
+      if (!mcpToolUseOptions) {
+        mcpToolUseOptions = {
+          tools: [],
+          executeTool: async () => ({ ok: false, message: "no tool advertised" }),
+          onToolEvent: () => {},
+          onNotice: (message: string) => {
+            onAddLog({ direction: "info", content: message });
+            // t17: same mirror as the MCP branch above (the AnswererFlagalac
+            // tool channel reports its retries through this empty shell).
+            setRetryNoticeMsgId(botMessageId);
+            setRetryNoticeText(message);
+          },
+        };
       }
 
       const messagesForApi = buildRequestMessages({
@@ -921,6 +996,12 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
     } finally {
       setIsLoading(false);
       abortControllerRef.current = null;
+      // t17: the single reset point for the retry status line — reached on
+      // success, on error AND on user abort (every abort return inside
+      // sendChat still unwinds through this finally), so the status line can
+      // never outlive the turn that produced it.
+      setRetryNoticeMsgId(undefined);
+      setRetryNoticeText(undefined);
     }
   };
   // Keep the ref pointing at the latest sendChat closure so stabilized callbacks
@@ -2003,7 +2084,23 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
                           : undefined
                       }
                       busy={isLoading}
+                      // t17: retry status line for THIS bubble only. A primitive
+                      // (undefined / string) exactly like `imageProgressText`, so
+                      // a bubble with no notice gets the same value it had before
+                      // this feature and React.memo keeps skipping it; the
+                      // generating bubble's value genuinely changes when a new
+                      // notice arrives, which is what busts its memo and paints
+                      // the line. The `isLoading` + msgId gate means a notice left
+                      // over from a finished/aborted turn can never render (they
+                      // are also cleared together in sendChat's finally, and reset
+                      // at the start of every turn).
+                      retryNoticeText={
+                        isLoading && retryNoticeMsgId === message.id
+                          ? retryNoticeText
+                          : undefined
+                      }
                       regexScripts={displayRegexScripts}
+                      decodeFlagalacEscapes={flagalacDecodeEscapes}
                       coverUrl={coverUrl}
                       frontendRenderingEnabled={
                         settings.isFrontendRenderingEnabled &&

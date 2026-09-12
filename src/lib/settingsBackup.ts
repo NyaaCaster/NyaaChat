@@ -2,6 +2,7 @@ import { AppState, ImageProvider, LlmProvider, ModelEntry } from "../types";
 import { wordCheckTemplates } from "./WordCheckTemplates";
 import { wordCountTemplates } from "./WordCountTemplates";
 import { normalizeAnswererFlagalacState } from "./FlagalacTemplates";
+import { requiredStreamingForTarget } from "./flagalacOptions";
 import { loadCover, saveCover } from "./coverStorage";
 import { COMFYUI_FIXED_NAME, createDefaultLlmProviders, defaultComfyFields } from "./providers";
 import { MIN_THRESHOLD_PCT, MAX_THRESHOLD_PCT, DEFAULT_THRESHOLD_PCT } from "./contextBudget";
@@ -21,7 +22,17 @@ const EXPORT_KIND = "nyaachat_settings_export";
  *  (`bypass.answererFlagalac.perTarget`) + the streaming override flag; its
  *  validation and backfill go through the same
  *  `normalizeAnswererFlagalacState()` the localStorage load path uses.
- *  Older files are still accepted and backfilled during import. */
+ *  Older files are still accepted and backfilled during import.
+ *
+ *  ⚠️ **v9 仍是当前版本，且刻意不再上调**（2026-09-13）：此后对
+ *  AnswererFlagalac 的改动都是**双向兼容的增删** ——
+ *    · 载荷文本改为不可由用户改写（D-30）⇒ `perTarget[id].templates` 退休。
+ *      它是**可选**字段：新代码忽略它（老存档照常导入），新导出不再写它，
+ *      老版本读到"没有该键"也不会报错；
+ *    · 目标一新增子选项 `unicodeEncoding`（D-31）⇒ 老存档缺该键时按
+ *      `defaultEnabled` 落回（收敛规则③），老版本则把未知 id 静默丢弃。
+ *  上调版本号只会**单方面**让老版本拒绝新存档（`SUPPORTED_IMPORT_VERSIONS`
+ *  的上限），换不到任何校验收益 —— 保持 v9 才是兼容性最优解。 */
 const EXPORT_VERSION = 9;
 const SUPPORTED_IMPORT_VERSIONS = new Set([2, 3, 4, 5, 6, 7, 8, 9]);
 
@@ -69,12 +80,52 @@ function formatTimestampForFilename(d: Date): string {
 }
 
 /**
- * Build the export payload, serialize it, and trigger a browser download.
- * Filename is `NyaaChatSetting-YYMMDDhhmmss.json` per spec.
+ * Strip the **retired-field set** from `perTarget[id]` on the export side.
+ * 退休字段集合（**当前含 `templates`、`layer`；新增退休键时在此登记**）：
+ *   · `templates`（D-30：载荷文本不可由用户改写 ⇒ 死数据）
+ *   · `layer`（同一批 D-30 把选项声明里的 `layer` 整段删除）
+ * It makes the statement "新导出不再写它" true for **every** export route — the
+ * local download and the cloud upload both go through `buildExportPayload()`.
  *
- * Caveat: the JSON contains API keys in plaintext. Caller must surface a
- * warning to the user — this helper trusts the explicit click.
+ * Protection, not repair: the in-memory state is normally already normalized by
+ * `normalizeAnswererFlagalacState()` (App.tsx load / settings import), which drops
+ * both keys; neither was ever written by the product. A hand-edited localStorage
+ * or any future writer must not be able to leak them into an archive.
+ *
+ * ⚠️ （t12 更正，2026-09-13；原句保留不删）上面那句 "**neither was ever written by
+ * the product**" **对 `templates` 不成立**：`templates` **有过真实写入点** ——
+ * verifier-data 的 `pG` **G8** 抓到的「本地下载路径泄漏」正是因此（`exportSettings()`
+ * 当时自己内联拼 payload，绕过了本函数，于是把在内存里的 `templates` 写进了归档）。
+ * 真正"从未被产品写入、只是声明层字段"的只有 **`layer`**（D-31 已连同类型一起删除）。
+ * ⇒ 两者**可达性不同**：`layer` 属纯声明残留，`templates` 属**曾经可达、已收敛**；
+ * 本函数对两者一视同仁地剥离，但不要再用"从未写入"去描述 `templates`。
+ *
+ * Export-only by design: the IMPORT side stays lenient (`validateImportPayload`
+ * below accepts archives that still carry `templates`, it just ignores the value),
+ * so old backups keep importing.
  */
+function stripRetiredFlagalacTemplates(
+  answererFlagalac: AppState["bypass"]["answererFlagalac"],
+): AppState["bypass"]["answererFlagalac"] {
+  const perTarget = answererFlagalac?.perTarget;
+  if (!perTarget || typeof perTarget !== "object" || Array.isArray(perTarget)) {
+    return answererFlagalac;
+  }
+  let changed = false;
+  const next: typeof perTarget = {};
+  for (const [id, entry] of Object.entries(perTarget)) {
+    const raw = entry as Record<string, unknown> | null;
+    if (raw && typeof raw === "object" && ("templates" in raw || "layer" in raw)) {
+      const { templates: _retiredTemplates, layer: _retiredLayer, ...rest } = raw;
+      next[id] = rest as (typeof perTarget)[string];
+      changed = true;
+    } else {
+      next[id] = entry;
+    }
+  }
+  return changed ? { ...answererFlagalac, perTarget: next } : answererFlagalac;
+}
+
 /**
  * Build the export payload object without triggering a download. Used by the
  * cloud-settings upload flow (SettingsModal) so the same stripping + timestamp
@@ -87,6 +138,10 @@ export function buildExportPayload(settings: AppState): ExportPayload {
     exportedAt: new Date().toISOString(),
     settings: {
       ...settings,
+      bypass: {
+        ...settings.bypass,
+        answererFlagalac: stripRetiredFlagalacTemplates(settings.bypass?.answererFlagalac),
+      },
       llmProviders: settings.llmProviders.map(stripLlmProvider),
       imageProviders: settings.imageProviders.map(stripImageProvider),
     },
@@ -153,17 +208,24 @@ export async function applyDownloadedCovers(covers: Record<string, string>): Pro
   }
 }
 
+/**
+ * Build the export payload, serialize it, and trigger a browser download.
+ * Filename is `NyaaChatSetting-YYMMDDhhmmss.json` per spec.
+ *
+ * Caveat: the JSON contains API keys in plaintext. Caller must surface a
+ * warning to the user — this helper trusts the explicit click.
+ *
+ * （t12：本块原是被夹在 `stripRetiredFlagalacTemplates` 文档之前的**悬空 JSDoc**
+ *  —— 它在 HEAD 就已是悬空状态，V2 只是把新函数插在了它下面；现搬回本函数正上方。
+ *  仅注释；措辞与内容未改，且因 `exportSettings()` 已收敛到 `buildExportPayload()`
+ *  而重新准确。）
+ */
 export function exportSettings(settings: AppState): void {
-  const payload: ExportPayload = {
-    _kind: EXPORT_KIND,
-    _version: EXPORT_VERSION,
-    exportedAt: new Date().toISOString(),
-    settings: {
-      ...settings,
-      llmProviders: settings.llmProviders.map(stripLlmProvider),
-      imageProviders: settings.imageProviders.map(stripImageProvider),
-    },
-  };
+  // 走同一个构造器（而不是本地再拼一份）：t10/pG 的 G8 实测发现旧写法绕过了
+  // `buildExportPayload()` ⇒ 「本地下载」这条导出路径仍会把已退休的
+  // `perTarget[*].templates` 写进归档。收敛到单一构造器后，两条导出路径
+  // （本地下载 / 云端上传）的剔除逻辑不可能再分叉。
+  const payload = buildExportPayload(settings);
 
   const blob = new Blob([JSON.stringify(payload, null, 2)], {
     type: "application/json",
@@ -401,6 +463,9 @@ function validateImportPayload(raw: unknown): ImportResult {
               ) {
                 issues.push(`bypass.answererFlagalac.perTarget.${id}.options 必须是对象`);
               }
+              // `templates`（用户改过的载荷文本）已在 D-30 退休：新导出不再写它，
+              // 读写两侧都忽略它。这里仍保留"若存在必须是对象"的**宽松**校验，
+              // 只为让 v≤9 的老存档照常导入，而不是把它当成必需字段。
               const tpls = (entry as Record<string, unknown>).templates;
               if (
                 tpls !== undefined &&
@@ -550,6 +615,25 @@ function validateImportPayload(raw: unknown): ImportResult {
     delete normalizedFlagalac.streamingOverridden;
   }
   bp.answererFlagalac = normalizedFlagalac;
+
+  // AnswererFlagalac — restore the target's **streaming requirement** too.
+  //
+  // Selecting a bypass target in the UI writes `isStreaming` to whatever the
+  // target demands (`requiresStreaming`; e.g. gemini3.7flash's payload requires
+  // streaming OFF — D-11), and `streamingOverridden` marks a user who changed the
+  // toggle by hand afterwards (D-09/D-10: never restore an old value, never fight
+  // the user).
+  //
+  // An imported archive is a restore of that whole decision, so replay the
+  // requirement here as well — otherwise a restored config can be *active but
+  // mis-configured* (target selected while streaming is on), which is precisely
+  // the combination that produced the failures we chased on 2026-09-13. The
+  // archive's own override flag still wins: only `streamingOverridden !== true`
+  // is rewritten.
+  const importedStreaming = requiredStreamingForTarget(normalizedFlagalac.target);
+  if (importedStreaming !== undefined && normalizedFlagalac.streamingOverridden !== true) {
+    filled.isStreaming = importedStreaming;
+  }
 
   // ComfyUI image-provider normalisation
   if (Array.isArray(filled.imageProviders)) {
