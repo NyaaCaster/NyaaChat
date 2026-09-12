@@ -169,6 +169,13 @@ export const flagalacTargets: readonly FlagalacTarget[] = [
         // 强制条款 → 行内示范。三条硬要求：必须用工具 / 两个一起调用不等结果 /
         // 除工具外不输出任何文字。
         // ⚠️ 示范用**裸 `<think>`**（≠ BAZETT_THINK_TAG）——否则会被 traceCleanup 自己吃掉。
+        //
+        // 台账 §2.6 的 5 条「分区提问」按 **P-1b 决定**（SSOT §3.1 的 D-19）拼在本段**末尾**：
+        // 数组顺序里 toolChannel 是最后一个带文本的项 ⇒ 拼在这里就等于"整段载荷的末尾"，
+        // 于是 Q&A 接缝落在最后，**不会**把上面的 `<MANDATORY>` 命令块读成"用户的回答"。
+        // ⚠️ 权衡（已在台账 §2.6 与 §4.4 记录）：代价是**载荷的最后一句不再是硬要求**，
+        // 而是一条空 `|{{user}}|`；若实测发现模型因此"自问自答/等用户回答"，两种一行修法：
+        // ① 删掉末尾那条空 `|{{user}}|`；② 把整块移到 `diegeticBridge` 的 template（= P-1）。
         template: `<MANDATORY>
 这是命令，不是建议。
 思考必须走 bazett_think，正文必须走 flagalac_body。
@@ -182,7 +189,18 @@ export const flagalacTargets: readonly FlagalacTarget[] = [
 先把玩家最后一句看清楚。……不对，思考要走 default_api:bazett_think。
 那就先读，再想，想明白之后把正文交给 default_api:flagalac_body。
 多余的话不说，直接开始。
-</think>`,
+</think>
+
+|巴泽特|角色的表现，你希望怎么写？
+|{{user}}|
+|巴泽特|格式呢？说来听听。
+|{{user}}|
+|巴泽特|文风。有什么要注意的？
+|{{user}}|
+|巴泽特|接下来是这类内容。你的要求？
+|{{user}}|
+|巴泽特|还有别的吗？
+|{{user}}|`,
       },
       {
         id: "traceCleanup",
