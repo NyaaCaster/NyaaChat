@@ -1,8 +1,9 @@
 import { ApiSettings } from '../types';
 import {
-  ANSWERER_BODY_TOOL,
   ANSWERER_FLAGALAC_ACTION_RESULT,
-  ANSWERER_THINK_TOOL,
+  BAZETT_THINK_TOOL,
+  FLAGALAC_BODY_TOOL,
+  FLAGALAC_BYPASS_TAG,
   FLAGALAC_NONE_ID,
   FLAGALAC_TOOL_CHANNEL_OPTION_ID,
   answererFlagalacTools,
@@ -81,15 +82,15 @@ function stripVolatileFlags(content: string | any[]): string | any[] {
  * with no target selected the folded shape — and its byte-for-byte behaviour —
  * is unchanged.
  */
-const ANSWERER_BYPASS_BLOCK_TAG = '<answerer_bypass';
-
 /**
  * Open tag of the payload block, or `''` when the text carries none. Single
- * source of the tag SHAPE for both the R-a probe and the parser further down,
- * so the two can never disagree about what a block looks like.
+ * source of the tag SHAPE for both the R-a probe and the parser further down.
+ * The tag NAME itself comes from `FlagalacTemplates.ts` (`FLAGALAC_BYPASS_TAG`),
+ * which the emitter in `chatPipeline` also uses — so producer and consumer
+ * cannot drift apart.
  */
 function extractAnswererBypassOpenTag(text: string): string {
-  return /<answerer_bypass\b[^>]*>/i.exec(text)?.[0] ?? '';
+  return new RegExp(`<${FLAGALAC_BYPASS_TAG}\\b[^>]*>`, 'i').exec(text)?.[0] ?? '';
 }
 
 /** Value of the `target` attribute of an open tag, or `''` when it is absent. */
@@ -98,7 +99,7 @@ function readAnswererBypassTarget(openTag: string): string {
 }
 
 /**
- * R-a probe — STRICT on purpose: a bare `<answerer_bypass` substring is NOT
+ * R-a probe — STRICT on purpose: a bare `<flagalac_bypass` substring is NOT
  * enough, the open tag must carry a non-empty `target="…"`.
  *
  * WHY — this probe decides whether the tail `system` message stays unfolded, so
@@ -111,7 +112,7 @@ function readAnswererBypassTarget(openTag: string): string {
  * told apart from the module's own output.
  */
 function matchesAnswererBypassBlock(text: string): boolean {
-  if (!text.includes(ANSWERER_BYPASS_BLOCK_TAG)) return false;
+  if (!text.includes(`<${FLAGALAC_BYPASS_TAG}`)) return false;
   const openTag = extractAnswererBypassOpenTag(text);
   return readAnswererBypassTarget(openTag).trim().length > 0;
 }
@@ -138,7 +139,7 @@ function shouldKeepTailSystemAsSystem(messages: ApiMessage[]): boolean {
  * into the tail system message (chatPipeline E1), parsed into the facts the
  * OpenAI request path needs. The attribute format is frozen in SSOT §4.2:
  *
- *   <answerer_bypass target="…" options="toolChannel,traceCleanup">…</answerer_bypass>
+ *   <flagalac_bypass target="…" options="toolChannel,traceCleanup">…</flagalac_bypass>
  *
  * - `target`  — the RESOLVED target id. Anything unknown or retired converges to
  *               `none`, which yields `null`, so a hand-edited save cannot switch
@@ -213,8 +214,8 @@ function answererFlagalacRequestTools(messages: ApiMessage[]): LlmTool[] | null 
  * Recycle one tool-channel turn into visible text.
  *
  * The tool arguments ARE the answer, so nothing else is needed from the model:
- * `answerer_body.content` is streamed through `onChunk` like any other reply
- * text, and `answerer_think.thinking` is wrapped in the thinking tag for the
+ * `flagalac_body.content` is streamed through `onChunk` like any other reply
+ * text, and `bazett_think.thinking` is wrapped in the thinking tag for the
  * display-side cleanup layer.
  *
  * WHAT IS DELIBERATELY MISSING — a `role:"tool"` reply. The action result is the
@@ -747,7 +748,7 @@ async function fetchOpenAI(
   const toolChannelActive = flagalacTools !== null && !(mcpTools && mcpTools.length > 0);
   if (flagalacTools !== null && mcpTools && mcpTools.length > 0) {
     console.warn(
-      `[answerer-flagalac] 工具通道与 MCP 工具互斥：本轮优先使用 MCP 工具，已跳过 ${ANSWERER_THINK_TOOL} / ${ANSWERER_BODY_TOOL}。`,
+      `[answerer-flagalac] 工具通道与 MCP 工具互斥：本轮优先使用 MCP 工具，已跳过 ${BAZETT_THINK_TOOL} / ${FLAGALAC_BODY_TOOL}。`,
     );
   }
   const requestTools: LlmTool[] | undefined =
@@ -764,7 +765,7 @@ async function fetchOpenAI(
   // path keeps the mid-conversation system message on its own.
   //
   // EXCEPTION (AnswererFlagalac R-a): when the tail carries the operator-level
-  // `<answerer_bypass>` payload, keep it as a real `system` message — see
+  // `<flagalac_bypass>` payload, keep it as a real `system` message — see
   // shouldKeepTailSystemAsSystem() above for why, and for why this deliberately
   // does NOT extend to the Anthropic fallback.
   let currentMessages = shouldKeepTailSystemAsSystem(messages)

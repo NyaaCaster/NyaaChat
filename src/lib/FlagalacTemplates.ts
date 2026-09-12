@@ -342,16 +342,28 @@ export function normalizeAnswererFlagalacState(raw: unknown): FlagalacResolvedSt
 /** 开关 id（即持久化键）：api.ts 用它判断「工具通道」是否启用。发布后不可改。 */
 export const FLAGALAC_TOOL_CHANNEL_OPTION_ID = "toolChannel";
 
-/** 思考工具的 Function Tool 名（**会进入 API 请求体**，发布后不可改）。 */
-export const ANSWERER_THINK_TOOL = "answerer_think";
-/** 正文工具的 Function Tool 名（同上）。 */
-export const ANSWERER_BODY_TOOL = "answerer_body";
+/**
+ * 两个 Function Tool 名（**会进入 API 请求体**）。命名遵循模块的分工
+ * （SSOT §3.1 的 D-18；角色档案 §1.7）：**思考的是角色巴泽特** ⇒ `bazett_think`；
+ * **干活的是礼装 Flagalac** ⇒ `flagalac_body`。
+ * ⚠️ 改这两个串必须**同批**改载荷正文里出现的工具名（两份台账 §2 的 `toolChannel` 段）。
+ */
+export const BAZETT_THINK_TOOL = "bazett_think";
+export const FLAGALAC_BODY_TOOL = "flagalac_body";
 
 /**
- * 思考痕迹标签名。模型产出的思考、请求侧的清理规则、显示侧的转义规则三处
+ * 思考痕迹标签名 —— **思考的是角色巴泽特**，故标签挂她的名字。
+ * 模型产出的思考、请求侧的清理规则、显示侧的转义规则三处
  * **必须同名**，否则清理要么漏掉、要么吃掉正文。
  */
-export const FLAGALAC_THINK_TAG = "think_flagalac";
+export const BAZETT_THINK_TAG = "think_bazett";
+
+/**
+ * 载荷块的标签名 —— **干活的是礼装 Flagalac**，故块挂礼装的名字。
+ * E1 产出（`chatPipeline`）与 R-a 探测 / P7 解析（`api.ts`）**共用这一个来源**：
+ * 任何一侧写死字面量，都会让"模块到底启用了没有"的判定分叉。
+ */
+export const FLAGALAC_BYPASS_TAG = "flagalac_bypass";
 
 /**
  * 工具通道 action 的固定假结果。刻意固定成这个字面量：它只是让「工具调用」在
@@ -381,7 +393,7 @@ export interface FlagalacToolDescriptor {
  */
 export const answererFlagalacTools: readonly FlagalacToolDescriptor[] = [
   {
-    name: ANSWERER_THINK_TOOL,
+    name: BAZETT_THINK_TOOL,
     description: "Mandatory. Think here first; put the whole reasoning in `thinking`.",
     inputSchema: {
       type: "object",
@@ -396,7 +408,7 @@ export const answererFlagalacTools: readonly FlagalacToolDescriptor[] = [
     },
   },
   {
-    name: ANSWERER_BODY_TOOL,
+    name: FLAGALAC_BODY_TOOL,
     description: "Mandatory. Write the reply here; put the whole reply text in `content`.",
     inputSchema: {
       type: "object",
@@ -414,9 +426,9 @@ export const answererFlagalacTools: readonly FlagalacToolDescriptor[] = [
 
 /** 一次响应里从工具调用中回收到的内容。 */
 export interface FlagalacToolHarvest {
-  /** `answerer_think.thinking` 的拼接结果（多次调用以空行分隔）。 */
+  /** `bazett_think.thinking` 的拼接结果（多次调用以空行分隔）。 */
   thinking: string;
-  /** `answerer_body.content` 的拼接结果（多次调用以空行分隔）。 */
+  /** `flagalac_body.content` 的拼接结果（多次调用以空行分隔）。 */
   body: string;
   /** 参数不是合法 JSON、或缺少必需字段/类型不对的调用次数。 */
   malformed: number;
@@ -428,8 +440,8 @@ export interface FlagalacToolHarvest {
  * 把一条回复里的工具调用回收成可见文本。
  *
  * 规则（与 SSOT §4.5 一致）：
- *   - `answerer_think.thinking` → `thinking`（调用方再包上思维标签，交显示侧处理）；
- *   - `answerer_body.content` → `body`（调用方经 `onChunk` 当作正文流出去）；
+ *   - `bazett_think.thinking` → `thinking`（调用方再包上思维标签，交显示侧处理）；
+ *   - `flagalac_body.content` → `body`（调用方经 `onChunk` 当作正文流出去）；
  *   - 其它工具名 → `ignored`（由调用方记录，不静默丢弃）；
  *   - 参数无法解析或缺必需字段 → 计入 `malformed`，跳过该次调用而不是塞进正文；
  *   - 空字符串参数没有内容可回收，静默跳过（不算异常）。
@@ -449,8 +461,8 @@ export function harvestFlagalacToolCalls(
 
   for (const call of calls) {
     const name = call?.name ?? "";
-    const isThink = name === ANSWERER_THINK_TOOL;
-    const isBody = name === ANSWERER_BODY_TOOL;
+    const isThink = name === BAZETT_THINK_TOOL;
+    const isBody = name === FLAGALAC_BODY_TOOL;
     if (!isThink && !isBody) {
       if (name) harvest.ignored.push(name);
       continue;
@@ -489,5 +501,5 @@ export function harvestFlagalacToolCalls(
  * 请求侧清理规则同名，因此历史里的旧思考不会回传模型。
  */
 export function wrapFlagalacThinking(thinking: string): string {
-  return `<${FLAGALAC_THINK_TAG}>${thinking}</${FLAGALAC_THINK_TAG}>`;
+  return `<${BAZETT_THINK_TAG}>${thinking}</${BAZETT_THINK_TAG}>`;
 }
