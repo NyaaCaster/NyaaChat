@@ -485,49 +485,58 @@ export function applyFlagalacTraceCleanup(text: string, placement: number): stri
  *
  * 规则二用 lookahead 要求"块后还有闭合标签"：缺闭合标签时（A16）原地不动，
  * 既不截断正文，也不会把块外的标签误转义。
+ *
+ * 冻结：数组与每个元素都 `Object.freeze`（V2 加固，SSOT §11.2 注）——这份规则是
+ * 模块级共享常量，任何就地修改都会污染**所有**会话的渲染；冻结后误改在严格模式下
+ * 直接抛错，而不是静默生效。
  */
-const FLAGALAC_TRACE_DISPLAY_SCRIPTS: RegexScript[] = [
-  {
-    id: "answerer-trace-escape",
-    scriptName: "answerer: escape tags inside thought block",
-    findRegex: `/<(?<tag>(?!\\/?${FLAGALAC_THINK_TAG}>)[^<>]+)>(?=(?:(?!<\\/?${FLAGALAC_THINK_TAG}>)[\\s\\S])*<\\/${FLAGALAC_THINK_TAG}>)/g`,
-    // `&#8203;`（零宽空格）隔在标签名与尖括号之间：渲染后不会被当成 HTML 标签
-    // 二次解析。
-    replaceString: "&lt;&#8203;$<tag>&gt;",
-    trimStrings: [],
-    placement: [regex_placement.AI_OUTPUT],
-    disabled: false,
-    markdownOnly: true,
-    promptOnly: false,
-    runOnEdit: false,
-    substituteRegex: 0,
-    minDepth: null,
-    maxDepth: null,
-  },
-  {
-    id: "answerer-trace-control",
-    scriptName: "answerer: strip control tokens",
-    findRegex:
-      "/^[ \\t]*<\\|im_start\\|>gemini[ \\t]*\\r?\\n[\\s\\S]*?^[ \\t]*<\\|im_end\\|>[ \\t]*\\r?\\n*|^[ \\t]*(?:<\\|im_start\\|>[^\\r\\n]*|<\\|(?:im_end|pad|pad_end)\\|>)[ \\t]*\\r?\\n?/gmi",
-    replaceString: "",
-    trimStrings: [],
-    placement: [regex_placement.USER_INPUT, regex_placement.AI_OUTPUT],
-    disabled: false,
-    markdownOnly: true,
-    promptOnly: false,
-    runOnEdit: false,
-    substituteRegex: 0,
-    minDepth: null,
-    maxDepth: null,
-  },
-];
+const FLAGALAC_TRACE_DISPLAY_SCRIPTS: readonly RegexScript[] = Object.freeze(
+  ([
+    {
+      id: "answerer-trace-escape",
+      scriptName: "answerer: escape tags inside thought block",
+      findRegex: `/<(?<tag>(?!\\/?${FLAGALAC_THINK_TAG}>)[^<>]+)>(?=(?:(?!<\\/?${FLAGALAC_THINK_TAG}>)[\\s\\S])*<\\/${FLAGALAC_THINK_TAG}>)/g`,
+      // `&#8203;`（零宽空格）隔在标签名与尖括号之间：渲染后不会被当成 HTML 标签
+      // 二次解析。
+      replaceString: "&lt;&#8203;$<tag>&gt;",
+      trimStrings: [],
+      placement: [regex_placement.AI_OUTPUT],
+      disabled: false,
+      markdownOnly: true,
+      promptOnly: false,
+      runOnEdit: false,
+      substituteRegex: 0,
+      minDepth: null,
+      maxDepth: null,
+    },
+    {
+      id: "answerer-trace-control",
+      scriptName: "answerer: strip control tokens",
+      findRegex:
+        "/^[ \\t]*<\\|im_start\\|>gemini[ \\t]*\\r?\\n[\\s\\S]*?^[ \\t]*<\\|im_end\\|>[ \\t]*\\r?\\n*|^[ \\t]*(?:<\\|im_start\\|>[^\\r\\n]*|<\\|(?:im_end|pad|pad_end)\\|>)[ \\t]*\\r?\\n?/gmi",
+      replaceString: "",
+      trimStrings: [],
+      placement: [regex_placement.USER_INPUT, regex_placement.AI_OUTPUT],
+      disabled: false,
+      markdownOnly: true,
+      promptOnly: false,
+      runOnEdit: false,
+      substituteRegex: 0,
+      minDepth: null,
+      maxDepth: null,
+    },
+  ] as RegexScript[]).map((script) => Object.freeze(script)),
+);
 
 /**
- * 内置的显示侧规则。返回的是**稳定引用**（模块级常量），因此调用方可以安全地
- * 把它放进 memo 的依赖里；未启用时调用方不应调用本函数（门控见
+ * 内置的显示侧规则。返回的是**稳定引用**（模块级常量，已冻结），因此调用方可以
+ * 安全地把它放进 memo 的依赖里；未启用时调用方不应调用本函数（门控见
  * `isFlagalacTraceCleanupEnabled()`）。
+ *
+ * 返回类型是 `readonly RegexScript[]`：消费者只做展开（`[...regexScripts, ...built]`），
+ * 因此只读类型足够，并在编译期就挡住"就地 push/改写内置规则"的写法。
  */
-export function buildFlagalacTraceDisplayScripts(): RegexScript[] {
+export function buildFlagalacTraceDisplayScripts(): readonly RegexScript[] {
   return FLAGALAC_TRACE_DISPLAY_SCRIPTS;
 }
 

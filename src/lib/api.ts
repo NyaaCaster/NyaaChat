@@ -66,8 +66,9 @@ function stripVolatileFlags(content: string | any[]): string | any[] {
  * wins the conflict, while folded into the user turn it loses it. The block is
  * emitted by chatPipeline exactly when the module is active — its body may
  * still be empty while the payload text is pending — so probing the tail for
- * the block tag is sufficient, and it keeps this module from having to reach
- * into app-level settings (api.ts only receives an ApiSettings).
+ * the block tag (strictly, see below) is sufficient, and it keeps this module
+ * from having to reach into app-level settings (api.ts only receives an
+ * ApiSettings).
  *
  * SCOPE — OpenAI-compatible path ONLY (see the call site in fetchOpenAI).
  * `prepareAnthropicPayload` keeps folding on purpose: non-4.8 Claude models
@@ -82,14 +83,45 @@ function stripVolatileFlags(content: string | any[]): string | any[] {
  */
 const ANSWERER_BYPASS_BLOCK_TAG = '<answerer_bypass';
 
+/**
+ * Open tag of the payload block, or `''` when the text carries none. Single
+ * source of the tag SHAPE for both the R-a probe and the parser further down,
+ * so the two can never disagree about what a block looks like.
+ */
+function extractAnswererBypassOpenTag(text: string): string {
+  return /<answerer_bypass\b[^>]*>/i.exec(text)?.[0] ?? '';
+}
+
+/** Value of the `target` attribute of an open tag, or `''` when it is absent. */
+function readAnswererBypassTarget(openTag: string): string {
+  return /(?:^|\s)target\s*=\s*"([^"]*)"/i.exec(openTag)?.[1] ?? '';
+}
+
+/**
+ * R-a probe — STRICT on purpose: a bare `<answerer_bypass` substring is NOT
+ * enough, the open tag must carry a non-empty `target="…"`.
+ *
+ * WHY — this probe decides whether the tail `system` message stays unfolded, so
+ * a false positive silently changes the request shape. Editable content a user
+ * can rewrite shares that same message, so under a substring probe, typing the
+ * tag verbatim would keep the tail unfolded on a turn where no target is
+ * selected, breaking the "inactive ⇒ byte-for-byte identical" guarantee (A11).
+ * Requiring the attribute closes that surface. The accepted residue is a
+ * hand-written but fully well-formed open tag, which by construction cannot be
+ * told apart from the module's own output.
+ */
+function matchesAnswererBypassBlock(text: string): boolean {
+  if (!text.includes(ANSWERER_BYPASS_BLOCK_TAG)) return false;
+  const openTag = extractAnswererBypassOpenTag(text);
+  return readAnswererBypassTarget(openTag).trim().length > 0;
+}
+
 function carriesAnswererBypassBlock(content: ApiMessage['content']): boolean {
-  if (typeof content === 'string') return content.includes(ANSWERER_BYPASS_BLOCK_TAG);
+  if (typeof content === 'string') return matchesAnswererBypassBlock(content);
   if (!Array.isArray(content)) return false;
   return content.some(
     (p: any) =>
-      p?.type === 'text' &&
-      typeof p.text === 'string' &&
-      p.text.includes(ANSWERER_BYPASS_BLOCK_TAG),
+      p?.type === 'text' && typeof p.text === 'string' && matchesAnswererBypassBlock(p.text),
   );
 }
 
@@ -145,11 +177,10 @@ function tailSystemText(messages: ApiMessage[]): string | null {
 
 function readAnswererBypassBlock(messages: ApiMessage[]): AnswererBypassBlock | null {
   const text = tailSystemText(messages);
-  if (!text || !text.includes(ANSWERER_BYPASS_BLOCK_TAG)) return null;
+  if (!text || !matchesAnswererBypassBlock(text)) return null;
 
-  const openTag = /<answerer_bypass\b[^>]*>/i.exec(text)?.[0] ?? '';
-  const rawTarget = /(?:^|\s)target\s*=\s*"([^"]*)"/i.exec(openTag)?.[1] ?? '';
-  const target = resolveFlagalacTarget(rawTarget);
+  const openTag = extractAnswererBypassOpenTag(text);
+  const target = resolveFlagalacTarget(readAnswererBypassTarget(openTag));
   if (target === FLAGALAC_NONE_ID) return null;
 
   const rawOptions = /(?:^|\s)options\s*=\s*"([^"]*)"/i.exec(openTag)?.[1] ?? '';

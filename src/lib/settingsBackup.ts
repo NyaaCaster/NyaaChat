@@ -303,6 +303,18 @@ function validateImportPayload(raw: unknown): ImportResult {
     if (s.isStreaming !== undefined && typeof s.isStreaming !== "boolean") {
       issues.push("isStreaming 必须是布尔");
     }
+    // The `bypass` CONTAINER must be a plain object, at every version. Arrays
+    // satisfy a bare `typeof === "object"`, so `bypass: []` used to slip through
+    // validation and then reach the backfill below, which spread it into the
+    // imported state (SSOT 已知问题 #10). Report it instead of reshaping it
+    // silently: a malformed container means the archive is not trustworthy, and
+    // the message names the offending key so the user can fix the file.
+    if (
+      s.bypass !== undefined &&
+      (s.bypass === null || typeof s.bypass !== "object" || Array.isArray(s.bypass))
+    ) {
+      issues.push("bypass 必须是对象");
+    }
     // bypass.opusChecks shape
     const bp = s.bypass as Record<string, unknown> | undefined;
     if (bp) {
@@ -459,8 +471,11 @@ function validateImportPayload(raw: unknown): ImportResult {
   }
 
   // Bypass — ensure the object and all its sub-objects exist with defaults
-  // matching App.tsx's DEFAULT_SETTINGS.bypass.
-  if (!filled.bypass || typeof filled.bypass !== "object") {
+  // matching App.tsx's DEFAULT_SETTINGS.bypass. Arrays are rejected here too:
+  // `validateImportPayload()` already reports `bypass: []` as an issue, and this
+  // guard keeps the fallback path (used when an older caller skips validation)
+  // from spreading array indices into the imported object.
+  if (!filled.bypass || typeof filled.bypass !== "object" || Array.isArray(filled.bypass)) {
     filled.bypass = {};
   }
   const bp = filled.bypass as Record<string, unknown>;
