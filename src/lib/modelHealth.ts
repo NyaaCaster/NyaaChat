@@ -303,8 +303,21 @@ const KNOWN_LIMITS: Array<{ pattern: RegExp; limits: ModelLimits }> = [
   { pattern: /^claude-/, limits: { contextWindow: 200_000, maxOutput: 4_096 } },
 
   // Google Gemini
-  { pattern: /gemini-2.*pro/, limits: { contextWindow: 2_000_000, maxOutput: 8_192 } },
-  { pattern: /gemini-2.*flash/, limits: { contextWindow: 1_000_000, maxOutput: 8_192 } },
+  // Gemini 3 系：上下文 1000K / 最大输出 64K —— 与 NyaaQiny-MCP
+  // `src/qinyapi/modelsMeta.ts` 的静态表对齐（该表与本表前提相同：网关的
+  // `/v1/models` 不暴露 `context_length` / `max_output_tokens`，静态表即唯一事实来源）。
+  // 2026-09-13 用户用 NyaaQiny-MCP 实测 `gemini-3.1-pro-preview` = 1000K / 64K；
+  // 修前它落到下面的 `/^gemini-/` 兜底（32K / 8.2K）⇒ 属推断错误，本条修正之。
+  // 该规则同时覆盖 gemini-3.7-flash / 3.5-* / 3-flash 等（NyaaQiny 表中同为 1000/64）。
+  { pattern: /gemini-3/, limits: { contextWindow: 1_000_000, maxOutput: 65_536 } },
+  // 2026-09-13 真机实测（QinyAPI 默认组与 GCP 组各 2 发，两模型 × 两分组结果一致）：
+  //   输入 1,058,357 tok ⇒ 400「The input token count (1058357) exceeds the maximum number
+  //   of tokens allowed (1048576)」；`max_tokens: 65536` ⇒ 200、`65537` ⇒ 400
+  //   「maxOutputTokens ... supported range is from 1 (inclusive) to 65537 (exclusive)」。
+  //   ⇒ 2.5-pro / 2.5-flash 同为 **1,048,576 / 65,536**；修前 pro 的 2M 与两者的 8.2K 输出
+  //   （1.5 系遗留值与兜底值）均属推断错误，本条修正之（与 NyaaQiny 表的 1000K / 64K 一致）。
+  { pattern: /gemini-2.*pro/, limits: { contextWindow: 1_048_576, maxOutput: 65_536 } },
+  { pattern: /gemini-2.*flash/, limits: { contextWindow: 1_048_576, maxOutput: 65_536 } },
   { pattern: /gemini-1\.5-pro/, limits: { contextWindow: 2_000_000, maxOutput: 8_192 } },
   { pattern: /gemini-1\.5-flash/, limits: { contextWindow: 1_000_000, maxOutput: 8_192 } },
   { pattern: /^gemini-/, limits: { contextWindow: 32_000, maxOutput: 8_192 } },
