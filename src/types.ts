@@ -103,16 +103,39 @@ export interface BypassSettings {
     enabled: boolean;
     template: string;
   };
-  /** AnswererFlagalac —— 审核绕过目标（单选）。独立模块：`target` 为 "none"
-   *  （默认）时本模块不生效，选中其他条目时启用对应目标的绕过逻辑。可选条目、
-   *  显示名称与默认值统一定义在 lib/FlagalacTemplates.ts —— 新增/下线目标只改
-   *  那一个文件。
+  /** AnswererFlagalac —— 审核绕过目标（单选）+ 每个目标下的子选项开关。
+   *  独立模块：`target` 为 "none"（默认）时本模块不生效，选中其他条目时启用
+   *  对应目标的绕过逻辑。可选条目、子选项、显示名称与默认值统一定义在
+   *  lib/FlagalacTemplates.ts —— 新增/下线目标或开关只改那一个文件。
    *
    *  这里刻意用宽类型 `string` 而非字面量联合：条目清单是数据而非类型，新增
-   *  一个模型版本不应要求同步改类型定义。读取时统一走 resolveFlagalacTarget()
-   *  收敛到已知 id（未知/失效值回落 "none"）。 */
+   *  一个模型版本不应要求同步改类型定义。读取时统一走
+   *  normalizeAnswererFlagalacState()（lib/FlagalacTemplates.ts）收敛为合法形状
+   *  —— 未知/失效 target 回落 "none"，未知 option id 丢弃，缺键用默认值。
+   *
+   *  **全部状态只住在这一个字段里**（不散落到 BypassSettings 其它位置），
+   *  这样整个模块可以被一次性摘除：见私有仓的《功能文件清单与移除说明》。 */
   answererFlagalac: {
+    /** 收敛后的合法目标 id。 */
     target: string;
+    /** 每个目标各自的开关状态与（用户改过的）载荷文本。
+     *  - `options`：缺键 ⇒ 用模板里的 defaultEnabled（**新增开关无需迁移**）；
+     *    已下线/未知的 option id 在读取时丢弃，不会借旧备份复活。
+     *  - `templates`：只存被用户改过的载荷（等于默认值的条目不落盘）。 */
+    perTarget: Record<
+      string,
+      {
+        options: Record<string, boolean>;
+        templates?: Record<string, string>;
+      }
+    >;
+    /** **单个布尔**（不是 per-target 映射）：目标激活期间用户手动改过流式开关 ⇒
+     *  true，此后当前目标的自动同步不再改写 `isStreaming`（开发计划 §4.4 规则 4 /
+     *  D-10）。**每次目标切换都会被清除**（同步策略见 lib/flagalacOptions.ts），
+     *  切回「无」时也只是一并清掉它、**不恢复**原流式值（D-09）。
+     *  非布尔值在读取归一化时按“未设置”丢弃（lib/FlagalacTemplates.ts 的
+     *  normalizeAnswererFlagalacState）。 */
+    streamingOverridden?: boolean;
   };
 }
 

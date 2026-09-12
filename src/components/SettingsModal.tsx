@@ -22,6 +22,7 @@ import { BaseModal } from "./BaseModal";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ToggleSwitch } from "./SettingsFormBits";
 import { exportSettings, parseImportText, buildExportPayload, collectLocalCovers, applyDownloadedCovers } from "../lib/settingsBackup";
+import { markStreamingOverridden } from "../lib/flagalacOptions";
 import {
   loadStoredAccount,
   downloadCloudSettings,
@@ -129,8 +130,13 @@ export function SettingsModal({
     onSave({ ...settings, sendMode });
   };
 
+  // Manual change of the global streaming switch. When an AnswererFlagalac
+  // target is active this also records the override flag: from then on that
+  // target's auto-sync no longer rewrites `isStreaming` (开发计划 §4.4 规则 4 /
+  // D-10). The flag is cleared on every target switch — see
+  // lib/flagalacOptions.ts.
   const handleStreamingToggle = (next: boolean) => {
-    onSave({ ...settings, isStreaming: next });
+    onSave(markStreamingOverridden({ ...settings, isStreaming: next }));
   };
 
   const handleFrontendRenderingToggle = (next: boolean) => {

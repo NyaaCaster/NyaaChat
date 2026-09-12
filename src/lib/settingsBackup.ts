@@ -1,7 +1,7 @@
 import { AppState, ImageProvider, LlmProvider, ModelEntry } from "../types";
 import { wordCheckTemplates } from "./WordCheckTemplates";
 import { wordCountTemplates } from "./WordCountTemplates";
-import { FLAGALAC_NONE_ID, resolveFlagalacTarget } from "./FlagalacTemplates";
+import { normalizeAnswererFlagalacState } from "./FlagalacTemplates";
 import { loadCover, saveCover } from "./coverStorage";
 import { COMFYUI_FIXED_NAME, createDefaultLlmProviders, defaultComfyFields } from "./providers";
 import { MIN_THRESHOLD_PCT, MAX_THRESHOLD_PCT, DEFAULT_THRESHOLD_PCT } from "./contextBudget";
@@ -17,9 +17,13 @@ const EXPORT_KIND = "nyaachat_settings_export";
  *  v8 drops the retired ClavisSalomonis bypass fields (`bypass.enabled`,
  *  `templateName`, the seven template toggles, `customTemplates`) — imports
  *  carrying them have those keys stripped during backfill.
+ *  v9 adds the AnswererFlagalac per-target sub-option switches
+ *  (`bypass.answererFlagalac.perTarget`) + the streaming override flag; its
+ *  validation and backfill go through the same
+ *  `normalizeAnswererFlagalacState()` the localStorage load path uses.
  *  Older files are still accepted and backfilled during import. */
-const EXPORT_VERSION = 8;
-const SUPPORTED_IMPORT_VERSIONS = new Set([2, 3, 4, 5, 6, 7, 8]);
+const EXPORT_VERSION = 9;
+const SUPPORTED_IMPORT_VERSIONS = new Set([2, 3, 4, 5, 6, 7, 8, 9]);
 
 export interface ExportPayload {
   _kind: typeof EXPORT_KIND;
@@ -352,14 +356,49 @@ function validateImportPayload(raw: unknown): ImportResult {
 
   // v7 fields: AnswererFlagalac single-select bypass target. Pre-v7 archives
   // lack it entirely — accepted and backfilled below (to「无」).
+  // v9 adds the per-target sub-option switches (`perTarget`) and the streaming
+  // override flag. Pre-v9 archives lack those — accepted and backfilled below.
+  // Only rejected values (wrong primitive types) are reported as issues.
   if (obj._version >= 7) {
     const bp = s.bypass as Record<string, unknown> | undefined;
     const af = bp?.answererFlagalac as Record<string, unknown> | undefined;
     if (af !== undefined) {
       if (!af || typeof af !== "object" || Array.isArray(af)) {
         issues.push("bypass.answererFlagalac 必须是对象");
-      } else if (af.target !== undefined && typeof af.target !== "string") {
-        issues.push("bypass.answererFlagalac.target 必须是字符串");
+      } else {
+        if (af.target !== undefined && typeof af.target !== "string") {
+          issues.push("bypass.answererFlagalac.target 必须是字符串");
+        }
+        // `streamingOverridden`（P3 落的流式覆盖标志）刻意**不做类型校验**：
+        // 它不是本阶段的数据形状，非布尔值由回填时的归一化静默丢弃即可，
+        // 不应因此拒绝整份备份。
+        const pt = af.perTarget;
+        if (pt !== undefined) {
+          if (!pt || typeof pt !== "object" || Array.isArray(pt)) {
+            issues.push("bypass.answererFlagalac.perTarget 必须是对象");
+          } else {
+            for (const [id, entry] of Object.entries(pt as Record<string, unknown>)) {
+              if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+                issues.push(`bypass.answererFlagalac.perTarget.${id} 必须是对象`);
+                continue;
+              }
+              const opts = (entry as Record<string, unknown>).options;
+              if (
+                opts !== undefined &&
+                (!opts || typeof opts !== "object" || Array.isArray(opts))
+              ) {
+                issues.push(`bypass.answererFlagalac.perTarget.${id}.options 必须是对象`);
+              }
+              const tpls = (entry as Record<string, unknown>).templates;
+              if (
+                tpls !== undefined &&
+                (!tpls || typeof tpls !== "object" || Array.isArray(tpls))
+              ) {
+                issues.push(`bypass.answererFlagalac.perTarget.${id}.templates 必须是对象`);
+              }
+            }
+          }
+        }
       }
     }
   }
@@ -477,20 +516,25 @@ function validateImportPayload(raw: unknown): ImportResult {
       lc.template = wordCountTemplates.languageConstraint.content;
   }
 
-  // AnswererFlagalac — always converge to a currently-known target id:
-  // pre-v7 archives have no such field, and an archive may carry an id that was
-  // retired from lib/FlagalacTemplates.ts. Either way the radio list must always
-  // have exactly one entry selected, so missing/unknown →「无」.
-  if (
-    !bp.answererFlagalac ||
-    typeof bp.answererFlagalac !== "object" ||
-    Array.isArray(bp.answererFlagalac)
-  ) {
-    bp.answererFlagalac = { target: FLAGALAC_NONE_ID };
-  } else {
-    const af = bp.answererFlagalac as Record<string, unknown>;
-    af.target = resolveFlagalacTarget(af.target);
+  // AnswererFlagalac — converge to a currently-known target id AND to legal
+  // per-target sub-option switches. Pre-v7 archives have no such field; pre-v9
+  // archives have only `target`; either way an archive may carry a target or a
+  // sub-option id that was retired from lib/FlagalacTemplates.ts. Convergence
+  // rules (unknown target →「无」, unknown option id dropped, missing toggle →
+  // template default) live in normalizeAnswererFlagalacState() so the import
+  // path and the localStorage load path can never drift apart.
+  const normalizedFlagalac = normalizeAnswererFlagalacState(bp.answererFlagalac);
+  // P3 — `streamingOverridden` (the streaming auto-sync override flag) is a
+  // plain boolean and nothing else. A hand-edited archive carrying a string /
+  // number / null must neither reject the whole backup (the import validation
+  // above deliberately skips this key) nor come back as a truthy flag, so any
+  // non-boolean value is dropped here (= "never overridden"). The shared
+  // normalizer already does this; the guard keeps the guarantee local to the
+  // import/backfill path as well.
+  if (typeof normalizedFlagalac.streamingOverridden !== "boolean") {
+    delete normalizedFlagalac.streamingOverridden;
   }
+  bp.answererFlagalac = normalizedFlagalac;
 
   // ComfyUI image-provider normalisation
   if (Array.isArray(filled.imageProviders)) {

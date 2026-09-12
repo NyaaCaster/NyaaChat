@@ -8,7 +8,7 @@ import { AppState, LogEntry } from "./types";
 import { ChatInterface, type ChatInterfaceHandle } from "./components/ChatInterface";
 import { wordCheckTemplates } from "./lib/WordCheckTemplates";
 import { wordCountTemplates } from "./lib/WordCountTemplates";
-import { FLAGALAC_NONE_ID, resolveFlagalacTarget } from "./lib/FlagalacTemplates";
+import { FLAGALAC_NONE_ID, normalizeAnswererFlagalacState } from "./lib/FlagalacTemplates";
 import { COMFYUI_FIXED_NAME, createDefaultImageProviders, createDefaultLlmProviders, defaultComfyFields, inferProvider } from "./lib/providers";
 import { ensureBuiltinLlmProviders } from "./lib/settingsBackup";
 import { newId } from "./lib/id";
@@ -79,7 +79,13 @@ function stripSensitiveLogMeta(meta: unknown): unknown {
 // with per-provider apiKey/baseUrl/models. The legacy single-endpoint `api`
 // and `imageApi` blocks are retained on AppState during the transition until
 // chatPipeline is switched over (phase 3).
-const SCHEMA_VERSION = 10;
+//
+// v11 extends `bypass.answererFlagalac` with the per-target sub-option switches
+// (+ the streaming override flag). Load-time convergence already handles saves
+// written before it (missing `perTarget` reads as "everything at its template
+// default"), so the migration is a version marker only — it exists so the
+// shape change is recorded in the chain rather than silently implied.
+const SCHEMA_VERSION = 11;
 
 function migrate(raw: any): any {
   if (!raw || typeof raw !== "object") return raw;
@@ -111,6 +117,9 @@ function migrate(raw: any): any {
   }
   if (v < 10) {
     raw = migrateV9ToV10(raw);
+  }
+  if (v < 11) {
+    raw = migrateV10ToV11(raw);
   }
 
   return raw;
@@ -156,6 +165,22 @@ function migrateV9ToV10(raw: any): any {
     ...raw,
     bypass: stripRetiredBypassKeys(raw.bypass),
     _version: 10,
+  };
+}
+
+/**
+ * v10 → v11: AnswererFlagalac 增加了「每个目标各自的子选项开关」
+ * （`bypass.answererFlagalac.perTarget`）与流式覆盖标志 `streamingOverridden`。
+ *
+ * 这里**刻意不写任何回填**：该字段的读取归一化（App.tsx 载入时的
+ * normalizeAnswererFlagalacState()）已经在读取时收敛，缺 `perTarget` 等价于
+ * “所有开关都用模板默认值”，因此旧存档无需被改写；本迁移只把版本号推进到 11，
+ * 让这次形状变更有明确记录。若将来确实需要改写存量数据，在这里补即可。
+ */
+function migrateV10ToV11(raw: any): any {
+  return {
+    ...raw,
+    _version: 11,
   };
 }
 
@@ -467,10 +492,14 @@ const DEFAULT_SETTINGS: AppState = {
       enabled: true,
       template: wordCountTemplates.languageConstraint.content,
     },
-    // AnswererFlagalac — single-select bypass target. "none" (no bypass) is
-    // the default; the selectable entries live in lib/FlagalacTemplates.ts.
+    // AnswererFlagalac — single-select bypass target + per-target sub-option
+    // switches. "none" (no bypass) is the default, and an empty `perTarget`
+    // means every switch reads as its template default (no migration needed
+    // when a new switch is added). Selectable entries, their sub-options and
+    // the default toggles live in lib/FlagalacTemplates.ts.
     answererFlagalac: {
       target: FLAGALAC_NONE_ID,
+      perTarget: {},
     },
   },
   userRoles: [
@@ -615,15 +644,13 @@ export default function App() {
               ...DEFAULT_SETTINGS.bypass.languageConstraint,
               ...(parsed.bypass?.languageConstraint || {}),
             },
-            // AnswererFlagalac — normalise the persisted target id so a target
-            // that was retired from lib/FlagalacTemplates.ts (or a hand-edited
-            // localStorage value) can never leave the radio list with nothing
-            // selected. Unknown values fall back to「无」.
-            answererFlagalac: {
-              ...DEFAULT_SETTINGS.bypass.answererFlagalac,
-              ...(parsed.bypass?.answererFlagalac || {}),
-              target: resolveFlagalacTarget(parsed.bypass?.answererFlagalac?.target),
-            },
+            // AnswererFlagalac — converge target + per-target option switches to
+            // a legal shape so a target/option that was retired from
+            // lib/FlagalacTemplates.ts (or a hand-edited localStorage value) can
+            // never leave the radio list with nothing selected or resurrect a
+            // removed switch. Unknown targets fall back to「无」, unknown option
+            // ids are dropped, missing toggles take their template default.
+            answererFlagalac: normalizeAnswererFlagalacState(parsed.bypass?.answererFlagalac),
           },
           userRoles: (() => {
             // v3-: parsed.userRole was a single object → wrap into a list with

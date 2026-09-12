@@ -32,6 +32,7 @@ import {
   applyPlaceholders,
   buildComfyPromptRequest,
   buildFixedComfyPromptRequest,
+  buildFlagalacTraceDisplayScripts,
   buildImagePrompt,
   buildKbSearchContext,
   buildMessageContent,
@@ -40,6 +41,7 @@ import {
   buildSearchContext,
   collectLinkedKbIds,
   getActivatedKeywordRules,
+  isFlagalacTraceCleanupEnabled,
 } from "../lib/chatPipeline";
 import { nextBatchSeq, findBoundaryIndex } from "../lib/memoryBoundary";
 import { MessageItem } from "./MessageItem";
@@ -210,6 +212,35 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
     recompute();
     return subscribeRegexScripts(recompute);
   }, [currentCharacter]);
+
+  // AnswererFlagalac traceCleanup (module SSOT §4.6) — display pipeline.
+  //
+  // These two built-in rules are NOT members of the user-visible regex chain:
+  // they are never persisted, never appear in the 正则 manager (RegexModal) and
+  // never enter the global/character scripts in the compat store. They are only
+  // APPENDED to the array handed to MessageItem for this render pass, so the
+  // display pass escapes tags inside thought blocks while `message.content` stays
+  // exactly what the model wrote (MessageItem's edit box reads the raw content;
+  // `runOnEdit: false` keeps it that way). Appending at the end keeps the user's
+  // own scripts first — they must keep seeing the original text.
+  //
+  // Gated by the P1 resolver (no target-id branching here): disabled or
+  // `target === "none"` ⇒ the previous array reference is passed through
+  // untouched, so MessageItem's memo and the rendered output are unchanged.
+  const flagalacTraceScripts = React.useMemo(
+    () =>
+      isFlagalacTraceCleanupEnabled(settings.bypass?.answererFlagalac)
+        ? buildFlagalacTraceDisplayScripts()
+        : null,
+    [settings.bypass?.answererFlagalac],
+  );
+  const displayRegexScripts = React.useMemo(
+    () =>
+      flagalacTraceScripts && flagalacTraceScripts.length
+        ? [...regexScripts, ...flagalacTraceScripts]
+        : regexScripts,
+    [regexScripts, flagalacTraceScripts],
+  );
 
   const handleStop = () => {
     if (abortControllerRef.current) {
@@ -1972,7 +2003,7 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
                           : undefined
                       }
                       busy={isLoading}
-                      regexScripts={regexScripts}
+                      regexScripts={displayRegexScripts}
                       coverUrl={coverUrl}
                       frontendRenderingEnabled={
                         settings.isFrontendRenderingEnabled &&

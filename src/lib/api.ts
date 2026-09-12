@@ -1,4 +1,15 @@
 import { ApiSettings } from '../types';
+import {
+  ANSWERER_BODY_TOOL,
+  ANSWERER_FLAGALAC_ACTION_RESULT,
+  ANSWERER_THINK_TOOL,
+  FLAGALAC_NONE_ID,
+  FLAGALAC_TOOL_CHANNEL_OPTION_ID,
+  answererFlagalacTools,
+  harvestFlagalacToolCalls,
+  resolveFlagalacTarget,
+  wrapFlagalacThinking,
+} from './FlagalacTemplates';
 
 export interface ApiUsage {
   prompt_tokens?: number;
@@ -43,6 +54,174 @@ function stripVolatileFlags(content: string | any[]): string | any[] {
     }
     return p;
   });
+}
+
+/**
+ * AnswererFlagalac (R-a): decide whether the trailing system message must stay
+ * a real `system` message instead of being folded into the latest user turn.
+ *
+ * WHY — the bypass payload is an operator-level generation directive whose
+ * entire point is to outrank the user's own turn. Measured on the target proxy
+ * (OpenAI-compatible): the SAME text delivered as a trailing `system` message
+ * wins the conflict, while folded into the user turn it loses it. The block is
+ * emitted by chatPipeline exactly when the module is active — its body may
+ * still be empty while the payload text is pending — so probing the tail for
+ * the block tag is sufficient, and it keeps this module from having to reach
+ * into app-level settings (api.ts only receives an ApiSettings).
+ *
+ * SCOPE — OpenAI-compatible path ONLY (see the call site in fetchOpenAI).
+ * `prepareAnthropicPayload` keeps folding on purpose: non-4.8 Claude models
+ * reject a mid-conversation system message outright, so the exemption must not
+ * leak into that fallback.
+ *
+ * COST — with a bypass target selected the request ends on a `system` message,
+ * which is out-of-spec for plain Chat Completions and is forwarded verbatim to
+ * whatever gateway the user configured. That is a deliberate, opt-in trade:
+ * with no target selected the folded shape — and its byte-for-byte behaviour —
+ * is unchanged.
+ */
+const ANSWERER_BYPASS_BLOCK_TAG = '<answerer_bypass';
+
+function carriesAnswererBypassBlock(content: ApiMessage['content']): boolean {
+  if (typeof content === 'string') return content.includes(ANSWERER_BYPASS_BLOCK_TAG);
+  if (!Array.isArray(content)) return false;
+  return content.some(
+    (p: any) =>
+      p?.type === 'text' &&
+      typeof p.text === 'string' &&
+      p.text.includes(ANSWERER_BYPASS_BLOCK_TAG),
+  );
+}
+
+function shouldKeepTailSystemAsSystem(messages: ApiMessage[]): boolean {
+  if (messages.length < 2) return false;
+  const last = messages[messages.length - 1];
+  const prev = messages[messages.length - 2];
+  if (last.role !== 'system' || prev.role === 'system') return false;
+  return carriesAnswererBypassBlock(last.content);
+}
+
+/**
+ * AnswererFlagalac (P7 · toolChannel): the payload block a bypass target injects
+ * into the tail system message (chatPipeline E1), parsed into the facts the
+ * OpenAI request path needs. The attribute format is frozen in SSOT §4.2:
+ *
+ *   <answerer_bypass target="…" options="toolChannel,traceCleanup">…</answerer_bypass>
+ *
+ * - `target`  — the RESOLVED target id. Anything unknown or retired converges to
+ *               `none`, which yields `null`, so a hand-edited save cannot switch
+ *               a channel on by itself.
+ * - `options` — the ENABLED option ids, in FlagalacTemplates array order.
+ *
+ * Returns `null` when the request carries no such block at all (no target
+ * selected, or an empty payload). Every caller must then behave exactly as it
+ * did before this feature existed — this module never invents a channel that the
+ * request does not advertise. `shouldKeepTailSystemAsSystem()` above keys on the
+ * very same block, so R-a and the tool channel can never disagree about whether
+ * the module is active.
+ *
+ * Scope: `AnswererBypassBlock` / `readAnswererBypassBlock()` are **module-private**.
+ * Only this file's OpenAI request path consumes them, so they stay unexported —
+ * there is no cross-module signature here to freeze.
+ */
+interface AnswererBypassBlock {
+  target: string;
+  options: string[];
+}
+
+/** Text of the trailing `system` message, or null when the tail is not one. */
+function tailSystemText(messages: ApiMessage[]): string | null {
+  if (messages.length < 2) return null;
+  const last = messages[messages.length - 1];
+  const prev = messages[messages.length - 2];
+  if (last.role !== 'system' || prev.role === 'system') return null;
+  if (typeof last.content === 'string') return last.content;
+  if (!Array.isArray(last.content)) return null;
+  return last.content
+    .filter((p: any) => p?.type === 'text' && typeof p.text === 'string')
+    .map((p: any) => p.text)
+    .join('\n');
+}
+
+function readAnswererBypassBlock(messages: ApiMessage[]): AnswererBypassBlock | null {
+  const text = tailSystemText(messages);
+  if (!text || !text.includes(ANSWERER_BYPASS_BLOCK_TAG)) return null;
+
+  const openTag = /<answerer_bypass\b[^>]*>/i.exec(text)?.[0] ?? '';
+  const rawTarget = /(?:^|\s)target\s*=\s*"([^"]*)"/i.exec(openTag)?.[1] ?? '';
+  const target = resolveFlagalacTarget(rawTarget);
+  if (target === FLAGALAC_NONE_ID) return null;
+
+  const rawOptions = /(?:^|\s)options\s*=\s*"([^"]*)"/i.exec(openTag)?.[1] ?? '';
+  const options = rawOptions
+    .split(',')
+    .map((id) => id.trim())
+    .filter((id) => id.length > 0);
+
+  return { target, options };
+}
+
+/**
+ * The Function Tools the tool channel advertises for this request, or `null`
+ * when the channel is off — either because the request carries no bypass block,
+ * or because the block's `options` list does not include `toolChannel`. The
+ * descriptors live in FlagalacTemplates; the mapping to the request shape
+ * happens here so that file stays free of API-layer types.
+ */
+function answererFlagalacRequestTools(messages: ApiMessage[]): LlmTool[] | null {
+  const block = readAnswererBypassBlock(messages);
+  if (!block || !block.options.includes(FLAGALAC_TOOL_CHANNEL_OPTION_ID)) return null;
+  return answererFlagalacTools.map((tool) => ({
+    name: tool.name,
+    description: tool.description,
+    inputSchema: tool.inputSchema,
+  }));
+}
+
+/**
+ * Recycle one tool-channel turn into visible text.
+ *
+ * The tool arguments ARE the answer, so nothing else is needed from the model:
+ * `answerer_body.content` is streamed through `onChunk` like any other reply
+ * text, and `answerer_think.thinking` is wrapped in the thinking tag for the
+ * display-side cleanup layer.
+ *
+ * WHAT IS DELIBERATELY MISSING — a `role:"tool"` reply. The action result is the
+ * fixed `{"ok":true}` returned below, and it is never appended to the outgoing
+ * messages: this deployment's proxy answers a sent-back tool result with an
+ * empty body (or a 400). Consequently a tool-channel turn is one-shot, and a
+ * model that emits plain text instead of tool calls is simply displayed as-is
+ * (D-03 — there is no "clear everything unless it matches a marker" gate here).
+ *
+ * Nothing is dropped in silence: tool calls that do not belong to this channel,
+ * and argument payloads that will not parse, are reported on the console.
+ */
+function recycleAnswererFlagalacTurn(
+  toolCalls: readonly { function?: { name?: string; arguments?: string } }[],
+  onChunk: (chunk: string) => void,
+): string {
+  const harvest = harvestFlagalacToolCalls(
+    toolCalls.map((tc) => ({
+      name: tc.function?.name ?? '',
+      arguments: tc.function?.arguments ?? '',
+    })),
+  );
+
+  if (harvest.thinking) onChunk(wrapFlagalacThinking(harvest.thinking));
+  if (harvest.body) onChunk(harvest.body);
+
+  if (harvest.ignored.length > 0) {
+    console.warn(
+      `[answerer-flagalac] 工具通道本轮收到非本通道的工具调用，已跳过: ${harvest.ignored.join(', ')}`,
+    );
+  }
+  if (harvest.malformed > 0) {
+    console.warn(
+      `[answerer-flagalac] 工具通道有 ${harvest.malformed} 次调用的参数不是合法 JSON 或缺必需字段，已跳过。`,
+    );
+  }
+
+  return ANSWERER_FLAGALAC_ACTION_RESULT;
 }
 
 /**
@@ -519,9 +698,29 @@ async function fetchOpenAI(
   signal?: AbortSignal,
   toolUseOptions?: ToolUseOptions,
 ): Promise<ApiUsage | void> {
-  const tools = toolUseOptions?.tools;
+  const mcpTools = toolUseOptions?.tools;
   const executeTool = toolUseOptions?.executeTool;
   const maxRounds = toolUseOptions?.maxRounds ?? 5;
+
+  // AnswererFlagalac (P7 · toolChannel): the payload block doubles as the
+  // switch — chatPipeline writes it per request exactly while a target is
+  // selected AND the toolChannel toggle is on, so probing the tail keeps this
+  // path free of app-level settings access (api.ts only receives an
+  // ApiSettings — same reasoning as the R-a note further down).
+  const flagalacTools = answererFlagalacRequestTools(messages);
+  // MCP tools and the tool channel are mutually exclusive: they compete for the
+  // same `tools` field, and the tool channel is one-shot. MCP WINS, and it is
+  // never dropped in silence — the conflict is reported here, so the behaviour
+  // stays predictable (a readable log line) instead of failing or quietly
+  // discarding either side. The UI states the same conflict up front.
+  const toolChannelActive = flagalacTools !== null && !(mcpTools && mcpTools.length > 0);
+  if (flagalacTools !== null && mcpTools && mcpTools.length > 0) {
+    console.warn(
+      `[answerer-flagalac] 工具通道与 MCP 工具互斥：本轮优先使用 MCP 工具，已跳过 ${ANSWERER_THINK_TOOL} / ${ANSWERER_BODY_TOOL}。`,
+    );
+  }
+  const requestTools: LlmTool[] | undefined =
+    toolChannelActive && flagalacTools ? flagalacTools : mcpTools;
 
   // OpenAI's Chat Completions format has no reliable trailing-system slot:
   // a conversation ending in a `system` message is out-of-spec, and gateways
@@ -532,7 +731,14 @@ async function fetchOpenAI(
   // latest user turn instead — recency preserved, authority delegated by the
   // static session-protocol anchor (layout doc v3). The Anthropic native
   // path keeps the mid-conversation system message on its own.
-  let currentMessages = foldTailSystemIntoLatestUser(messages);
+  //
+  // EXCEPTION (AnswererFlagalac R-a): when the tail carries the operator-level
+  // `<answerer_bypass>` payload, keep it as a real `system` message — see
+  // shouldKeepTailSystemAsSystem() above for why, and for why this deliberately
+  // does NOT extend to the Anthropic fallback.
+  let currentMessages = shouldKeepTailSystemAsSystem(messages)
+    ? messages
+    : foldTailSystemIntoLatestUser(messages);
   let usage: ApiUsage | undefined;
 
   // Hard-cap iterations at maxRounds + 1: each "round" is one LLM call that
@@ -544,9 +750,21 @@ async function fetchOpenAI(
       settings,
       onChunk,
       signal,
-      tools,
+      requestTools,
     );
     usage = mergeUsage(usage, turn.usage);
+
+    // AnswererFlagalac tool channel: ONE-SHOT by design. The tool arguments are
+    // the answer itself, and the action result never travels back to the model
+    // (see recycleAnswererFlagalacTurn), so the turn ends here: nothing is
+    // appended to `currentMessages` and no further round is made. A reply that
+    // carries no tool call (plain text) falls out of the same branch with the
+    // streamed text already delivered to onChunk — displayed as-is (D-03).
+    if (toolChannelActive) {
+      // The returned {"ok":true} is deliberately discarded.
+      recycleAnswererFlagalacTurn(turn.toolCalls, onChunk);
+      return usage;
+    }
 
     if (turn.toolCalls.length === 0 || !executeTool) {
       return usage;
