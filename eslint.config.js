@@ -13,6 +13,8 @@ export default tseslint.config(
     // `.private/**` is the NyaaChat-Private sub-repo (its own git repo, ignored
     // by .gitignore). Its content is reference material and WIP design docs —
     // not lint targets, same as `.ref/**`.
+    // `dev-server/**` is the local dev-container repo (NyaaChat-dev, also
+    // git-ignored): Node/nginx tooling with its own conventions, never shipped.
     ignores: [
       "dist/**",
       "node_modules/**",
@@ -20,6 +22,7 @@ export default tseslint.config(
       ".claude/**",
       ".ref/**",
       ".private/**",
+      "dev-server/**",
       "public/**",
     ],
   },

@@ -34,3 +34,7 @@ ext-host/network-allowlist.generated.json
 # NyaaChat-Private (github.com/NyaaCaster/NyaacChat-Private); kept in-tree
 # locally for development, never committed here.
 /.private/
+# Local development container (front-end preview/test with the backends left on
+# macmini). It is its own repository — https://github.com/NyaaCaster/NyaaChat-dev
+# (private) — and must never enter this public repo.
+/dev-server/
