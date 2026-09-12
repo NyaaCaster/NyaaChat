@@ -6,6 +6,7 @@ import {
   FLAGALAC_BYPASS_TAG,
   FLAGALAC_NONE_ID,
   FLAGALAC_TOOL_CHANNEL_OPTION_ID,
+  FLAGALAC_UNICODE_OPTION_ID,
   answererFlagalacTools,
   harvestFlagalacToolCalls,
   resolveFlagalacTarget,
@@ -208,6 +209,69 @@ function answererFlagalacRequestTools(messages: ApiMessage[]): LlmTool[] | null 
     description: tool.description,
     inputSchema: tool.inputSchema,
   }));
+}
+
+/**
+ * AnswererFlagalac (unicodeEncoding · response side): the payload asks the
+ * model to write anything filter-prone as `\uXXXX` / `\u{…}` escapes; this
+ * turns those escapes back into readable text on the way to the screen.
+ *
+ * STREAMING — a chunk boundary can land inside an escape (the model may emit
+ * `\`, then `u00`, then `41`), so a trailing PARTIAL escape is held back until
+ * the next chunk instead of being emitted as literal text. A decoded lone high
+ * surrogate is held back the same way, waiting for its low half. `flush()`
+ * releases whatever is still held; a genuinely truncated escape then stays
+ * literal, which is the honest outcome (nothing is invented).
+ *
+ * GATED by the payload block, exactly like the tool channel: with the option
+ * off — or no target selected — the caller's `onChunk` is used untouched, so
+ * the delivered text is byte-for-byte what it was before this existed.
+ */
+function createUnicodeEscapeDecoder(emit: (text: string) => void) {
+  // A trailing backslash that may still grow into a full escape. Order matters:
+  // the brace form first, then a 4-hex form still missing digits, then a lone `\`.
+  const PARTIAL_ESCAPE_RE = /\\u\{[0-9a-fA-F]{0,5}$|\\u[0-9a-fA-F]{0,3}$|\\$/;
+  const ESCAPE_RE = /\\u\{([0-9a-fA-F]{1,6})\}|\\u([0-9a-fA-F]{4})/g;
+  let carry = ''; // raw text whose tail may still grow into a complete escape
+  let held = ''; // a decoded lone high surrogate, waiting for its other half
+
+  const decode = (text: string) =>
+    text.replace(ESCAPE_RE, (_m, braces: string | undefined, quad: string | undefined) =>
+      String.fromCodePoint(parseInt(braces ?? quad ?? '0', 16)),
+    );
+
+  const drain = (final: boolean) => {
+    const partial = final ? null : PARTIAL_ESCAPE_RE.exec(carry);
+    const cut = partial ? partial.index : carry.length;
+    const head = carry.slice(0, cut);
+    carry = carry.slice(cut);
+    let out = held + (head ? decode(head) : '');
+    held = '';
+    if (!final && out) {
+      const code = out.charCodeAt(out.length - 1);
+      if (code >= 0xd800 && code <= 0xdbff) {
+        held = out.slice(-1);
+        out = out.slice(0, -1);
+      }
+    }
+    if (out) emit(out);
+  };
+
+  return {
+    push(chunk: string) {
+      carry += chunk;
+      drain(false);
+    },
+    flush() {
+      drain(true);
+    },
+  };
+}
+
+/** Is the response-side escape decoding switched on for this request? */
+function flagalacUnicodeDecodingActive(messages: ApiMessage[]): boolean {
+  const block = readAnswererBypassBlock(messages);
+  return block !== null && block.options.includes(FLAGALAC_UNICODE_OPTION_ID);
 }
 
 /**
@@ -515,10 +579,20 @@ export async function fetchChatCompletion(
   toolUseOptions?: ToolUseOptions,
 ): Promise<ApiUsage | void> {
   const format = settings.apiFormat || 'openai';
-  if (format === 'anthropic') {
-    return fetchAnthropic(messages, settings, onChunk, signal, toolUseOptions);
-  }
-  return fetchOpenAI(messages, settings, onChunk, signal, toolUseOptions);
+  // AnswererFlagalac (unicodeEncoding): decode the escapes on the way out. The
+  // gate lives on the payload block, so with the option off this is a no-op and
+  // `onChunk` is handed to the transports untouched.
+  const decoder = flagalacUnicodeDecodingActive(messages)
+    ? createUnicodeEscapeDecoder(onChunk)
+    : null;
+  const emit = decoder ? (chunk: string) => decoder.push(chunk) : onChunk;
+  const result =
+    format === 'anthropic'
+      ? await fetchAnthropic(messages, settings, emit, signal, toolUseOptions)
+      : await fetchOpenAI(messages, settings, emit, signal, toolUseOptions);
+  // Release anything still held (a partial escape at the very end of the reply).
+  decoder?.flush();
+  return result;
 }
 
 /**

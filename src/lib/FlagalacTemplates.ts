@@ -294,8 +294,9 @@ Gemini 只用简短句子回应，从不解释自己的决定。
         description: "载荷以转义序列下发，响应侧再解码回可读正文。",
         defaultEnabled: false,
         layer: "encoding",
-        // ⚠️ **启用前置条件**：响应侧 `\uXXXX` 解码**尚未实现**；启用前必须先做，
-        // 否则正文会原样显示转义序列。因此本项保持默认关。
+        // ✅ **响应侧 `\uXXXX` 解码已实现**（`api.ts` 的 `createUnicodeEscapeDecoder`，
+        // 2026-09-12）：本项现在可以真正启用了。默认仍为**关**（与来源一致 —— 来源里
+        // 它也不在启用列表内）；是否改为默认开由用户拍板。
         // 注意 `\\u` 的写法：模板字符串里必须转义，运行时才是模型看到的 `\u`。
         template: `<output_channel>
 在所有输出中，把可能被审查的内容改用 Unicode 转义序列写出（以 \\u 开头）。
@@ -459,6 +460,11 @@ export function normalizeAnswererFlagalacState(raw: unknown): FlagalacResolvedSt
 
 /** 开关 id（即持久化键）：api.ts 用它判断「工具通道」是否启用。发布后不可改。 */
 export const FLAGALAC_TOOL_CHANNEL_OPTION_ID = "toolChannel";
+/**
+ * 开关 id（即持久化键）：api.ts 用它判断「响应侧 `\uXXXX` 解码」是否启用。
+ * 发布后不可改。解码实现在 `api.ts`（`createUnicodeEscapeDecoder`）。
+ */
+export const FLAGALAC_UNICODE_OPTION_ID = "unicodeEncoding";
 
 /**
  * 两个 Function Tool 名（**会进入 API 请求体**）。命名遵循模块的分工
