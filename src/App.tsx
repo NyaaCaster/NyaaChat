@@ -122,7 +122,8 @@ function migrate(raw: any): any {
  * 该模块的 UI 早已从 BypassModal 下线（唯一开关残留在被注释的代码块里），
  * 但 `injectBypassPrompts()` 仍以 `bypass.enabled` 为唯一门控在静态前缀
  * index 1 注入 7 条模板 —— 于是"曾开启过"的存量存档会静默注入、且用户无法从
- * 界面关闭（见 .docs/AnswererFlagalac-可行性考察汇总.md §11 的 R1）。
+ * 界面关闭（该缺陷的完整记录随审核绕过模块的调研文档一并移入私有仓，公开仓不再
+ * 保留该文档；此处只留结论）。
  *
  * 本轮连同注入链路一起删除，故该迁移把存档里遗留的全部相关键清除，避免死
  * 数据继续被 spread 回来并重新落盘。导入备份的同类清理见 lib/settingsBackup.ts。

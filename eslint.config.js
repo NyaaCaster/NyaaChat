@@ -10,7 +10,18 @@ import globals from "globals";
 // elsewhere, not as a per-PR blocker.
 export default tseslint.config(
   {
-    ignores: ["dist/**", "node_modules/**", "src/temp/**", ".claude/**", ".ref/**", "public/**"],
+    // `.private/**` is the NyaaChat-Private sub-repo (its own git repo, ignored
+    // by .gitignore). Its content is reference material and WIP design docs —
+    // not lint targets, same as `.ref/**`.
+    ignores: [
+      "dist/**",
+      "node_modules/**",
+      "src/temp/**",
+      ".claude/**",
+      ".ref/**",
+      ".private/**",
+      "public/**",
+    ],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,

@@ -28,3 +28,9 @@ ext-host/network-allowlist.generated.json
 # for development & Docker build only; NOT part of this public repo.
 /nyaachat-knowledge/
 /shared-server/
+# Private engineering artifacts of features that must NOT be public (e.g. the
+# AnswererFlagalac review-bypass module: its payload/config docs, probe scripts
+# and design/SSOT documents). Maintained in the separate private repo
+# NyaaChat-Private (github.com/NyaaCaster/NyaacChat-Private); kept in-tree
+# locally for development, never committed here.
+/.private/
