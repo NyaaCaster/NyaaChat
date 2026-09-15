@@ -76,12 +76,12 @@ export function ChatHeader({
   return (
     <div data-app-header className="flex-shrink-0 bg-white/70 dark:bg-[#0A0A0A]/70 backdrop-blur-xl border-b border-gray-200/60 dark:border-white/5 sticky top-0 z-20 flex flex-col">
       <header className="px-4 sm:px-6 py-2.5 sm:py-3 flex items-center justify-between border-b border-gray-100 dark:border-white/5">
-        <div className="flex items-center space-x-3">
+        <div className="flex items-center">
           <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center shadow-lg shadow-blue-500/20">
             <MessageSquare size={16} className="text-white" />
           </div>
           <h1
-            className="text-lg font-semibold tracking-tight"
+            className="ml-3 text-lg font-semibold tracking-tight"
             style={{ fontFamily: "var(--font-display)" }}
           >
             <a href="https://github.com/NyaaCaster/NyaaChat" target="_blank" rel="noopener noreferrer">NyaaChat</a>
@@ -98,10 +98,10 @@ export function ChatHeader({
             href="http://h.nyaa.host:5112/"
             target="_blank"
             rel="noopener noreferrer"
-            className="p-2 text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-white/10 rounded-lg transition-all duration-200"
+            className="ml-1 p-1.5 text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-white/10 rounded-md transition-all duration-200"
             title="帮助文档"
           >
-            <CircleQuestionMark size={18} />
+            <CircleQuestionMark size={16} />
           </a>
           {isBypassActive && (
             // 窄屏（手机竖屏）隐藏：右侧的 Bypass 按钮本身已有红色激活态，
@@ -110,7 +110,7 @@ export function ChatHeader({
             <motion.span
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
-              className="hidden sm:inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] font-medium bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20"
+              className="ml-3 hidden sm:inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] font-medium bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20"
             >
               <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.6)]"></span>
               Bypass
