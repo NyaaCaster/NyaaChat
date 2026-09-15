@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Regex, Download, Save } from "lucide-react";
 import type { RegexScript } from "../types";
 import { BaseModal } from "./BaseModal";
-import { regexExportFileName, serializeRegexScript } from "../compat";
+import { regexExportFileName, serializeRegexScript } from "../lib/regex";
 
 interface RegexScriptEditModalProps {
   isOpen: boolean;
@@ -11,9 +11,9 @@ interface RegexScriptEditModalProps {
   initialScript?: RegexScript | null;
 }
 
-/** Placement options, mirroring SillyTavern's "Affects" checkboxes. The numeric
- *  codes match regex_placement (engine.ts): 1=USER_INPUT 2=AI_OUTPUT
- *  3=SLASH_COMMAND 5=WORLD_INFO 6=REASONING. */
+/** Placement options ("Affects" checkboxes). The numeric codes match
+ *  regex_placement (engine.ts): 1=USER_INPUT 2=AI_OUTPUT 3=SLASH_COMMAND
+ *  5=WORLD_INFO 6=REASONING. */
 const PLACEMENTS: { code: number; label: string }[] = [
   { code: 1, label: "用户输入" },
   { code: 2, label: "AI 输出" },
@@ -128,9 +128,9 @@ export function RegexScriptEditModal({
     onClose();
   };
 
-  // Export the current script as a SillyTavern-compatible .nyaa file (same JSON
-  // structure as ST; only the extension differs). Needs at least a name for the
-  // filename, so it's gated on scriptName like ST's export.
+  // Export the current script as a `.nyaa` file (the shared regex-script JSON
+  // structure; only the extension differs). Needs at least a name for the
+  // filename, so it's gated on scriptName.
   const handleExport = () => {
     if (scriptName.trim() === "") return;
     const json = serializeRegexScript(buildScript());

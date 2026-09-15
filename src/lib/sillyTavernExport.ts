@@ -10,7 +10,10 @@
 // Lossy by nature (ST has no hard/soft authority concept, so `hard` is dropped —
 // symmetric with the importer defaulting every imported rule to soft). Persona
 // stays in `description`; ST's personality/scenario/mes_example are left empty.
-// Character regex + variables ride along in `data.extensions` where ST keeps them.
+// Character regex rides along in `data.extensions.regex_scripts` where ST keeps
+// it (a retained format-compatibility field). The former passthrough of the
+// character-level `extensions` blob is gone with the removed extension
+// compatibility layer.
 
 import type { CharacterSettings, WorldInfoRule } from "../types";
 
@@ -111,10 +114,11 @@ export function convertToSillyTavernCharacter(char: CharacterSettings): Record<s
   const firstMes = char.firstMes ?? "";
   const rules = char.worldInfo ?? [];
 
-  // ST keeps character regex + arbitrary extension data (variables, bindings)
-  // under data.extensions. Carry our passthrough first, then write the
-  // authoritative regex array on top so it always wins.
-  const extensions: Record<string, unknown> = { ...(char.extensions ?? {}) };
+  // ST keeps character regex under `data.extensions.regex_scripts`. Only that
+  // retained field is written: the old character-level `extensions` passthrough
+  // (the blob of the removed extension compatibility layer) is gone with that
+  // layer, so a NyaaChat character can no longer smuggle it into an ST card.
+  const extensions: Record<string, unknown> = {};
   if (char.regexScripts && char.regexScripts.length) {
     extensions.regex_scripts = char.regexScripts;
   }

@@ -24,7 +24,6 @@
     "noEmit": true
   },
   "exclude": [
-    "dist/**",
-    "public/extensions/**"
+    "dist/**"
   ]
 }

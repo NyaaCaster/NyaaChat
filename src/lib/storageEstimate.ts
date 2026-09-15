@@ -8,7 +8,7 @@
 // summing their sizes.
 
 import { CharacterSettings } from "../types";
-import { getItem, getAllKeys } from "./idbStorage";
+import { getItem } from "./idbStorage";
 import { loadCover, COVER_MARKER } from "./coverStorage";
 
 // ---------------------------------------------------------------------------
@@ -23,10 +23,9 @@ export const DEFAULT_CHARACTER_STORAGE_QUOTA = 32 * 1024 * 1024; // 32 MB
 // Total guardrail kept as a fallback for paths that still reference it.
 export const APP_STORAGE_QUOTA = 64 * 1024 * 1024; // 64 MB (32+32)
 
-// Key constants — must match sessionStorage.ts & metadataBridge.ts
+// Key constants — must match sessionStorage.ts
 const SESSIONS_KEY = "nyaachat_sessions";
 const LAST_SESSION_KEY = "nyaachat_last_session_id";
-const METADATA_KEY_PREFIX = "nyaachat_chat_metadata::";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -46,7 +45,7 @@ function rawStringBytes(s: string): number {
 // Public estimators
 // ---------------------------------------------------------------------------
 
-/** Estimate the total IndexedDB footprint of chat sessions + metadata. */
+/** Estimate the total IndexedDB footprint of chat sessions. */
 export async function estimateChatStorage(): Promise<number> {
   let total = 0;
 
@@ -60,19 +59,8 @@ export async function estimateChatStorage(): Promise<number> {
     if (lastId) total += rawStringBytes(lastId);
   } catch { /* ignore */ }
 
-  // Chat metadata keys: one per saved session (nyaachat_chat_metadata::<id>)
-  try {
-    const allKeys = await getAllKeys();
-    for (const key of allKeys) {
-      if (key.startsWith(METADATA_KEY_PREFIX)) {
-        try {
-          const val = await getItem(key);
-          if (val) total += rawStringBytes(val);
-        } catch { /* skip */ }
-      }
-    }
-  } catch { /* getAllKeys failed — skip metadata */ }
-
+  // 旧的「每会话 chat_metadata」键随 ST 扩展兼容系统一并删除，产品不再产生该
+  // 数据，因此这里也不再统计它。
   return total;
 }
 

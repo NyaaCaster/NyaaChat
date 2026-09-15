@@ -4,7 +4,7 @@
 // of localStorage's 5–10 MB ceiling.
 //
 // Consumers should load data into an in-memory cache via the hydrate pattern
-// (already used by extensionSettings, regex, variables, metadataBridge) and
+// (already used by the settings, session and global-regex stores) and
 // read from that cache synchronously.  Writes update the cache first, then
 // persist to IDB asynchronously (fire-and-forget unless the caller needs to
 // surface errors).
@@ -122,9 +122,28 @@ export async function isMigrationDone(): Promise<boolean> {
 }
 
 // ---------------------------------------------------------------------------
-// One-shot migration: copy every localStorage key → IDB, then clear
-// localStorage.  Idempotent — the sentinel inside IDB prevents re-runs.
+// One-shot migration: copy NyaaChat's own localStorage keys → IDB, then clear
+// those keys from localStorage.  Idempotent — the sentinel inside IDB prevents
+// re-runs.
+//
+// 🔻 键集合（2026-09-13，ST 扩展兼容系统摘除后）：只迁移**当前产品仍会读取**的
+// 键。随该兼容系统一起摘除的几个存储键 —— ST 扩展设置实体、扩展偏好、每个会话的
+// chat_metadata、变量作用域（均带 `nyaachat_` 前缀）—— 既不复制进 IDB、也不再被
+// 读取；它们（以及不属于 NyaaChat 的键）留在 localStorage 里原样不动，使这次迁移
+// 保持 "只搬运本产品自有数据" 的纯粹语义，而不去删除别人的数据。
 // ---------------------------------------------------------------------------
+
+/** localStorage keys NyaaChat still owns and reads back from IndexedDB.
+ *  Exported for the settings/storage fixtures. */
+export const MIGRATED_KEYS = new Set([
+  "nyaachat_settings",
+  "rikkachat_settings", // legacy name of nyaachat_settings (App.tsx reads both)
+  "nyaachat_sessions",
+  "nyaachat_last_session_id",
+  "nyaachat_regex_global", // global regex scripts (NyaaChat-native, retained)
+  "nyaachat_account", // shared-account login token
+  "nyaachat_memory_heartbeat_at",
+]);
 
 export async function migrateFromLocalStorage(): Promise<void> {
   if (typeof indexedDB === "undefined") return;
@@ -137,7 +156,9 @@ export async function migrateFromLocalStorage(): Promise<void> {
   try {
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i);
-      if (k) keys.push(k);
+      // Only NyaaChat's own, still-supported keys — retired ST-ext-compat keys
+      // are skipped here (neither migrated nor read anywhere else).
+      if (k && MIGRATED_KEYS.has(k)) keys.push(k);
     }
   } catch {
     return; // localStorage unavailable — nothing to migrate
@@ -158,7 +179,8 @@ export async function migrateFromLocalStorage(): Promise<void> {
   }
 
   if (!failed) {
-    // Only purge localStorage when ALL keys copied successfully.
+    // Only purge the migrated (NyaaChat-owned) keys, and only when ALL of them
+    // copied successfully.  Every other key stays in localStorage untouched.
     for (const key of keys) {
       try {
         localStorage.removeItem(key);

@@ -1,14 +1,11 @@
-// Front-end card detection.
+// 前端卡（front-end card）识别。
 //
-// JS-Slash-Runner decides a message contains a renderable "front-end card" with
-// a deliberately loose substring test (SSOT §2.4, .ref/.../util/is_frontend.ts):
-// if the text contains `html>`, `<head>`, or `<body`, it's treated as a card.
-// We mirror that exactly so the same cards that render in ST render here.
+// 判定刻意宽松：只要正文里出现 `html>`、`<head>`、`<body` 这三个子串之一，就认为
+// 这段文本是一张可渲染的前端卡。宽松是有意的 —— 模型吐出的卡片经常没有完整的
+// <html>/<head> 包壳，严格解析会漏掉大量本来能渲染的卡。
 //
-// In NyaaChat the card markup arrives as a fenced ```html code block in the
-// assistant message. We extract the code block body and test it; if there's no
-// fenced block we fall back to testing the raw text (covers cards emitted
-// without fences).
+// 在 NyaaChat 里卡片标记以 ```html 围栏代码块的形式出现在助手消息中。我们取出
+// 代码块正文判定；没有围栏时退回到对整段原文判定（覆盖不带围栏的卡片）。
 
 const FRONTEND_TAGS = ["html>", "<head>", "<body"];
 
@@ -16,7 +13,7 @@ export type FrontendContentPart =
   | { type: "markdown"; content: string }
   | { type: "card"; html: string; index: number };
 
-/** Loose substring test matching ST's isFrontend. */
+/** Loose substring test for "this text is a renderable front-end card". */
 export function isFrontendHtml(content: string): boolean {
   if (!content) return false;
   return FRONTEND_TAGS.some((tag) => content.includes(tag));
@@ -34,10 +31,9 @@ export function extractFrontendHtml(content: string): string | null {
 }
 
 /**
- * Split a message into normal Markdown runs and renderable front-end-card runs.
- * This mirrors JSR's behavior more closely than replacing the whole bubble: the
- * code block becomes the iframe, while explanatory prose before/after it stays
- * visible in the chat bubble.
+ * Split a message into normal Markdown runs and renderable front-end-card runs:
+ * the fenced block becomes an iframe, while explanatory prose before/after it
+ * stays visible in the chat bubble as ordinary Markdown.
  */
 export function splitFrontendContent(content: string): FrontendContentPart[] | null {
   if (!content) return null;
@@ -49,20 +45,15 @@ export function splitFrontendContent(content: string): FrontendContentPart[] | n
   let cardIndex = 0;
 
   while ((match = fenceRe.exec(content)) !== null) {
-    const lang = (match[1] || "").toLowerCase();
     const body = match[2] ?? "";
     if (!isFrontendHtml(body)) continue;
 
     if (match.index > lastIndex) {
       parts.push({ type: "markdown", content: content.slice(lastIndex, match.index) });
     }
-    // JSR renders any <pre> whose text passes isFrontend; NyaaChat gives
-    // html/htm fences priority but also accepts generic renderable fences.
-    if (lang === "html" || lang === "htm" || lang === "") {
-      parts.push({ type: "card", html: body, index: cardIndex++ });
-    } else {
-      parts.push({ type: "card", html: body, index: cardIndex++ });
-    }
+    // Language tag is descriptive only: any fence whose body passes the card
+    // test renders, so `html` / `htm` / `` / `vue` all behave the same here.
+    parts.push({ type: "card", html: body, index: cardIndex++ });
     lastIndex = fenceRe.lastIndex;
   }
 

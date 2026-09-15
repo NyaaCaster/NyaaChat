@@ -19,13 +19,13 @@ export interface Message {
    *  sequence number used as `documents.name = <sessionId>#<batchSeq>`. */
   memoryBatchSeq?: number;
   model?: string;
-  /** Floor number = index in the live chat array. Assigned by the compat
-   *  runtime mirror (src/compat/runtimeStore) for SillyTavern extensions and
-   *  the front-end-card render pipeline, which reference messages by position
-   *  rather than `id`. Not persisted; derived on sync. */
+  /** Floor number = index in the live chat array. Assigned on render for
+   *  position-based consumers (e.g. the front-end-card render pipeline), which
+   *  reference messages by position rather than `id`. Not persisted; derived
+   *  on each render. */
   mesid?: number;
-  /** ST-style flag for non-dialogue system messages. Mirrors ST's `is_system`;
-   *  consumed by macros ({{lastUserMessage}} skips these) and the renderer. */
+  /** Flag for non-dialogue system messages; consumed by macros
+   *  ({{lastUserMessage}} skips these) and the renderer. */
   isSystem?: boolean;
   /** When set, the message represents a generated image. `content` is reused
    *  to carry the prompt that produced it (used by 重新生成). */
@@ -33,12 +33,6 @@ export interface Message {
   /** Snapshot of the prompt at generation time so 重新生成 stays stable even
    *  if the source bubble was edited or deleted afterwards. */
   imagePrompt?: string;
-  /** Message-scoped front-end-card variables (ST: `message.variables`). Mutated
-   *  only through the compat variable API (src/compat/variables.ts). Lives on
-   *  the message object so it serializes with the session and follows the
-   *  message under insert/delete — per-floor card state (HP bars, counters,
-   *  quest flags) survives reloads and conversation switches. */
-  variables?: Record<string, unknown>;
 }
 
 export type ApiFormat = "openai" | "anthropic";
@@ -183,9 +177,6 @@ export interface CharacterSettings {
   description: string;
   firstMes?: string;
   worldInfo?: WorldInfoRule[];
-  /** ST-style character extension fields (`data.extensions`). Used by bundled
-   *  extensions for character script bindings and character-scoped variables. */
-  extensions?: Record<string, unknown>;
   /** Character-scoped regex scripts (ST: `data.extensions.regex_scripts`).
    *  Run after global scripts in the combined chain. */
   regexScripts?: RegexScript[];
@@ -231,7 +222,7 @@ export interface CharacterSettings {
  * A regex script, compatible with SillyTavern's regex extension. Same dual-
  * pipeline semantics: one pass for display (`markdownOnly`) and one for the
  * prompt sent to the LLM (`promptOnly`); neither flag = rewrite the stored
- * source. See src/compat/regex/engine.ts and SSOT §2.3.
+ * source. See src/lib/regex/engine.ts and SSOT §2.3.
  */
 export interface RegexScript {
   id: string;
@@ -272,7 +263,7 @@ export interface AppState {
   currentImageProviderId: string;
   isWebSearchEnabled: boolean;
   isStreaming: boolean;
-  /** Enable NyaaChat native JS-Slash-Runner-style front-end card rendering. */
+  /** Enable NyaaChat's native front-end card rendering. */
   isFrontendRenderingEnabled: boolean;
   /** Number of latest message floors to render as front-end cards. 0 = all. */
   frontendRenderingDepth: number;
@@ -391,9 +382,6 @@ export interface ChatSession {
   characterId: string;
   characterName: string;
   messages: Message[];
-  /** ST-compatible chat_metadata. Persisted with the session in addition to the
-   *  browser-local draft metadata scope used before a chat is first saved. */
-  metadata?: Record<string, unknown>;
   createdAt: number;
 }
 

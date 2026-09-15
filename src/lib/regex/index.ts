@@ -1,4 +1,4 @@
-// Regex module barrel — the dual-pipeline regex engine plus its storage.
+// 正则模块 barrel —— 双通道正则引擎 + 它的存储。
 export {
   getRegexedString,
   runRegexScript,

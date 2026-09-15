@@ -1,22 +1,18 @@
-// Regex engine compatible with SillyTavern's regex extension.
+// NyaaChat 的正则脚本引擎（双通道管线）。
 //
-// The heart of ST's regex module is the DUAL PIPELINE (SSOT §2.3): the same
-// message text is run twice with different flags — once for what the user sees
-// (`isMarkdown`) and once for what the model receives (`isPrompt`). A script's
-// `markdownOnly` applies only to the first, `promptOnly` only to the second,
-// and a script with neither flag rewrites the stored source (so it must NOT
-// re-run on the display pass, where the source is already rewritten).
+// 核心是 DUAL PIPELINE：同一段消息文本被跑两遍，参数不同 —— 一遍是用户看到的
+// 内容（`isMarkdown`），一遍是模型收到的内容（`isPrompt`）。脚本的 `markdownOnly`
+// 只作用于前者，`promptOnly` 只作用于后者；两个标记都没有的脚本改写**存储源文**，
+// 因此它绝不能在显示通道再跑一遍（那会把已经改写过的文本二次改写）。
 //
-// This is a faithful re-implementation of
-// .ref/SillyTavern/public/scripts/extensions/regex/engine.js — the matching
-// rules, capture-group handling ({{match}} / $1 / $<name>), trimStrings, and
-// macro substitution all mirror ST so existing scripts behave identically.
-// It leans on the P1 macro engine (substituteParams) for replacement macros.
+// 匹配规则、捕获组处理（{{match}} / $1 / $<name>）、trimStrings 与宏替换都遵循
+// 通行的 regex 脚本语义，使同形状的脚本在 NyaaChat 里行为一致。宏替换由同目录的
+// macros.ts 提供（substituteParams）。
 
-import { substituteParams, substituteParamsExtended } from "../macros";
+import { substituteParams, substituteParamsExtended } from "./macros";
 import type { RegexScript } from "../../types";
 
-/** Where a regex script applies. Mirrors ST's `regex_placement`. */
+/** Where a regex script applies. */
 export const regex_placement = {
   USER_INPUT: 1,
   AI_OUTPUT: 2,
@@ -25,7 +21,7 @@ export const regex_placement = {
   REASONING: 6,
 } as const;
 
-/** How the find pattern's macros are substituted. Mirrors ST. */
+/** How the find pattern's macros are substituted. */
 export const substitute_find_regex = {
   NONE: 0,
   RAW: 1,
@@ -43,9 +39,9 @@ export interface RegexParams {
 
 // --- regex compilation ------------------------------------------------------
 //
-// Mirrors ST's regexFromString: accept either a bare pattern or `/pattern/flags`
-// form. Compiled regexes are cached (LRU-ish via Map insertion order) since the
-// same scripts run on every message.
+// Accept either a bare pattern or `/pattern/flags` form. Compiled regexes are
+// cached (LRU-ish via Map insertion order) since the same scripts run on every
+// message.
 
 const MAX_CACHE = 1000;
 const cache = new Map<string, RegExp | null>();
@@ -87,8 +83,8 @@ function regexFromString(input: string): RegExp | null {
   return result;
 }
 
-/** Escape a macro-expanded value for safe insertion into a regex source.
- *  Mirrors ST's sanitizeRegexMacro (ESCAPED substitution mode). */
+/** Escape a macro-expanded value for safe insertion into a regex source
+ *  (ESCAPED substitution mode). */
 function sanitizeRegexMacro(x: string): string {
   if (!x || typeof x !== "string") return x;
   return x.replace(/[\n\r\t\v\f\0.^$*+?{}[\]\\/|()]/gs, (s) => {
@@ -173,7 +169,7 @@ export function runRegexScript(
 
 /**
  * Apply the matching subset of `scripts` to `rawString` for a given placement
- * and pipeline. This is the dual-pipeline gate (ST's getRegexedString):
+ * and pipeline. This is the dual-pipeline gate:
  *
  *   - markdownOnly scripts run only when isMarkdown
  *   - promptOnly scripts run only when isPrompt

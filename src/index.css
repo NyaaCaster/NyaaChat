@@ -157,13 +157,13 @@
 }
 
 /* Character cover responsive visibility.
-   Deliberately UNLAYERED (outside every @layer) and !important so it beats any
-   injected extension stylesheet. The hosted JS-Slash-Runner extension ships its
-   own full Tailwind build whose `.hidden{display:none}` leaks into the main
-   document; loaded after the app CSS, it clobbered the cover's `hidden lg:block`
-   utility and hid the PC side cover at every width (the "flash then disappear"
-   was that extension CSS arriving). Driving show/hide through these app-private
-   classes — which no extension targets — sidesteps the collision entirely.
+   Deliberately UNLAYERED (outside every @layer) and !important so the app's
+   own intent always wins over any stylesheet that is loaded after this file.
+   Visibility is driven through app-private layout classes (`.cover-side` /
+   `.cover-avatar`) rather than Tailwind's `hidden` / `lg:block` utilities, so
+   the cover shows or hides consistently no matter which other stylesheets end
+   up in the document — the responsive breakpoint below is the single source of
+   truth for the switch.
    Breakpoint mirrors Tailwind `lg` (64rem): side strip on desktop, top-right
    avatar on mobile. */
 .cover-side { display: none !important; }
@@ -174,10 +174,10 @@
 }
 
 /* PC bubble: reserve a right column for the full-height cover strip, and keep
-   the assistant meta row (#id / time / tokens / model) on ONE line. Same
-   extension-pollution defense as above — JSR's global `.px-5` and `.flex-col`
-   would otherwise beat Tailwind's `lg:pr-*` / `lg:flex-row`. Unlayered +
-   !important + 64rem media so the app's intent wins regardless of injected CSS. */
+   the assistant meta row (#id / time / tokens / model) on ONE line. The row
+   uses app-private classes so it stays on a single line at desktop widths.
+   Unlayered + !important + 64rem media so the app's intended layout wins over
+   subsequent stylesheets and Tailwind's `lg:pr-*` / `lg:flex-row` utilities. */
 @media (min-width: 64rem) {
   .cover-host { padding-right: 13rem !important; }
   .meta-row {
@@ -189,13 +189,13 @@
 .meta-row > div { white-space: nowrap; }
 
 /* Shared library responsive layout (phase 3).
-   Same extension-pollution defense as the cover strip above: the hosted
-   JS-Slash-Runner extension ships its own Tailwind build whose
-   `.hidden{display:none}` / `.flex` leak into the main document and clobber the
-   app's `hidden md:flex` / `md:hidden` utilities — so the PC sidebar stayed
-   hidden and the mobile bar stayed visible at every width. Drive show/hide
-   through app-private classes (which no extension targets) instead. Breakpoint
-   mirrors Tailwind `md` (48rem): sidebar on desktop, top bar on mobile. */
+   Same approach as the cover strip above: the sidebar / top bar switch is
+   driven through app-private classes (`.lib-sidebar` / `.lib-topbar` /
+   `.lib-layout`) instead of Tailwind's `hidden md:flex` / `md:hidden`
+   utilities, so the responsive switch stays stable no matter which other
+   stylesheets are loaded. Unlayered + !important so the app's intent wins.
+   Breakpoint mirrors Tailwind `md` (48rem): sidebar on desktop, top bar on
+   mobile. */
 .lib-sidebar { display: none !important; }
 .lib-topbar { display: block !important; }
 .lib-layout { display: flex !important; flex-direction: column !important; }
@@ -206,20 +206,20 @@
 }
 
 /* API provider editors (对话/生图模型设置) master-detail layout.
-   Same extension-CSS-pollution defense as the cover strip / shared library
-   above. A hosted extension (e.g. JS-Slash-Runner) ships a purged Tailwind
-   build that re-injects the BASE utilities it uses (`.hidden` / `.flex` /
-   `.w-full`) AFTER the app stylesheet, but NOT the responsive variants the app
+   Same approach as the cover strip / shared library above: the responsive
+   split is driven through app-private classes instead of Tailwind's base
+   utilities. Those base utilities may be re-declared by any stylesheet
+   loaded after this file, while the responsive variants the app
    relies on here (`.sm\:flex` / `.sm\:flex-row` / `.sm\:w-72`). So at desktop
-   widths the late `.hidden` / `.w-full` win over the app's `sm:` overrides and
-   the split view collapses into the mobile master-detail layout. Because the
-   extension's enable-state lives in origin-scoped localStorage, the same build
-   then renders differently per domain (on under one host, off under another).
-   Drive the responsive split through app-private classes (which no extension
-   targets) + !important + a 40rem (Tailwind `sm`) media query instead.
-   `.pv-pane-hidden` hides the inactive pane on mobile only; `.pv-only-mobile`
-   is the back-to-list bar, hidden on desktop. Keep `.pv-pane-hidden` declared
-   after the pane rules so its mobile `display:none` wins by source order. */
+   widths a later `.hidden` / `.w-full` would win and collapse the split
+   view back into the mobile master-detail layout. Driving the responsive
+   split through app-private classes (`.pv-layout` / `.pv-pane-*` /
+   `.pv-only-mobile` / `.pv-pane-hidden`) with !important and a 40rem
+   (Tailwind `sm`) media query keeps the app's intent authoritative,
+   independent of stylesheet load order. `.pv-pane-hidden` hides the inactive
+   pane on mobile only; `.pv-only-mobile` is the back-to-list bar, hidden on
+   desktop. Keep `.pv-pane-hidden` declared after the pane rules so its mobile
+   `display:none` wins by source order. */
 .pv-layout { display: flex !important; flex-direction: column !important; }
 .pv-pane-list { display: flex !important; width: 100% !important; }
 .pv-pane-detail { display: flex !important; }

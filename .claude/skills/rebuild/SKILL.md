@@ -1,6 +1,6 @@
 ---
 name: rebuild
-description: Rebuild the NyaaChat Docker image and restart containers. Use this whenever the project needs a Docker rebuild + restart (e.g., after Dockerfile, nginx.conf, docker-compose.yml, extension registry, or built frontend asset changes). Runs rebuild.py — a cross-platform Python script that works on Windows, Linux, and macOS.
+description: Rebuild the NyaaChat Docker image and restart containers. Use this whenever the project needs a Docker rebuild + restart (e.g., after Dockerfile, nginx.conf, docker-compose.yml, ext-host sidecar, or built frontend asset changes). Runs rebuild.py — a cross-platform Python script that works on Windows, Linux, and macOS.
 ---
 
 # rebuild
@@ -12,7 +12,7 @@ description: Rebuild the NyaaChat Docker image and restart containers. Use this 
 - 用户明确要求"重新编译"、"重建镜像"、"重启容器"、"rebuild"。
 - 改动了 `Dockerfile`、`docker-compose.yml`、`nginx.conf` 等容器构建相关文件。
 - 改动了前端构建产物所依赖的源码或配置，需要让镜像内的静态资源同步更新。
-- 安装、更新、删除 `public/extensions/<id>/` 下的第三方扩展，或需要刷新 `public/extensions/registry.json`。
+- ⚠️ **本项目不支持运行任何 SillyTavern / 酒馆扩展，也不提供任何装载通道**——扩展装载相关的目录、清单与自动生成脚本已在重构中整体删除；不要尝试安装、更新或删除第三方扩展（详见下文「扩展支持边界」）。
 - 通过 `/rebuild` 显式调用。
 
 ## 执行方式
@@ -33,7 +33,7 @@ python rebuild.py --no-cache
 
 ```
 python rebuild.py --only=nyaachat-app        # 前端 nginx 镜像（改 UI / 样式 / 前端代码时最常用）
-python rebuild.py --only=nyaachat-ext-host   # 扩展运行时
+python rebuild.py --only=nyaachat-ext-host   # ComfyUI T2I 智能提示词代理 sidecar
 python rebuild.py --only=nyaachat-shared     # 共享后端
 python rebuild.py --only=nyaachat-knowledge  # 知识库后端
 ```
@@ -45,14 +45,14 @@ python rebuild.py --only=nyaachat-knowledge  # 知识库后端
 **只 rebuild 本次改动所影响的镜像，禁止无脑全量 rebuild。**
 
 - NyaaChat 由 4 个镜像组成，改动通常只落在其中一个子项目的代码上：
-  `nyaachat-app`（前端 nginx）、`nyaachat-ext-host`（扩展运行时）、
+  `nyaachat-app`（前端 nginx）、`nyaachat-ext-host`（ComfyUI T2I 智能提示词代理 sidecar）、
   `nyaachat-shared`（共享后端）、`nyaachat-knowledge`（知识库后端）。
 - 镜像与源码对应关系：
 
   | 镜像 | 源码 | 典型改动 |
   | --- | --- | --- |
   | `nyaachat-app` | 根目录前端（`src/`、`public/`、根 `Dockerfile`、`nginx.conf`） | 前端组件 / 样式 / 静态资源 |
-  | `nyaachat-ext-host` | `ext-host/` | 扩展运行时 / 网络白名单 |
+  | `nyaachat-ext-host` | `ext-host/` | ComfyUI T2I 智能提示词代理（`/api/ext-host/t2i-agent/chat`） |
   | `nyaachat-shared` | `shared-server/` | 共享角色后端 |
   | `nyaachat-knowledge` | `nyaachat-knowledge/` | 知识库后端 |
 
@@ -64,16 +64,13 @@ python rebuild.py --only=nyaachat-knowledge  # 知识库后端
   `sys.exit(1)` 中止，**已构建好的 app 镜像也没能被推送**，上线被无关子项目阻塞。
   只跑 `python rebuild.py --only=nyaachat-app` 一次成功。
 
-## 扩展 registry 自动生成
+## 扩展支持边界（MUST）
 
-脚本会在 Docker build 前自动执行 `node scripts/generate-extension-registry.mjs`，按 `public/extensions/*/manifest.json` 重新生成 `public/extensions/registry.json`。
+**本项目不支持运行任何 SillyTavern / 酒馆扩展，也不提供任何装载通道。**
 
-- 0 扩展状态会生成空清单：`{ "version": 1, "extensions": [] }`。
-- 安装扩展：`git clone` 到 `public/extensions/<id>/` 后运行 rebuild，registry 自动加入该目录。
-- 更新扩展：在扩展目录内 `git pull` 后运行 rebuild，registry 自动保持同步。
-- 删除扩展：删除 `public/extensions/<id>/` 后运行 rebuild，registry 自动移除该目录。
-- 默认生成项为 `rootEnabled: true`、`defaultUserEnabled: false`。
-- 如果生成脚本校验失败（例如 `manifest.json` 非法或缺少 `display_name`），应先修复扩展目录/manifest，再重新 rebuild；不要手写绕过 registry。
+- 扩展装载相关的目录、清单文件与 build 前的自动生成脚本已在重构中整体删除，rebuild 流程**不再包含任何扩展相关的生成步骤**。
+- 不要通过 clone / 拷贝第三方扩展再 rebuild 的方式"装入"扩展——该路径已不存在，与产品定位直接冲突。
+- 界面上保留的「扩展」入口按钮只是一个无功能的预留入口，rebuild 与之无关。
 
 ## 缓存策略
 
@@ -93,7 +90,7 @@ python rebuild.py --only=nyaachat-knowledge  # 知识库后端
 
 - 执行前确认工作目录是项目根目录（含 `docker-compose.yml`）。
 - **执行前先确认本次改动涉及哪些子项目**（`git status` / `git diff --stat`），只 rebuild 被修改到的镜像（`--only`，见上文），不要无脑全量 rebuild。
-- 脚本本身已包含：生成 `public/extensions/registry.json` → 构建（默认带缓存）→ 清理 dangling 镜像 → `docker compose up -d` 按需重建容器 → 列出运行中容器。`up -d` 只在镜像 hash 或 service 配置变化时重建容器，volume（如 `image-cache`）自动保留。不要再额外手动执行这些步骤。
+- 脚本本身已包含：构建（默认带缓存）→ 清理 dangling 镜像 → `docker compose up -d` 按需重建容器 → 列出运行中容器。`up -d` 只在镜像 hash 或 service 配置变化时重建容器，volume（如 `image-cache`）自动保留。不要再额外手动执行这些步骤。
 - 执行后向用户简要汇报：脚本是否成功结束、当前运行中的容器状态。
 
 ## macmini 部署

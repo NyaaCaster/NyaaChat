@@ -35,7 +35,7 @@ NyaaChat 是一个**单页应用 (SPA)** + **微服务后端**的本地部署 AI
 nginx (:3095)  ◄── 唯一公网入口
     │
     ├─ /api/mcp* ────────────►  外部 MCP 服务器
-    ├─ /api/ext-host/* ──────►  ext-host (:3099, Node.js)
+    ├─ /api/ext-host/t2i-agent/chat ►  ext-host (:3099, 画图提示词代理)
     ├─ /api/shared/* ────────►  nyaachat-shared (:5107, Express + SQLite)
     ├─ /api/knowledge/* ─────►  nyaachat-knowledge (:5108, Express + SQLite + sqlite-vec)
     ├─ /api/comfyui/fixed/* ─►  外部 ComfyUI 实例
@@ -74,7 +74,7 @@ App.tsx (根组件 — 单一状态持有者)
 │   ├─ UserAccountModal / SharedLibraryModal
 │   ├─ ChatHistoryModal / ImageViewerModal / RegexModal
 │   └─ ExtensionsModal / ConsoleModal / ManageModelsModal ...
-└─ compat/             SillyTavern 兼容桥
+└─ lib/regex、lib/frontendCard   正则脚本流水线与前端卡渲染 (NyaaChat 自有能力)
 ```
 
 ### 3.2 状态管理
@@ -84,7 +84,6 @@ App.tsx (根组件 — 单一状态持有者)
 - **AppState** (`types.ts`): 包含全部设置的单一接口——角色、用户角色、LLM/图片提供者、主题、MCP 配置、渲染偏好。
 - **持久化**: IndexedDB (`nyaachat_settings` key)，带模式版本迁移 (当前 v8)。
 - **ChatSession**: 独立存储 (`sessionStorage.ts`)，消息变更时 800ms 去抖自动保存。
-- **Compat RuntimeStore** (`compat/runtimeStore.ts`): 模块级无框架状态镜像，单向数据流 React → extensions。
 
 ### 3.3 API 层
 
@@ -143,7 +142,6 @@ App.tsx (根组件 — 单一状态持有者)
 | `= /api/mcp` | MCP 服务器 | 流式 HTTP，服务端注入 Bearer |
 | `= /api/mcp/health` | MCP 服务器 | 健康检查 |
 | `= /api/ext-host/t2i-agent/chat` | ext-host:3099 | T2I Agent，300s 超时 |
-| `/api/ext-host/*` | ext-host:3099 | 扩展运行时 (TTS 等) |
 | `/api/shared/*` | nyaachat-shared:5107 | 共享角色 + 账号后端，120MB body |
 | `/api/knowledge/*` | nyaachat-knowledge:5108 | 知识库后端，120MB body |
 | `/api/comfyui/fixed/*` | ComfyUI 实例 | 含 WebSocket 升级 + Token 注入 |
@@ -154,16 +152,13 @@ App.tsx (根组件 — 单一状态持有者)
 
 ### 4.3 ext-host (端口 3099)
 
-零依赖原生 Node.js HTTP 服务器 (无 Express)，作为 sidecar 运行：
+零依赖原生 Node.js HTTP 服务器 (无 Express)，作为 sidecar 运行，现仅承载 ComfyUI 画图提示词代理：
 
 | 端点 | 方法 | 用途 |
 |------|------|------|
 | `/health` | GET | 健康检查 |
-| `/status` | GET | TTS 预设、运行时元数据、扩展事件计数 |
+| `/status` | GET | 运行状态 |
 | `/t2i-agent/chat` | POST | T2I 智能提示词代理——前端只发 `messages`，密钥/模型从服务端 env 注入 |
-| `/openai/custom/generate-voice` | POST | TTS 语音生成代理 (SillyTavern 兼容)，端点白名单强制 |
-| `/runtime-metadata` | GET/PUT | 扩展运行时元数据 |
-| `/extension-field` | POST | 扩展字段事件桥接 |
 
 ### 4.4 shared-server (端口 5107)
 
@@ -454,7 +449,9 @@ nginx `proxy_cache` 对外部图片 URL 提供 5GB / 30 天缓存。白名单域
 
 ---
 
-## 12. SillyTavern 兼容层
+## 12. SillyTavern 角色卡格式兼容
+
+> NyaaChat **不运行任何 SillyTavern 扩展**，也不提供任何装载扩展的治理通道。此处仅指角色卡文件格式的互操作。
 
 ### 12.1 角色卡导入/导出
 
@@ -470,21 +467,19 @@ nginx `proxy_cache` 对外部图片 URL 提供 5GB / 30 天缓存。白名单域
 - `hard` 约束标记**故意丢弃**（ST 无等价概念）
 - PNG 容器 (`pngCard.ts`): 512×768 canvas 绘制封面 + `tEXt` chunk 嵌入 JSON
 
-### 12.2 扩展系统
+### 12.2 正则脚本与前端卡渲染
 
-`compat/` 目录实现了 ST API 的兼容垫片：
-- **事件总线** (`events.ts`): `eventSource` + `event_types` 完整映射
-- **运行时存储** (`runtimeStore.ts`): React → extensions 单向数据流，支持注册 MessageWriter 写回
-- **宏引擎** (`macros.ts`): `{{user}}`/`{{char}}` 替换 + `substituteParams()`
-- **斜杠命令** (`slash/`): ST 兼容的命令解析与执行
-- **正则引擎** (`regex/`): 显示管道 + 提示词管道 (placement 1-5)
-- **前端卡牌** (`render/`): FrontendCard 渲染器 + HTML 检测
+NyaaChat 自有的两项渲染能力，均为纯前端实现，不依赖任何外部扩展运行时：
+
+- **正则引擎** (`lib/regex/`): 显示管道 + 提示词管道 (placement 1-5)，脚本存储与角色绑定关系不变
+- **前端卡渲染** (`lib/frontendCard/`): FrontendCard 渲染器 + HTML 检测；iframe `srcdoc` 内注入 `<base>` 并用 ResizeObserver 自适应高度
 
 ### 12.3 设计原则
 
-NyaaChat 兼容层追求**逻辑等价**而非**行为逐位复刻**。关键差异：
+角色卡转换追求**逻辑等价**而非**行为逐位复刻**。关键差异：
 - 世界书位置的「深度」概念被放弃——所有位置归并到 system/assistant 维度，避免破坏前缀缓存
 - 前端 UI 渲染元素（状态栏、动态数值面板等）导入时自动过滤
+- 原 `compat/` 垫片层（事件总线、运行时存储、宏引擎、斜杠命令、全局变量）已整体移除——扩展不再有可运行的宿主环境
 
 ---
 
@@ -542,7 +537,6 @@ docker compose -f docker-compose.knowledge.yml up -d  # 知识库后端 (:5108)
 | `COMFYUI_FIXED_T2I_AGENT_API_*` | T2I Agent 的 LLM 配置（`_BASEURL` / `_APIKEY` / `_MODEL` 为必备三项） |
 | `COMFYUI_FIXED_T2I_AGENT_API_MAX_TOKENS` | 提示词输出上限（默认 1600，代码内置下限 512） |
 | `COMFYUI_FIXED_T2I_AGENT_API_REASONING` | 是否保留模型思考 `on`/`off`（默认 off） |
-| `TTS_*` | TTS 端点白名单和预设 |
 | `NYAAACOUNT_API_TOKEN` | NyaaAcount 通信共享密钥 |
 | `PRIVATE_DOCKER_REGISTRY_HOST` | Docker 镜像仓库地址 |
 
@@ -604,4 +598,4 @@ interface AccountProfile {
 
 ---
 
-*最后更新: 2026-07-11*
+*最后更新: 2026-09-15*

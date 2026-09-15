@@ -3,12 +3,9 @@ import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
 import 'katex/dist/katex.min.css';
-import {installCompatLayer} from './compat';
 import {migrateFromLocalStorage, isMigrationDone} from './lib/idbStorage';
 import {hydrateSessions} from './lib/sessionStorage';
-import {hydrateExtensionSettings} from './compat/extensionSettings';
-import {hydrateRegexScripts} from './compat/regex/store';
-import {hydrateGlobalVariables} from './compat/variables';
+import {hydrateRegexScripts} from './lib/regex/store';
 import {
   MIGRATION_DIALOG_ENABLED,
   hasNyaaChatLocalStorageData,
@@ -17,8 +14,8 @@ import {
 } from './lib/migrationDialog';
 
 // Bootstrap: migrate localStorage → IndexedDB (one-shot), then hydrate every
-// in-memory cache before the compat layer or React mount so synchronous reads
-// throughout the app always see the latest data.
+// in-memory cache before React mounts so synchronous reads throughout the app
+// always see the latest data.
 (async function bootstrap() {
   // --- 0. Transitional migration dialog --------------------------------
   // When MIGRATION_DIALOG_ENABLED is true AND the user has NyaaChat data
@@ -45,16 +42,10 @@ import {
   }
 
   // 2. Pre-fill in-memory caches from IndexedDB.
-  await hydrateExtensionSettings();   // extension_settings object
   await hydrateRegexScripts();        // global regex cache
-  await hydrateGlobalVariables();     // global variables cache
   await hydrateSessions();            // sessions + lastSessionId caches
 
-  // 3. Install the SillyTavern compatibility layer.  Extensions now see
-  //    hydrated data in extension_settings, regex, and variables.
-  installCompatLayer();
-
-  // 4. Mount React.
+  // 3. Mount React.
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
       <App />

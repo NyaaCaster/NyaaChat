@@ -1,29 +1,21 @@
-// Macro engine compatible with SillyTavern's `substituteParams`.
+// NyaaChat 的 `{{macro}}` 替换引擎 —— 正则脚本通道专用。
 //
-// ST resolves `{{macro}}` placeholders all over the place: character cards,
-// world info, regex replace strings, extension prompts, slash commands. The
-// regex module (P2) calls it the "largest implicit dependency" — almost every
-// other compat surface leans on it — so it lands first in P1.
+// 正则脚本的 find / replace 两侧都允许写宏：`substituteRegex` 决定 find 模式的宏
+// 展开方式（0=NONE / 1=RAW / 2=ESCAPED），replaceString 里的宏则在替换时展开。
+// 本模块就是那台替换机的唯一实现，零依赖（不引 moment / seedrandom / droll /
+// Handlebars），只覆盖正则脚本与角色卡实际会用到的那批宏。
 //
-// ST's own implementation pulls in moment / seedrandom / droll / Handlebars
-// (see .ref/SillyTavern/public/scripts/macros.js). NyaaChat carries none of
-// those, so this is a dependency-free re-implementation of the subset that
-// front-end cards, regex scripts, and character cards actually use. The
-// evaluation order mirrors ST exactly: preEnv builtins → env vars → postEnv
-// builtins, so extension code that relies on, say, `{{user}}` expanding before
-// a `{{random}}` pick keeps the same behaviour.
+// 求值顺序（与用户对宏的直觉一致，也与通行实现一致）：
+//   preEnv 内置 → env 变量 → postEnv 内置
 //
-// Chat-derived macros ({{lastMessage}}, {{allChatRange}}, …) need the live
-// message array. To avoid a hard import of runtimeStore (which would create a
-// cycle, since runtimeStore is wired up by the compat installer), the chat
-// source is injected via setChatAccessor(). Until something registers one,
-// those macros resolve to empty strings — matching ST's behaviour on an empty
-// chat rather than throwing.
+// 聊天派生宏（{{lastMessage}} / {{allChatRange}} …）需要实时消息数组。为了不硬
+// 依赖聊天存储（会形成环），聊天源通过 setChatAccessor() 注入；没人注册时这些宏
+// 解析成空字符串（等价于空聊天），而不是抛错。
 
 /**
  * Values fed into the macro environment. Anything a `{{key}}` can expand to.
- * Functions are called lazily at substitution time (ST allows function-valued
- * env entries for late-bound values). Keys are matched case-insensitively.
+ * Functions are called lazily at substitution time. Keys are matched
+ * case-insensitively.
  */
 export type MacroEnv = Record<string, string | (() => string) | undefined>;
 
@@ -41,9 +33,8 @@ type ChatAccessor = () => MacroChatMessage[];
 let chatAccessor: ChatAccessor | null = null;
 
 /**
- * Register the source of truth for chat-derived macros. Called once by the
- * compat installer with a getter over runtimeStore. Idempotent-friendly: the
- * last registration wins, and passing null detaches (used in teardown/tests).
+ * Register the source of truth for chat-derived macros. Idempotent-friendly:
+ * the last registration wins, and passing null detaches.
  */
 export function setChatAccessor(fn: ChatAccessor | null): void {
   chatAccessor = fn;
@@ -53,24 +44,24 @@ function getChat(): MacroChatMessage[] {
   try {
     return chatAccessor?.() ?? [];
   } catch (err) {
-    console.error("[compat] chat accessor threw during macro eval", err);
+    console.error("[regex] chat accessor threw during macro eval", err);
     return [];
   }
 }
 
 // --- default environment ---------------------------------------------------
 //
-// user / char / persona etc. are not constant — they follow the active
-// character and user role. The compat installer registers a provider so
-// substituteParams() has sensible defaults when a caller does not pass an
-// explicit env. Per-call env still wins over these.
+// user / char / persona 等不是常量 —— 它们跟随当前角色与用户身份。宿主通过
+// setDefaultEnvProvider 注册一个读取器，substituteParams() 在没有显式 env 时才
+// 会用它。每次调用的 env 仍然优先于它。
 
 type EnvProvider = () => MacroEnv;
 
 let defaultEnvProvider: EnvProvider | null = null;
 
 /** Register a provider for the baseline macro env (active char/user names,
- *  description, …). Wired up by the compat installer from app state. */
+ *  description, …). Reads live on every call, so switching character or user
+ *  role is reflected without re-registering. */
 export function setDefaultEnvProvider(fn: EnvProvider | null): void {
   defaultEnvProvider = fn;
 }
@@ -79,43 +70,12 @@ function getDefaultEnv(): MacroEnv {
   try {
     return defaultEnvProvider?.() ?? {};
   } catch (err) {
-    console.error("[compat] default env provider threw", err);
+    console.error("[regex] default env provider threw", err);
     return {};
   }
 }
 
-// --- extension-registered macros (ST MacrosParser.registerMacro) -----------
-//
-// ST exposes a static MacrosParser.registerMacro(key, value) that extensions
-// call to add their own `{{key}}` macros (e.g. JS-Slash-Runner registers
-// {{userAvatarPath}} / {{charAvatarPath}}). The value is a string or a function
-// returning a string — structurally identical to a MacroEnv entry, so we hold
-// them in the same shape and fold them into substituteParams as the lowest-
-// priority env layer (default env and per-call env still override on key clash,
-// matching ST where later populateEnv writes win).
-
-const registeredMacros = new Map<string, string | (() => string)>();
-
-/** Register a custom `{{key}}` macro. Mirrors MacrosParser.registerMacro.
- *  A later registration of the same key replaces the earlier one (ST semantics). */
-export function registerMacro(key: string, value: string | (() => string)): void {
-  if (!key || typeof key !== "string") return;
-  registeredMacros.set(key, value);
-}
-
-/** Remove a previously registered macro. Mirrors MacrosParser.unregisterMacro. */
-export function unregisterMacro(key: string): void {
-  registeredMacros.delete(key);
-}
-
-function getRegisteredMacroEnv(): MacroEnv {
-  if (registeredMacros.size === 0) return {};
-  const env: MacroEnv = {};
-  for (const [key, value] of registeredMacros) env[key] = value;
-  return env;
-}
-
-// --- chat-derived helpers (mirror ST's getLastMessage family) --------------
+// --- chat-derived helpers ({{lastMessage}} family) -------------------------
 
 function lastMatching(predicate: (m: MacroChatMessage) => boolean): string {
   const chat = getChat();
@@ -138,7 +98,7 @@ function getLastCharMessage(): string {
   return lastMatching((m) => m.role === "assistant" && !m.isSystem);
 }
 
-// --- time helpers (replace moment with Intl/Date) --------------------------
+// --- time helpers ----------------------------------------------------------
 
 function fmtTime(d: Date): string {
   return d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
@@ -156,8 +116,8 @@ function pad2(n: number): string {
   return String(n).padStart(2, "0");
 }
 
-/** Minimal moment-style token formatter covering the tokens that show up in
- *  practice ({{datetimeformat ...}}). Unknown tokens pass through verbatim. */
+/** Minimal token formatter covering the tokens that show up in practice
+ *  ({{datetimeformat ...}}). Unknown tokens pass through verbatim. */
 function formatWithTokens(d: Date, pattern: string): string {
   const map: Record<string, string> = {
     YYYY: String(d.getFullYear()),
@@ -188,8 +148,8 @@ function splitMacroList(listString: string): string[] {
 // --- dice rolls ({{roll:NdM+K}}) -------------------------------------------
 
 /** Evaluate a dice formula like `2d6`, `d20`, `3d8+2`, `1d4-1`. Bare numbers
- *  are treated as `1dN` (ST behaviour). Returns null on an unparseable
- *  formula so the macro can collapse to empty string. */
+ *  are treated as `1dN`. Returns null on an unparseable formula so the macro
+ *  can collapse to empty string. */
 function rollDice(formula: string): number | null {
   const f = formula.trim();
   if (/^\d+$/.test(f)) {
@@ -222,7 +182,7 @@ function envValue(env: MacroEnv, key: string): string {
     try {
       return raw() ?? "";
     } catch (err) {
-      console.error(`[compat] macro env "${key}" function threw`, err);
+      console.error(`[regex] macro env "${key}" function threw`, err);
       return "";
     }
   }
@@ -252,9 +212,9 @@ export function substituteParams(content: string | null | undefined, env: MacroE
   if (!content) return "";
   let text = String(content);
 
-  const merged: MacroEnv = { ...getRegisteredMacroEnv(), ...getDefaultEnv(), ...env };
+  const merged: MacroEnv = { ...getDefaultEnv(), ...env };
 
-  // Builtins that run BEFORE env substitution (ST preEnvMacros order).
+  // Builtins that run BEFORE env substitution.
   const preEnv: MacroRule[] = [
     { regex: /<USER>/gi, replace: () => envValue(merged, "user") },
     { regex: /<BOT>/gi, replace: () => envValue(merged, "char") },
@@ -280,7 +240,7 @@ export function substituteParams(content: string | null | undefined, env: MacroE
     });
   }
 
-  // Builtins that run AFTER env substitution (ST postEnvMacros order).
+  // Builtins that run AFTER env substitution.
   const postEnv: MacroRule[] = [
     { regex: /{{lastMessage}}/gi, replace: () => getLastMessage() },
     { regex: /{{lastUserMessage}}/gi, replace: () => getLastUserMessage() },
@@ -339,9 +299,8 @@ export function substituteParams(content: string | null | undefined, env: MacroE
       },
     },
     {
-      // {{pick}} in ST is seeded for stability; without a chat-file hash here
-      // we approximate with a content+offset hash so a given placement is
-      // stable within one render pass. Good enough for display; not persisted.
+      // {{pick}} is meant to be stable for a given placement; without a
+      // chat-file hash we approximate with a random pick from the list.
       regex: /{{pick\s?::?([^}]+)}}/gi,
       replace: (_m, listString) => {
         const list = splitMacroList(listString);
@@ -361,15 +320,14 @@ export function substituteParams(content: string | null | undefined, env: MacroE
     try {
       text = text.replace(rule.regex, (...args) => rule.replace(...(args as string[])));
     } catch (err) {
-      console.error("[compat] macro rule threw", rule.regex, err);
+      console.error("[regex] macro rule threw", rule.regex, err);
     }
   }
 
   return text;
 }
 
-/** ST alias used by some extensions/regex paths. Behaviourally identical here;
- *  the `extended` flag in ST toggles env enrichment we already always apply. */
+/** Alias kept for call sites that pass an "extended" flag upstream. */
 export function substituteParamsExtended(content: string | null | undefined, env: MacroEnv = {}): string {
   return substituteParams(content, env);
 }

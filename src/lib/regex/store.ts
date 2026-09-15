@@ -1,18 +1,18 @@
-// Regex script storage and scope resolution.
+// 正则脚本的存储与作用域解析。
 //
-// ST sources regex scripts from three scopes (global / preset / character) and
-// chains them in a fixed priority order. NyaaChat has no preset system, so we
-// implement two scopes:
-//   - GLOBAL: user-managed scripts in IndexedDB, applied to every chat.
-//   - SCOPED: character-card scripts (CharacterSettings.regexScripts), applied
-//     only when that character is active.
+// 正则脚本有两个来源，按固定优先级串成一条链：
+//   - GLOBAL：用户在 IndexedDB 里维护的全局脚本，对所有会话生效。
+//   - SCOPED：角色卡自带脚本（CharacterSettings.regexScripts），仅在该角色
+//     激活时生效。
 //
-// The combined order is GLOBAL then SCOPED, matching ST's effective ordering
-// for these two scopes (global runs first, character scripts refine after).
-// getRegexedString consumes the combined array and chains them.
+// 合并顺序是 GLOBAL 在前、SCOPED 在后（全局先跑，角色脚本在其结果上精修）。
+// getRegexedString 消费这条合并后的数组并按顺序链式执行。
+//
+// ⚠️ 存储键 `nyaachat_regex_global` 是对外冻结的：改它等于让所有用户已保存的
+// 全局正则脚本凭空消失。
 
 import type { CharacterSettings, RegexScript } from "../../types";
-import { getItem, setItem } from "../../lib/idbStorage";
+import { getItem, setItem } from "../idbStorage";
 
 const STORAGE_KEY = "nyaachat_regex_global";
 
@@ -22,9 +22,9 @@ const STORAGE_KEY = "nyaachat_regex_global";
 let globalCache: RegexScript[] | null = null;
 
 // Subscribers notified whenever the global scripts change (the management UI
-// saving). Lets the display pipeline (ChatInterface) re-derive its effective
-// script chain and re-run regex on the visible chat immediately, instead of
-// only on the next character switch / reload.
+// saving). Lets the display pipeline re-derive its effective script chain and
+// re-run regex on the visible chat immediately, instead of only on the next
+// character switch / reload.
 const subscribers = new Set<() => void>();
 
 /** Subscribe to global regex script changes. Returns an unsubscribe fn. */
@@ -38,7 +38,7 @@ function notifyRegexChange(): void {
     try {
       cb();
     } catch (err) {
-      console.error("[compat] regex subscriber threw", err);
+      console.error("[regex] subscriber threw", err);
     }
   }
 }
@@ -69,7 +69,7 @@ export function saveGlobalRegexScripts(scripts: RegexScript[]): void {
   try {
     void setItem(STORAGE_KEY, JSON.stringify(scripts));
   } catch (err) {
-    console.error("[compat] failed to persist global regex scripts", err);
+    console.error("[regex] failed to persist global regex scripts", err);
   }
   notifyRegexChange();
 }

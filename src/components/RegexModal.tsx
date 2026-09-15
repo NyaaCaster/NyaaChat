@@ -4,7 +4,7 @@ import { Regex, Plus, Pencil, Trash2, ArrowUp, ArrowDown, Upload } from "lucide-
 import type { CharacterSettings, RegexScript } from "../types";
 import { BaseModal } from "./BaseModal";
 import { DeleteConfirmDialog } from "./DeleteConfirmDialog";
-import { loadGlobalRegexScripts, saveGlobalRegexScripts, parseImportedRegexScripts } from "../compat";
+import { loadGlobalRegexScripts, saveGlobalRegexScripts, parseImportedRegexScripts } from "../lib/regex";
 import { RegexScriptEditModal } from "./RegexScriptEditModal";
 
 interface RegexModalProps {

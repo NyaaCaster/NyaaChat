@@ -20,13 +20,13 @@ import {
 import { motion } from "motion/react";
 import type { CharacterSettings, RegexScript } from "../types";
 import { VersionModal } from "./VersionModal";
-import { ExtensionsModal } from "./ExtensionsModal";
 import { RegexModal } from "./RegexModal";
 import { UserAccountModal } from "./UserAccountModal";
 import { KnowledgeBaseModal } from "./KnowledgeBaseModal";
 
-/** 扩展面板 UI 入口开关。设为 false 隐藏按钮和弹窗，改为 true 恢复。 */
-const EXTENSIONS_UI_ENABLED = false;
+/** 「扩展」入口按钮开关。按用户需求保留该入口 UI（按钮可见），但当前不挂任何功能：
+ *  SillyTavern 扩展兼容系统已整体摘除，此按钮不再打开任何面板。 */
+const EXTENSIONS_UI_ENABLED = true;
 
 interface ChatHeaderProps {
   characters: CharacterSettings[] | undefined;
@@ -69,7 +69,6 @@ export function ChatHeader({
   const currentCharacter = characters?.find((c) => c.id === currentCharacterId);
   const currentName = currentCharacter?.name || "AI助手";
   const [isVersionOpen, setIsVersionOpen] = useState(false);
-  const [isExtensionsOpen, setIsExtensionsOpen] = useState(false);
   const [isRegexOpen, setIsRegexOpen] = useState(false);
   const [isAccountOpen, setIsAccountOpen] = useState(false);
   const [isKnowledgeBaseOpen, setIsKnowledgeBaseOpen] = useState(false);
@@ -150,10 +149,13 @@ export function ChatHeader({
             />
           </button>
           {EXTENSIONS_UI_ENABLED && (
+            // 「扩展」入口按钮：仅保留 UI，不挂任何功能（不打开面板、不调用任何 API）。
+            // 用 title + aria-disabled 明示当前暂未开放。
             <button
-              onClick={() => setIsExtensionsOpen(true)}
+              type="button"
+              aria-disabled="true"
               className="p-2 text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-white/10 rounded-lg transition-all duration-200"
-              title="扩展"
+              title="扩展（暂未开放）"
             >
               <Puzzle size={18} />
             </button>
@@ -232,11 +234,6 @@ export function ChatHeader({
         <VersionModal isOpen={isVersionOpen} onClose={() => setIsVersionOpen(false)} />,
         document.body,
       )}
-      {EXTENSIONS_UI_ENABLED &&
-        createPortal(
-          <ExtensionsModal isOpen={isExtensionsOpen} onClose={() => setIsExtensionsOpen(false)} />,
-          document.body,
-        )}
       {createPortal(
         <RegexModal
           isOpen={isRegexOpen}

@@ -8,8 +8,8 @@
 //
 // Instead each cover is stored as a binary Blob in IndexedDB keyed by the
 // character `id`. The settings blob only carries a lightweight `coverImage`
-// marker (see CharacterSettings). This mirrors the IndexedDB approach already
-// used for extension settings (compat/extensionSettings.ts).
+// marker (see CharacterSettings). IndexedDB is where this app keeps its large
+// binary objects, so the size ceiling here is the storage quota, not a JSON string.
 
 const IDB_DB_NAME = "nyaachat_character_covers";
 const IDB_STORE_NAME = "covers";

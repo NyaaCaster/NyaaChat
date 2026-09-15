@@ -3,7 +3,7 @@
 
 Builds FOUR images from three compose projects:
   nyaachat-app       — nginx frontend (root Dockerfile)
-  nyaachat-ext-host  — extension runtime sidecar (ext-host/Dockerfile)
+  nyaachat-ext-host  — ComfyUI T2I agent sidecar (ext-host/Dockerfile)
   nyaachat-shared    — shared-character backend (shared-server/Dockerfile)
   nyaachat-knowledge — knowledge base backend (nyaachat-knowledge/Dockerfile)
 
@@ -97,24 +97,6 @@ def registry_health(registry_url: str, secrets: list[str]) -> bool:
     except Exception as e:
         print(f"[WARN] Registry health check failed: {mask(str(e), secrets)}")
         return False
-
-
-# ---------------------------------------------------------------------------
-# pre-build: extension registry
-# ---------------------------------------------------------------------------
-
-def generate_extension_registry(secrets: list[str]):
-    """Generate ext-host/network-allowlist.generated.json before building.
-
-    The ext-host Dockerfile COPYs this file, so it MUST exist before
-    `docker build` runs.  The file is .gitignore'd — it is always
-    regenerated at build time.
-    """
-    print("Generating extension registry...")
-    cp = run(["node", "scripts/generate-extension-registry.mjs"], secrets)
-    if cp.returncode != 0:
-        print("[ERROR] Extension registry generation failed.")
-        sys.exit(1)
 
 
 # ---------------------------------------------------------------------------
@@ -338,11 +320,6 @@ def main():
     if args.only:
         print(f"  Only:      {args.only}")
     print()
-
-    # 0. pre-build: generate extension registry (needed by ext-host Dockerfile)
-    # Only needed when building nyaachat-ext-host.
-    if args.only is None or args.only == "nyaachat-ext-host":
-        generate_extension_registry(secrets)
 
     # 1. registry health check
     if not args.skip_push:

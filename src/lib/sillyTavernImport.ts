@@ -66,17 +66,16 @@ export async function parseSillyTavernPng(file: File): Promise<CharacterSettings
 
 /** Convert a NyaaChat-native card JSON (the object embedded in our own PNG
  *  export, `format: "nyaachat-character"`) into CharacterSettings. Reads our own
- *  top-level fields directly — regex under `regexScripts`, character variables /
- *  ST data under `extensions`, plus the shared-system metadata groundwork. */
+ *  top-level fields directly — regex under `regexScripts`, plus the shared-system
+ *  metadata groundwork. A legacy card that still carries `extensions` (the
+ *  character-level blob of the removed extension compatibility layer) imports
+ *  fine; that retired field is ignored, not copied.
+ */
 export function convertNativeCard(parsed: any): CharacterSettings {
   if (!parsed.name || typeof parsed.name !== "string") throw new Error('Missing or invalid "name"');
   if (!parsed.description || typeof parsed.description !== "string") {
     throw new Error('Missing or invalid "description"');
   }
-  const passthroughExt =
-    parsed.extensions && typeof parsed.extensions === "object" && !Array.isArray(parsed.extensions)
-      ? (parsed.extensions as Record<string, unknown>)
-      : undefined;
   return {
     id: newId(),
     name: parsed.name,
@@ -86,7 +85,6 @@ export function convertNativeCard(parsed: any): CharacterSettings {
     ...(Array.isArray(parsed.regexScripts) && parsed.regexScripts.length
       ? { regexScripts: parsed.regexScripts }
       : {}),
-    ...(passthroughExt ? { extensions: passthroughExt } : {}),
     ...(typeof parsed.version === "number" ? { version: parsed.version } : {}),
     ...(typeof parsed.author === "string" && parsed.author ? { author: parsed.author } : {}),
     ...(parsed.source === "original" || parsed.source === "reposted" ? { source: parsed.source } : {}),
@@ -164,9 +162,9 @@ export function convertSillyTavernCharacter(parsed: any): CharacterSettings {
   const data = parsed.data ?? parsed;
 
   // Import every world-info entry the card carries — no filtering. Earlier
-  // versions dropped status-bar / UI-rendering entries (and entries referenced
-  // by tavern_helper scripts) because NyaaChat could not render them; now that
-  // frontend rendering exists, those entries must survive the import intact.
+  // versions dropped status-bar / UI-rendering entries because NyaaChat could
+  // not render them; now that frontend rendering exists, those entries must
+  // survive the import intact.
   // Disabled entries are kept as well, preserving their disabled state below,
   // so nothing in the card is silently lost.
   const entries: any[] = data.character_book?.entries ?? [];

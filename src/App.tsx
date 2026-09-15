@@ -17,7 +17,7 @@ import { getItem, setItem, removeItem } from "./lib/idbStorage";
 import { SettingsProvider } from "./lib/settingsContext";
 import { MIN_THRESHOLD_PCT, MAX_THRESHOLD_PCT, DEFAULT_THRESHOLD_PCT } from "./lib/contextBudget";
 import { maybeHeartbeat } from "./lib/memoryLifecycle";
-import { ChatSession, LlmProvider, ImageProvider, LlmProviderKind } from "./types";
+import { ChatSession, CharacterSettings, LlmProvider, ImageProvider, LlmProviderKind } from "./types";
 
 // Modals are rendered only when opened, so each one's chunk loads on-demand
 // rather than bloating the initial bundle. Trade-off: closing a modal unmounts
@@ -69,6 +69,27 @@ function stripSensitiveLogMeta(meta: unknown): unknown {
   const copy = { ...(meta as Record<string, unknown>) };
   for (const key of SENSITIVE_LOG_META_KEYS) delete copy[key];
   return copy;
+}
+
+/** Drop the field retired with the **SillyTavern extension compatibility layer**
+ *  from characters loaded out of `nyaachat_settings`.
+ *
+ *  An install written before the removal still has `characters[].extensions` on
+ *  disk — the character-level extension blob that layer used to carry. That
+ *  field is gone with the layer; it is only stripped here when old data is
+ *  loaded. Without the strip the load path would carry it back into live state
+ *  and the next save/export would re-persist it. Everything else — notably the
+ *  retained `regexScripts` and the world-book fields — is preserved verbatim.
+ *  The settings-import path strips the same key (lib/settingsBackup.ts), so both
+ *  entry points converge on the same shape. */
+function stripRetiredCharacterFields(chars: any[]): CharacterSettings[] {
+  return chars.map((c) => {
+    if (!c || typeof c !== "object") return c;
+    const { extensions: _retiredExtensions, ...rest } = c as CharacterSettings & {
+      extensions?: unknown;
+    };
+    return rest as CharacterSettings;
+  });
 }
 
 // Persisted settings are wrapped with a _version tag so future shape changes
@@ -231,8 +252,8 @@ function migrateV6ToV7(raw: any): any {
 }
 
 /**
- * v5 → v6: add the JSR-style render depth limit. 0 means all floors; the
- * default mirrors JS-Slash-Runner's common safer setting of only latest floors.
+ * v5 → v6: add the front-end render depth limit. 0 means all floors; the default
+ * renders only the latest 5 floors.
  */
 function migrateV5ToV6(raw: any): any {
   return {
@@ -246,8 +267,8 @@ function migrateV5ToV6(raw: any): any {
 }
 
 /**
- * v4 → v5: enable the native front-end card renderer by default for existing
- * users, while allowing it to be disabled when JS-Slash-Runner will own render.
+ * v4 → v5: enable NyaaChat's native front-end card renderer by default for
+ * existing users; the user can still turn it off in settings.
  */
 function migrateV4ToV5(raw: any): any {
   return {
@@ -686,7 +707,7 @@ export default function App() {
           theme: parsed.theme || "system",
           characters:
             parsed.characters?.length > 0
-              ? parsed.characters
+              ? stripRetiredCharacterFields(parsed.characters)
               : DEFAULT_SETTINGS.characters,
           currentCharacterId:
             parsed.currentCharacterId || DEFAULT_SETTINGS.currentCharacterId,

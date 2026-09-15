@@ -12,13 +12,41 @@ import { ConfirmDialog } from "./ConfirmDialog";
 import { ImageViewerModal } from "./ImageViewerModal";
 import { CoverViewerModal } from "./CoverViewerModal";
 import { downloadImage } from "../lib/imageApi";
-import { applyPlaceholders } from "../lib/chatPipeline";
+import { applyPlaceholders, getMacroIdentity, syncMacroIdentity } from "../lib/chatPipeline";
 import {
   decodeFlagalacUnicodeEscapes,
   encodeFlagalacUnicodeEscapes,
 } from "../lib/flagalacUnicode";
-import { getRegexedString, regex_placement, FrontendCard, splitFrontendContent } from "../compat";
+import { getRegexedString, regex_placement } from "../lib/regex";
+import { setDefaultEnvProvider } from "../lib/regex/macros";
+import { FrontendCard, splitFrontendContent } from "../lib/frontendCard";
 import type { RegexScript } from "../types";
+
+// ---------------------------------------------------------------------------
+// 正则宏的默认 env 注册（宿主侧接线；宏引擎见 src/lib/regex/macros.ts）
+//
+// 正则脚本的 find / replace 两侧都允许写宏，{{user}} / {{char}} / <USER> / <BOT>
+// 需要一个"当前用户 / 当前角色"来源。该来源原由扩展兼容层的安装器注册，随兼容层
+// 一并摘除后无人注册 ⇒ 这些宏会保留字面量。这里补上宿主侧注册：
+//   · **模块加载时注册一次**（幂等：模块只求值一次，重复导入不会重复挂载）；
+//   · provider 每次被调用都通过 `getMacroIdentity()` 读 chatPipeline 的模块级状态，
+//     因此拿到的是**实时值而不是渲染快照**（切换用户 / 角色立即生效）；
+//   · 本组件渲染期只调用 `syncMacroIdentity(prop, prop)` 把最新值推进去 —— 不改
+//     React 状态、不触发重渲染、值没变时直接返回；
+//   · 取值语义对齐摘除前的默认宏 env（HEAD `src/compat/index.ts`：
+//     `{ user: m.userName ?? "user", char: m.characterName ?? "" }`，其中
+//     `m.characterName = currentCharacter?.name ?? null`，故**无角色时 char 为 ""**）：
+//     用户名缺失回落到 "user"，角色名缺失为空串 —— **不**用界面展示兜底 "AI助手"
+//     （那是 resolvedChar 的展示标签，写进宏语义会与 HEAD 不符）。
+//     唯一不可达差异：用户名被显式设成空串时 `||` 给 "user"、HEAD 的 `??` 给 ""
+//     （syncMacroIdentity 已把 undefined/null/"" 折叠为空串，无实际观测影响）；
+//   · 聊天源（{{lastMessage}} 系）由 chatPipeline 注册，两个注册点各占一个槽位。
+// ---------------------------------------------------------------------------
+
+setDefaultEnvProvider(() => {
+  const identity = getMacroIdentity();
+  return { user: identity.user || "user", char: identity.char };
+});
 
 // rehype-sanitize schema: GitHub-flavored default + className passthrough so
 // our prose/markdown-body styles still apply. Anything not in the allowlist
@@ -201,9 +229,9 @@ interface MessageItemProps {
   /** Floor number = index in the rendered message list. Passed by the parent
    *  (authoritative, always defined) rather than read from message.mesid, which
    *  the store assigns to its own copy and isn't echoed back into React state.
-   *  Used for the data-mesid attribute and the FrontendCard iframe id. */
+   *  Feeds the "#N" badge and the FrontendCard iframe id. */
   mesid?: number;
-  /** Controls NyaaChat's native JS-Slash-Runner-style iframe renderer. */
+  /** Controls NyaaChat's native front-end card iframe renderer. */
   frontendRenderingEnabled?: boolean;
   /** AnswererFlagalac `unicodeEncoding` is in effect for this chat (F-2).
    *  Only then may the stored text's `\uXXXX` escapes be decoded for display and
@@ -278,6 +306,14 @@ export const MessageItem = React.memo(function MessageItem({
   // render/button sections below, so they are resolved once, early, and reused.
   const isUser = message.role === "user";
   const isSystem = message.role === "system";
+
+  // 正则宏上下文（注册见本文件顶部的 setDefaultEnvProvider 块）：把**实时身份**推进
+  // chatPipeline 的模块级状态，使正则脚本 find / replace 里的 {{user}} / {{char}}
+  // （及 <USER> / <BOT>）在**显示通道**也解析成真实名字；提示词通道的同一份身份由
+  // chatPipeline 在组装请求时推进。
+  // 传原始 prop（undefined 视为空）而不是上面的 resolvedUser / resolvedChar 展示兜底值，
+  // 以免把展示用兜底写进宏语义。渲染期写入是幂等的：值没变时 sync 直接返回。
+  syncMacroIdentity(userName, charName);
 
   // ─── AnswererFlagalac · 编辑通道（t9 / Q-08 方案 b；语义与代价见文件顶部的
   // `toFlagalacEditDisplay` 注释块）────────────────────────────────────────
@@ -411,7 +447,6 @@ export const MessageItem = React.memo(function MessageItem({
     const systemText = applyPlaceholders(message.content, resolvedUser, resolvedChar);
     return (
       <motion.div
-        data-mesid={mesid}
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         className="flex justify-center my-6"
@@ -444,15 +479,12 @@ export const MessageItem = React.memo(function MessageItem({
 
   return (
     <motion.div
-      data-mesid={mesid}
-      data-st-mesid={mesid}
-      data-is-user={isUser ? "true" : undefined}
       initial={{ opacity: 0, y: 15, scale: 0.98 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-      className={`mes flex w-full max-w-3xl lg:max-w-[60rem] mx-auto my-4 ${isUser ? "justify-end" : "justify-start"}`}
+      className={`flex w-full max-w-3xl lg:max-w-[60rem] mx-auto my-4 ${isUser ? "justify-end" : "justify-start"}`}
     >
-      <div className={`max-w-[100%] min-w-0 flex flex-col gap-1 mes_block ${isUser ? "items-end" : "items-start"}`}>
+      <div className={`max-w-[100%] min-w-0 flex flex-col gap-1 ${isUser ? "items-end" : "items-start"}`}>
       <div
         className={`relative w-full overflow-hidden rounded-2xl px-5 py-4 bg-white dark:bg-[#111111] text-gray-900 dark:text-gray-100 shadow-elevation-1 ${
           isUser
@@ -467,8 +499,9 @@ export const MessageItem = React.memo(function MessageItem({
             288 at the top). A short bubble clips it via the bubble's
             overflow-hidden, showing the top/face (spec: chatbox-pc2). Visibility
             via the app-private `.cover-side` class (index.css), not Tailwind
-            `hidden lg:block`, because the hosted JS-Slash-Runner extension
-            injects a global `.hidden{display:none}` that clobbers `lg:block`.
+            `hidden lg:block`: the cover must not be clobbered by any stylesheet
+            injected into the main document, and an app-private class plus
+            `!important` is the one form no injected CSS can target.
             The bubble's `cover-host` reserves the right column so prose never
             overlaps the cover. */}
         {showCover && (
@@ -508,7 +541,7 @@ export const MessageItem = React.memo(function MessageItem({
         >
           {isUser ? (
             <div className="flex flex-col items-start gap-1">
-              <div className="text-[11px] font-semibold uppercase tracking-wider name_text">
+              <div className="text-[11px] font-semibold uppercase tracking-wider">
                 {userName || "You"}
               </div>
               {(timeStr || message.tokenCount !== undefined || mesid !== undefined) && (
@@ -529,7 +562,7 @@ export const MessageItem = React.memo(function MessageItem({
             </div>
           ) : (
             <div className="flex flex-col items-start gap-1">
-              <div className="text-[11px] font-semibold uppercase tracking-wider flex items-center gap-1.5 name_text">
+              <div className="text-[11px] font-semibold uppercase tracking-wider flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
                 <span style={{ fontFamily: "var(--font-display)" }}>
                   {charName || "Assistant"}
@@ -565,7 +598,7 @@ export const MessageItem = React.memo(function MessageItem({
           )}
         </div>
         <div
-          className={`prose prose-sm md:prose-base max-w-none prose-p:leading-relaxed prose-pre:bg-gray-900 prose-pre:text-gray-100 dark:prose-invert mes_text ${showCover ? "lg:clear-none clear-right" : ""} ${isUser ? "prose-a:text-blue-600 dark:prose-a:text-blue-400" : ""}`}
+          className={`prose prose-sm md:prose-base max-w-none prose-p:leading-relaxed prose-pre:bg-gray-900 prose-pre:text-gray-100 dark:prose-invert ${showCover ? "lg:clear-none clear-right" : ""} ${isUser ? "prose-a:text-blue-600 dark:prose-a:text-blue-400" : ""}`}
         >
           <div
             className="markdown-body"

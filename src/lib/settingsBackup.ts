@@ -1,4 +1,4 @@
-import { AppState, ImageProvider, LlmProvider, ModelEntry } from "../types";
+import { AppState, CharacterSettings, ImageProvider, LlmProvider, ModelEntry } from "../types";
 import { wordCheckTemplates } from "./WordCheckTemplates";
 import { wordCountTemplates } from "./WordCountTemplates";
 import { normalizeAnswererFlagalacState } from "./FlagalacTemplates";
@@ -127,24 +127,103 @@ function stripRetiredFlagalacTemplates(
 }
 
 /**
+ * Strip the character field retired together with the **SillyTavern extension
+ * compatibility layer** from one character.
+ *
+ * 退休字段集合（**当前含 `extensions`；新增退休键时在此登记**）：
+ *   · `extensions` —— 该兼容层曾经透传的角色级扩展数据块；随兼容层一并摘除，
+ *     现在只在导入/载入旧数据时被剥离，不代表任何运行能力。
+ *
+ * Used by **both** routes: export (so the retired blob can never land in an
+ * archive) and import (so a pre-removal archive cannot reintroduce it). The
+ * import side stays lenient — the value is dropped, never a reason to reject the
+ * file. Everything else — notably the NyaaChat-native `regexScripts` and the
+ * world-book fields — is preserved verbatim. Unlike the retired Flagalac `layer`
+ * field, this one genuinely was written by the product (it rode through
+ * character import/export), which is exactly why it must be stripped on every
+ * path.
+ */
+function stripRetiredCharacterFields(ch: CharacterSettings): CharacterSettings {
+  if (!ch || typeof ch !== "object") return ch; // tolerate a corrupted entry
+  const { extensions: _retiredExtensions, ...rest } = ch as CharacterSettings & {
+    extensions?: unknown;
+  };
+  return rest as CharacterSettings;
+}
+
+/** Top-level keys the removed SillyTavern extension compatibility layer used to
+ *  persist (none of them is part of the current AppState).
+ *
+ *  ⚠️ 以下键属于**已摘除的 SillyTavern 扩展兼容面**；此处保留这三类字面量，仅仅
+ *  是为了在导入/导出时把它们**剥离**掉 —— 它们不是残留能力，也不被任何代码读取
+ *  或写入。老归档仍携带这些键时必须能成功导入（向后兼容），且不允许把它们带进
+ *  内存状态，所以两个字面量清单（本清单 + `stripRetiredCharacterFields`）刻意保留。
+ *
+ *  Archived exports may still carry them — the import path strips them instead of
+ *  rejecting the file — and a hand-edited localStorage blob could hand them to the
+ *  export path, so both sides delete them. */
+const RETIRED_TOP_LEVEL_KEYS = ["extension_settings", "extensionSettings", "chat_metadata"] as const;
+
+/**
+ * Drop every retired field a pre-removal archive may still carry, in place, so
+ * old backups keep importing **and** the removed data cannot come back into live
+ * state (where a later export/localStorage write would resurrect it):
+ *   · top-level `extension_settings` / `extensionSettings` / `chat_metadata`
+ *     (see `RETIRED_TOP_LEVEL_KEYS` above)
+ *   · `characters[].extensions` — the character-level blob, via
+ *     `stripRetiredCharacterFields()` just below
+ *
+ * Strictly a subtractive operation on those keys: every other field — the
+ * retained `regexScripts`, the world-book fields, all provider state — passes
+ * through untouched, and unknown-but-unrelated keys are still tolerated (this
+ * path never rejects an archive for carrying extra data).
+ */
+function stripRetiredImportFields(filled: Record<string, unknown>): void {
+  for (const key of RETIRED_TOP_LEVEL_KEYS) {
+    if (key in filled) delete filled[key];
+  }
+  if (Array.isArray(filled.characters)) {
+    filled.characters = filled.characters.map((c) =>
+      c && typeof c === "object" ? stripRetiredCharacterFields(c as CharacterSettings) : c,
+    );
+  }
+}
+
+/**
  * Build the export payload object without triggering a download. Used by the
  * cloud-settings upload flow (SettingsModal) so the same stripping + timestamp
  * logic is shared with the local-download path.
  */
 export function buildExportPayload(settings: AppState): ExportPayload {
+  const stripped = {
+    ...settings,
+    bypass: {
+      ...settings.bypass,
+      answererFlagalac: stripRetiredFlagalacTemplates(settings.bypass?.answererFlagalac),
+    },
+    llmProviders: settings.llmProviders.map(stripLlmProvider),
+    imageProviders: settings.imageProviders.map(stripImageProvider),
+    characters: settings.characters.map(stripRetiredCharacterFields),
+  };
+
+  // Protection, not repair: live state should already be clean (the load path
+  // and the import path strip these), but a hand-edited localStorage blob could
+  // still carry a retired top-level key, and `...settings` would then copy it
+  // into the archive. Every export route (local download + cloud upload) goes
+  // through this single constructor, so deleting here covers both.
+  //
+  // The record view exists only so `delete` is legal on keys the AppState type
+  // does not declare — it is the same object, not a copy.
+  const record = stripped as unknown as Record<string, unknown>;
+  for (const key of RETIRED_TOP_LEVEL_KEYS) {
+    if (key in record) delete record[key];
+  }
+
   return {
     _kind: EXPORT_KIND,
     _version: EXPORT_VERSION,
     exportedAt: new Date().toISOString(),
-    settings: {
-      ...settings,
-      bypass: {
-        ...settings.bypass,
-        answererFlagalac: stripRetiredFlagalacTemplates(settings.bypass?.answererFlagalac),
-      },
-      llmProviders: settings.llmProviders.map(stripLlmProvider),
-      imageProviders: settings.imageProviders.map(stripImageProvider),
-    },
+    settings: stripped as AppState,
   };
 }
 
@@ -677,6 +756,13 @@ function validateImportPayload(raw: unknown): ImportResult {
   if (!Number.isFinite(filled.memoryDisclosureAcceptedAt)) {
     delete filled.memoryDisclosureAcceptedAt;
   }
+
+  // Finally, drop every field that was retired with the removed extension
+  // compatibility layer. Archives written before the removal carry them
+  // (character `extensions`, a stray top-level `extension_settings` blob);
+  // stripping here — rather than rejecting — is what keeps those backups
+  // importable while guaranteeing the removed data never re-enters state.
+  stripRetiredImportFields(filled);
 
   return { kind: "ok", settings: filled as unknown as AppState };
 }

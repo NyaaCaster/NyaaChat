@@ -45,6 +45,7 @@ import {
   isFlagalacUnicodeEncodingEnabled,
 } from "../lib/chatPipeline";
 import { nextBatchSeq, findBoundaryIndex } from "../lib/memoryBoundary";
+import { getEffectiveRegexScripts, subscribeRegexScripts } from "../lib/regex";
 import { MessageItem } from "./MessageItem";
 import { ChatHeader } from "./ChatHeader";
 import { ChatComposer } from "./ChatComposer";
@@ -55,7 +56,6 @@ import { UserAccountModal } from "./UserAccountModal";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { useAttachments } from "../hooks/useAttachments";
 import { useCoverObjectUrl } from "../hooks/useCoverObjectUrl";
-import { syncChat, syncMeta, getEffectiveRegexScripts, subscribeRegexScripts, resetTransientVariables, setGenerateApiResolver, setMessageWriter, setActiveChatScope, setActiveChatMetadataScope, setContextProvider, setExtensionFieldWriter, applyExtensionFieldToCharacters, getChatMetadata, replaceChatMetadata, saveMetadataNow, toSTCharacter, emitChatChanged, emitChatLoaded, emitMessageDeleted, emitMessageReceived, emitMessageSent, emitMessageUpdated, emitUserMessageRendered, emitCharacterMessageRendered } from "../compat";
 
 /**
  * Map a thrown error from the API layer to a user-friendly Chinese message.
@@ -160,7 +160,6 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
   const [saveError, setSaveError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
-  const previousMessageIdsRef = useRef<string[]>([]);
   // OpenCode Go requires one stable request identifier per logical chat. Keep a
   // draft identifier before the first autosave, then persist it with the chat.
   const opencodeSessionIdRef = useRef<string | null>(currentSession?.opencodeSessionId ?? null);
@@ -199,8 +198,6 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
   // Active character cover (512×768) as an object URL, shared by every assistant
   // bubble's side/avatar decoration and cover viewer.
   const coverUrl = useCoverObjectUrl(currentCharacter?.id, !!currentCharacter?.coverImage);
-  const settingsRef = useRef(settings);
-  settingsRef.current = settings;
 
   // Hot-path mirrors so the callbacks handed to every MessageItem can be
   // stabilized with empty deps. A plain (or messages-keyed) callback gets a
@@ -236,7 +233,7 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
   //
   // These two built-in rules are NOT members of the user-visible regex chain:
   // they are never persisted, never appear in the 正则 manager (RegexModal) and
-  // never enter the global/character scripts in the compat store. They are only
+  // never enter the global/character regex store. They are only
   // APPENDED to the array handed to MessageItem for this render pass, so the
   // display pass escapes tags inside thought blocks while `message.content` stays
   // exactly what the model wrote (MessageItem's edit box reads the raw content;
@@ -285,28 +282,6 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
     }
   };
 
-  useEffect(() => {
-    setContextProvider({
-      characters: () => settingsRef.current.characters.map(toSTCharacter),
-      thisChid: () => {
-        const s = settingsRef.current;
-        const idx = s.characters.findIndex((c) => c.id === s.currentCharacterId);
-        return idx >= 0 ? idx : null;
-      },
-    });
-    return () => setContextProvider(null);
-  }, []);
-
-  useEffect(() => {
-    setExtensionFieldWriter(({ characterId, key, value }) => {
-      const result = applyExtensionFieldToCharacters(settingsRef.current.characters, { characterId, key, value });
-      if (!result.changed) return false;
-      onSettingsChange({ ...settingsRef.current, characters: result.characters });
-      return true;
-    });
-    return () => setExtensionFieldWriter(null);
-  }, [onSettingsChange]);
-
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
@@ -314,112 +289,6 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
-
-  // Compat layer: mirror the live chat into the module-level runtimeStore so
-  // SillyTavern-compatible extensions and the front-end-card render pipeline
-  // can read it synchronously. One-way only (React → store); the store never
-  // writes back into React state. See src/compat/runtimeStore.ts.
-  useEffect(() => {
-    syncChat(messages);
-  }, [messages]);
-
-  // ST DOM/event bridge: after React commits message DOM, emit the render events
-  // extensions use to scan `#chat > .mes` and decorate `.mes_text` safely.
-  useEffect(() => {
-    const previousIds = previousMessageIdsRef.current;
-    const previousSet = new Set(previousIds);
-    previousMessageIdsRef.current = messages.map((m) => m.id);
-
-    messages.forEach((message, mesid) => {
-      const wasPresent = previousSet.has(message.id);
-      if (message.role === "user") {
-        if (!wasPresent) emitMessageSent(mesid, "normal");
-        emitUserMessageRendered(mesid);
-        return;
-      }
-      if (message.role === "assistant") {
-        if (!wasPresent) emitMessageReceived(mesid, "normal");
-        emitCharacterMessageRendered(mesid, "normal");
-        return;
-      }
-      if (wasPresent) emitMessageUpdated(mesid);
-    });
-  }, [messages]);
-
-  // Fire ST chat lifecycle events when a conversation/character scope changes.
-  useEffect(() => {
-    const chatId = currentSession?.id ?? currentCharacter?.id ?? "";
-    emitChatChanged(chatId);
-    emitChatLoaded();
-  }, [currentSession?.id, currentCharacter?.id]);
-
-  // Compat layer: let front-end cards' TavernHelper.generate reach the active
-  // LLM provider. A ref keeps the resolver reading the latest settings without
-  // re-registering on every settings change.
-  useEffect(() => {
-    setGenerateApiResolver(() => {
-      const s = settingsRef.current;
-      const provider = getActiveLlmProvider(s);
-      if (!provider) return null;
-      return {
-        ...providerToApiSettings(provider, undefined, opencodeSessionIdRef.current ?? undefined),
-        isStreaming: false,
-      };
-    });
-    return () => setGenerateApiResolver(null);
-  }, []);
-
-  // Compat layer: let front-end cards mutate the chat via TavernHelper
-  // (setChatMessage / createChatMessages / deleteChatMessages). The store
-  // forwards write intent here so React stays the single writer of its own
-  // state; syncChat then flows the result back into the store mirror.
-  useEffect(() => {
-    setMessageWriter({
-      setMessage: (mesid, content) => {
-        setMessages((prev) =>
-          prev.map((m, i) => (i === mesid ? { ...m, content } : m)),
-        );
-      },
-      insertMessage: (index, msg) => {
-        setMessages((prev) => {
-          const next = [...prev];
-          const at = Math.max(0, Math.min(index, next.length));
-          next.splice(at, 0, {
-            id: newId(),
-            role: msg.role,
-            content: msg.content,
-            timestamp: Date.now(),
-          });
-          return next;
-        });
-      },
-      deleteMessage: (mesid) => {
-        setMessages((prev) => prev.filter((_, i) => i !== mesid));
-      },
-      setMessageVariables: (mesid, variables) => {
-        setMessages((prev) =>
-          prev.map((m, i) => (i === mesid ? { ...m, variables } : m)),
-        );
-      },
-    });
-    return () => setMessageWriter(null);
-  }, []);
-
-  // Mirror the active character / user identity into the compat runtime.
-  // Keyed on the resolved ids/names so a character or role switch propagates
-  // without re-running on every message change.
-  useEffect(() => {
-    const chid = currentCharacter
-      ? (settings.characters?.findIndex((c) => c.id === currentCharacter.id) ?? null)
-      : null;
-    syncMeta({
-      characterId: currentCharacter?.id ?? null,
-      characterName: currentCharacter?.name ?? null,
-      userName: currentUserRole?.name ?? null,
-      chid: chid === -1 ? null : chid,
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentCharacter?.id, currentCharacter?.name, currentUserRole?.name]);
 
   const buildFirstMes = (character: typeof currentCharacter): Message[] => {
     if (!character?.firstMes?.trim()) return [];
@@ -436,9 +305,6 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
   useEffect(() => {
     if (currentSession?.characterId === settings.currentCharacterId) return;
     setMessages(buildFirstMes(currentCharacter));
-    // A new conversation must not inherit the previous one's transient
-    // (chat/script/message) card variables. Global vars persist by design.
-    resetTransientVariables();
     // Intentionally only depends on the character/session IDs, not the whole
     // objects — editing a character or autosaving a session shouldn't reset chat.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1417,15 +1283,11 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
         characterId: currentSession?.characterId ?? currentCharacter?.id ?? "default",
         characterName: currentSession?.characterName ?? charName,
         messages,
-        metadata: getChatMetadata(),
         createdAt: currentSession?.createdAt ?? Date.now(),
       };
       try {
-        saveMetadataNow();
         await saveSession(session);
         if (!currentSession || currentSession.id !== session.id) {
-          await setActiveChatScope(session.id);
-          await setActiveChatMetadataScope(session.id);
           onSessionChange(session);
         }
       } catch (err: any) {
@@ -1460,7 +1322,6 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
   const handleDeleteMessage = useCallback((id: string) => {
     setMessages((prev) => {
       const deletedIndex = prev.findIndex((m) => m.id === id);
-      if (deletedIndex >= 0) emitMessageDeleted(deletedIndex);
       const seq = prev[deletedIndex]?.memoryBatchSeq;
       const next = prev.filter((m) => m.id !== id);
       // Transfer boundary marker to the previous message when the deleted one
@@ -1478,11 +1339,7 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
   }, []);
 
   const handleEditMessage = useCallback((id: string, newContent: string) => {
-    setMessages((prev) => {
-      const editedIndex = prev.findIndex((m) => m.id === id);
-      if (editedIndex >= 0) emitMessageUpdated(editedIndex);
-      return prev.map((m) => (m.id === id ? { ...m, content: newContent } : m));
-    });
+    setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, content: newContent } : m)));
   }, []);
 
   // P0: stabilized with empty deps — reads the hot-path refs so the callback
@@ -1969,13 +1826,8 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
 
   // Load session when selected from history
   useEffect(() => {
-    // Point the compat chat-variable and metadata scopes at this session so
-    // front-end-card state is partitioned per conversation (null = draft scratch).
-    setActiveChatScope(currentSession?.id ?? null);
-    setActiveChatMetadataScope(currentSession?.id ?? null);
     if (currentSession) {
       setMessages(currentSession.messages);
-      replaceChatMetadata(currentSession.metadata);
     }
     // Depending on the id alone is intentional: when the same session object
     // is passed back (e.g. after rename) we don't want to re-import messages.
@@ -2021,10 +1873,6 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
 
       {/* Main Chat Area */}
       <main id="chat" className="flex-1 overflow-y-auto p-4 sm:p-6 scroll-smooth z-10 relative">
-        {/* ST DOM anchor. JSR's render store gates its initial rerenderAll on
-            `#chat > .welcomePanel` existing (the sentinel ST always keeps in
-            #chat). Persisted hidden so the gate passes; never shown to users. */}
-        <div className="welcomePanel" hidden aria-hidden="true" />
         {saveError && (
           <div className="mx-auto max-w-2xl mb-3 px-3 py-2 rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 text-amber-700 dark:text-amber-400 text-xs flex items-start gap-2">
             <span className="shrink-0 mt-0.5">⚠</span>

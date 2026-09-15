@@ -2,7 +2,8 @@ import { ApiMessage, VOLATILE_PART_FLAG } from "./api";
 import { AppState, CharacterSettings, Message, Attachment, RegexScript, WorldInfoRule } from "../types";
 import { SearchResult } from "./searchApi";
 import { type KbSearchResult } from "./knowledgeApi";
-import { getEffectiveRegexScripts, getRegexedString, regex_placement } from "../compat";
+import { getEffectiveRegexScripts, getRegexedString, regex_placement } from "./regex";
+import { setChatAccessor, type MacroChatMessage } from "./regex/macros";
 import { messagesAfterBoundary } from "./memoryBoundary";
 import {
   BAZETT_THINK_TAG,
@@ -14,6 +15,52 @@ import {
   resolveFlagalacTarget,
 } from "./FlagalacTemplates";
 import { encodeFlagalacUnicodeEscapes } from "./flagalacUnicode";
+
+// ---------------------------------------------------------------------------
+// Regex macro context (host side)
+//
+// 宏引擎（./regex/macros.ts）的两个外部输入都是**注入式**的：默认 env（{{user}} /
+// {{char}} / <USER> / <BOT>）与聊天源（{{lastMessage}} 系）。扩展兼容层摘除后没有
+// 任何注册方，于是由宿主接线 ——
+//   · 状态（实时身份 + 消息数组）放在本模块：buildRequestMessages 是唯一同时握有
+//     两者（userName/charName 与 baseMessages）的地方；
+//   · **聊天源**由本模块在加载时注册一次（`setChatAccessor`），闭包读模块级引用，
+//     所以永远是活值而不是快照；
+//   · **默认 env** 由 `src/components/MessageItem.tsx` 在加载时注册（`setDefaultEnvProvider`），
+//     它通过 `getMacroIdentity()` 读同一份身份 —— 两个注册点各占一个槽位，互不覆盖；
+//   · `sync*` 只负责把最新值推进引用，值没变时直接返回，因此渲染期调用零副作用、
+//     不引入 React 状态、也不触发重渲染。
+//
+// 已知边界：聊天源只在请求组装时拿到整条消息数组，所以 {{lastMessage}} 系宏在
+// **提示词通道**语义精确；显示通道拿到的是"最近一次组装请求时的聊天"（首屏尚未
+// 发过请求时为空 ⇒ 这些宏展开为空串，与空聊天的行为一致）。
+// ---------------------------------------------------------------------------
+
+let macroIdentity: { user: string; char: string } = { user: "", char: "" };
+let macroChat: MacroChatMessage[] = [];
+
+setChatAccessor(() => macroChat);
+
+/** 推进"当前身份"。传原始 prop / 参数即可（undefined 视为空），默认值由 provider 兜。 */
+export function syncMacroIdentity(user?: string | null, char?: string | null): void {
+  const nextUser = user ?? "";
+  const nextChar = char ?? "";
+  if (macroIdentity.user === nextUser && macroIdentity.char === nextChar) return;
+  macroIdentity = { user: nextUser, char: nextChar };
+}
+
+/** 推进"当前聊天"。只在内容真正变化时替换引用（数组身份比较，避免无谓复制）。 */
+export function syncMacroChat(messages?: readonly MacroChatMessage[] | null): void {
+  const next = messages ?? [];
+  if (next.length === macroChat.length && next.every((m, i) => m === macroChat[i])) return;
+  macroChat = next.map((m) => ({ role: m.role, content: m.content, isSystem: m.isSystem }));
+}
+
+/** Live (non-snapshot) identity for the default macro-env provider registered by
+ *  MessageItem — reads the module state at call time. */
+export function getMacroIdentity(): { user: string; char: string } {
+  return macroIdentity;
+}
 
 /**
  * Pure helper: turn user-typed text + attachments into the multimodal
@@ -518,7 +565,7 @@ export function applyFlagalacTraceCleanup(text: string, placement: number): stri
  * 显示侧的内置规则（规则二 + 规则三），**只在显示通道生效**。
  *
  * 这两条**不是**用户可见的正则链成员：不落盘、不进 `RegexModal` 列表、不写
- * `compat/regex/store.ts` 的全局链，也不进 `character.regexScripts`。调用方
+ * `lib/regex/store.ts` 的全局链，也不进 `character.regexScripts`。调用方
  * （ChatInterface）只在渲染这一遍把它们**追加到交给 MessageItem 的显示链末尾**：
  *   · 追加在末尾 ⇒ 用户自己的脚本先看到原文；
  *   · `markdownOnly` ⇒ 只在 isMarkdown 通道生效，请求侧不受影响；
@@ -643,7 +690,23 @@ export function buildRequestMessages(args: BuildRequestArgs): ApiMessage[] {
     mcpAdvertisedToolNames,
   } = args;
 
-  // Regex prompt pipeline (ST: getRegexedString with isPrompt). Scripts are
+  // Regex macro context (see the host-side wiring block at the top of this file):
+  // this is the one place in NyaaChat that holds BOTH the live identity and the
+  // whole message array, so it feeds {{user}}/{{char}} and the {{lastMessage}}
+  // family for every regex substitution that runs from here on (prompt and
+  // display alike). Idempotent — the sync functions no-op when nothing changed.
+  //
+  // ⚠️ 身份推值刻意用**原始**角色名，而不是本函数的 `charName` 参数：后者是展示用兜底
+  // （`ChatInterface.tsx`: `charName = currentCharacter?.name || "AI助手"`），而摘除前的宏
+  // env 取的是原始值 —— `git show HEAD:src/components/ChatInterface.tsx` 的
+  // `syncMeta({ characterName: currentCharacter?.name ?? null })` 配上
+  // `git show HEAD:src/compat/index.ts` 的 `char: m.characterName ?? ""`，
+  // 结论是「无角色 ⇒ 空串」。若用展示兜底，`{{char}}` 会变成 "AI助手"，与历史语义不符。
+  // 显示通道（MessageItem）推的也是原始 prop，因此两个通道取值一致。
+  syncMacroIdentity(userName, currentCharacter?.name ?? "");
+  syncMacroChat(baseMessages);
+
+  // Regex prompt pipeline (getRegexedString with isPrompt). Scripts are
   // applied to the text the model receives — independent of the display pass
   // in MessageItem. depth counts backwards from the latest turn (0 = the new
   // user message), so history entries get depth = distance from the end.

@@ -198,10 +198,10 @@ export function CharacterEditModal({
       ...(coverImage ? { coverImage } : {}),
       // Preserve card data this modal has no editor for, so editing+saving a
       // character never silently strips its character-scoped regex (managed in
-      // the 正则 panel), ST extension bindings / character variables, or the
-      // shared-system metadata groundwork.
+      // the 正则 panel) or the shared-system metadata groundwork. The retired
+      // ST-compat `extensions` field is deliberately NOT carried over — it went
+      // away with the extension compatibility system.
       ...(initialCharacter?.regexScripts ? { regexScripts: initialCharacter.regexScripts } : {}),
-      ...(initialCharacter?.extensions ? { extensions: initialCharacter.extensions } : {}),
       ...(initialCharacter?.version !== undefined ? { version: initialCharacter.version } : {}),
       ...(initialCharacter?.globalId ? { globalId: initialCharacter.globalId } : {}),
       ...(initialCharacter?.author ? { author: initialCharacter.author } : {}),
@@ -215,8 +215,8 @@ export function CharacterEditModal({
   };
 
   // Assemble the character from the current (possibly edited) modal state, plus
-  // the card data this modal has no editor for (regex / extensions / shared
-  // metadata) carried from initialCharacter. Shared by both export formats.
+  // the card data this modal has no editor for (regex / shared metadata) carried
+  // from initialCharacter. Shared by both export formats.
   const buildCurrentCharacter = useCallback((): CharacterSettings => ({
     id: initialCharacter?.id || cardIdRef.current,
     name: name.trim(),
@@ -227,7 +227,6 @@ export function CharacterEditModal({
       ? { coverImage: COVER_MARKER }
       : {}),
     ...(initialCharacter?.regexScripts ? { regexScripts: initialCharacter.regexScripts } : {}),
-    ...(initialCharacter?.extensions ? { extensions: initialCharacter.extensions } : {}),
     ...(initialCharacter?.version !== undefined ? { version: initialCharacter.version } : {}),
     ...(initialCharacter?.globalId ? { globalId: initialCharacter.globalId } : {}),
     ...(initialCharacter?.author ? { author: initialCharacter.author } : {}),
@@ -317,8 +316,7 @@ export function CharacterEditModal({
     // NyaaChat-native character card embedded in a PNG (tEXt `chara`). The JSON
     // is a lossless round-trip of CharacterSettings, deliberately NOT shaped
     // like a SillyTavern card: regex stays under our own top-level
-    // `regexScripts`; `extensions` is an opaque passthrough. The cover image
-    // (or a placeholder) is the PNG's visible pixels — never written into JSON.
+    // `regexScripts`. The retired ST-compat `extensions` blob is not emitted.
     const c = buildCurrentCharacter();
     const data = {
       format: "nyaachat-character",
@@ -328,7 +326,6 @@ export function CharacterEditModal({
       ...(c.firstMes ? { firstMes: c.firstMes } : {}),
       worldInfo: c.worldInfo ?? [],
       ...(c.regexScripts && c.regexScripts.length ? { regexScripts: c.regexScripts } : {}),
-      ...(c.extensions && Object.keys(c.extensions).length ? { extensions: c.extensions } : {}),
       ...(c.author ? { author: c.author } : {}),
       ...(c.source ? { source: c.source } : {}),
       ...(c.intro ? { intro: c.intro } : {}),

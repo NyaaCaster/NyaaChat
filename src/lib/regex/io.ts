@@ -1,40 +1,37 @@
-// Regex script import/export — SillyTavern-compatible serialization.
+// 正则脚本的导入 / 导出（`.nyaa` 文件）。
 //
-// Export mirrors ST exactly (`JSON.stringify(script, null, 4)`) so a NyaaChat
-// regex file is structurally an ST regex script and round-trips with it. The
-// only intentional difference is the file extension (`.nyaa` instead of ST's
-// `.json`); the filename stem uses ST's own `sanitizeFileName`, so the
-// "regex-<name>" part matches ST byte for byte (e.g. regex-🐈g·rpg状态栏).
+// 导出（`JSON.stringify(script, null, 4)`）与通行的 regex 脚本 JSON 形状一致，
+// 因此 NyaaChat 的导出文件可以被同类工具直接读取，反向也一样 —— 这是刻意保留的
+// 互通能力（用户需求：导入/导出不受影响）。唯一有意的差异是文件扩展名：NyaaChat
+// 用 `.nyaa`。文件名主干沿用 `sanitizeRegexFileName`，所以 `regex-<name>` 这一
+// 段与外部工具逐字节一致（例如 regex-🐈g·rpg状态栏）。
 //
-// Import accepts both `.nyaa` and `.json`, a single object or an array (ST does
-// too), and validates + normalizes each entry into our RegexScript shape with a
-// fresh id — the compliance check the spec asks for.
+// 导入同时接受 `.nyaa` 与 `.json`、单个对象或数组，并对每一项做校验 + 归一化成
+// NyaaChat 的 RegexScript 形状（总是分配新 id）。
 
 import type { RegexScript } from "../../types";
-import { newId } from "../../lib/id";
+import { newId } from "../id";
 
-/** ST's sanitizeFileName (extensions/regex/index.js): collapse whitespace, path
- *  separators and reserved characters to '_' and lowercase. Emoji / CJK pass
- *  through unchanged, matching ST's output. */
+/** Collapse whitespace, path separators and reserved characters to '_' and
+ *  lowercase. Emoji / CJK pass through unchanged. */
 export function sanitizeRegexFileName(name: string): string {
   // eslint-disable-next-line no-control-regex
   return name.replace(/[\s.<>:"/\\|?*\x00-\x1F\x7F]/g, "_").toLowerCase();
 }
 
-/** Export filename: ST's `regex-<sanitized>` stem with NyaaChat's `.nyaa`. */
+/** Export filename: `regex-<sanitized>` stem with NyaaChat's `.nyaa`. */
 export function regexExportFileName(scriptName: string): string {
   return `regex-${sanitizeRegexFileName(scriptName)}.nyaa`;
 }
 
-/** Serialize one script. ST writes `JSON.stringify(script, null, 4)`; we match
- *  the indentation and field layout so the file is interchangeable with ST. */
+/** Serialize one script with 4-space indentation and the shared field layout so
+ *  the file is interchangeable with other regex-script tools. */
 export function serializeRegexScript(script: RegexScript): string {
   return JSON.stringify(script, null, 4);
 }
 
 /** Validate + normalize one raw imported object into a RegexScript, or null if
- *  it isn't a compliant regex script. A fresh id is always assigned (as ST does
- *  on import). */
+ *  it isn't a compliant regex script. A fresh id is always assigned. */
 function normalizeRegexScript(raw: unknown): RegexScript | null {
   if (!raw || typeof raw !== "object") return null;
   const r = raw as Record<string, unknown>;
