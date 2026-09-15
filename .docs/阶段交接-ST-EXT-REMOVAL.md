@@ -101,6 +101,7 @@
 | nginx | 共 **14 个 location**；11 个业务 location（mcp / mcp-health / shared / knowledge×2 / comfyui×2 / opencode-go / image-proxy / assets / index.html）全在；`= /api/ext-host/t2i-agent/chat`、`= /api/ext-host/health` 在；ST 三路由（`generate-voice` / `extensions/third-party` / 通用 ext-host 前缀）**0 命中**；无重复 location |
 | 版本文件 | `git status --porcelain -- CHANGELOG.md VERSION.md` → **无输出**（**本轮刻意不发版**，两文件未修改）✅ |
 | FontAwesome（必须保留） | `index.html` 3 链接 + `src` 侧 `fa-solid` / `fa-brands` 命中（`ImageProvidersModal.tsx` 在用） |
+| **宏展开接线（保留项·正则）** | ① **唯一注册点**：`git grep -n -I --untracked -F -e "setDefaultEnvProvider(()" -e "setChatAccessor(()" -- src` → **恰好 2**（`MessageItem.tsx:46` 默认 env 槽位、`chatPipeline.ts:42` 聊天源槽位）；`macros.ts:39/65` 仅出现**定义**。**多一处即失败** —— provider 是"最后注册者生效"，第三处会让两套接线互相顶掉（`src/lib/regex/macroContext.ts` 一度成为第二个注册点，该文件已删除且 0 引用）② **活值非快照**：夹具 `syncMacroIdentity("Alice","Bob")` → `FIRST="Alice/Bob"`；改身份 → `SECOND="Carol/Dave"` → `PASS 宏默认 env 为活值（改身份后实时生效）` ③ **兜底语义**：`syncMacroIdentity("","")` → `FALLBACK="[user][]"` ⇒ `char` 缺失展开为**空串**；**出现 `AI助手` 即失败** ④ `macros.ts` 的 `registerMacro` / `unregisterMacro` / `getRegisteredMacroEnv` = **0**（未随修复复活扩展注册 API）。逐条门禁见 §10 的 t21/t24 行；证据链与已知边界见 **§5.2** |
 
 ### 5.1 摘除前的两个扩展版本记录（最后记录，此后不再使用）
 
@@ -110,6 +111,26 @@
 | st-Quote-TTS | `37e6b18726f571316131d48d456389f09f405608` | NyaaCaster/st-Quote-TTS（本地改动：`TARGET_ENDPOINT` → `h.nyaa.host:5050`） | 34 文件 |
 
 两者均已随 `public/extensions/` 一起删除（含各自 `.git`）。**此后 NyaaChat 不再支持运行任何酒馆扩展，也不提供任何装载通道**（运行时装/卸载 API 与构建期 registry 生成钩子均已消失，见 §4）。
+
+### 5.2 宏展开接线（t21 恢复项）—— 为什么它属于"保留项"
+
+> **背景**：正则脚本的 find/replace 两侧允许写宏（`{{user}}` / `{{char}}` / `<USER>` / `<BOT>`）。宏的**默认 env 提供者**原本由已删除的 `src/compat/index.ts` 的 `installCompatLayer()` 注册；兼容层摘除后**没有任何注册方**，这些宏会保留字面量 ⇒ **正则能力被实际破坏**（本轮唯一一处"摘除动作波及保留项"的功能回归）。t21 把宿主侧接线接回，故它必须在 §5 这张"误删门禁"表里占一行。
+
+**入口行**：本表 `宏展开接线（保留项·正则）`。**逐条门禁与探针结果见 §10**（`t21 正则宏默认 env` 行、t24 的宏身份推值 12 条断言、`registerMacro` = 0 等）—— 本节只补「保留项反向检查」维度的入口行，两处结论一致，不存在冲突。
+
+**`char` 兜底值 = 空串**（该争议已终结，附证据链，日后复核不必重新考古）：
+
+| 环节 | 位置 / 原文 | 结论 |
+|---|---|---|
+| 摘除前 provider | `git show 3dc907a:src/compat/index.ts:57` → `return { user: m.userName ?? "user", char: m.characterName ?? "" };` | `char` 兜底 = **空串 `""`** |
+| 摘除前上游 | `git show 3dc907a:src/components/ChatInterface.tsx` 的 `syncMeta({ characterName: currentCharacter?.name ?? null, ... })` | 无角色 ⇒ `null` |
+| 另一处 `?? charName`（**非宏 env**） | `ChatInterface.tsx:1284` 的 `characterName: currentSession?.characterName ?? charName`，属**会话存档对象** `const session: ChatSession = {...}` 的字段 | **从未进入** macro env，不构成反例 |
+| 终态实现 | `MessageItem.tsx:46` → `{ user: identity.user \|\| "user", char: identity.char }`（无兜底字符串）；`chatPipeline.ts:706` → `syncMacroIdentity(userName, currentCharacter?.name ?? "")` | 与摘除前**语义一致** |
+| UI 展示兜底（**不参与宏**） | `ChatHeader.tsx:70`、`ChatInterface.tsx:196`、`MessageItem.tsx:304` 的 `… \|\| "AI助手"` | 全在展示路径，未进入宏 env |
+
+**已知边界（登记，不判失败）**：聊天源仅在 `buildRequestMessages` 组装请求时刷新 ⇒ **首屏尚未发过任何请求前** `{{lastMessage}}` / `{{lastUserMessage}}` / `{{lastCharMessage}}` / `{{lastMessageId}}` / `{{allChatRange}}` 展开为空串；发过至少一次请求后常驻可用、随每次请求刷新（**非逐条实时**）。`{{user}}` / `{{char}}` / `<USER>` / `<BOT>` **无此限制**。
+
+> ⚠️ **判据锚"文件 + 调用形态"，不要锚死行号**：`MessageItem.tsx` 的注册点曾为 `:41`，因注册块上方补注释而变为 **`:46`**。同理 `renderRule`（`chatPipeline.ts:791`）的 `{{char}}` 文本替换仍使用展示兜底 `charName` —— 经 `git diff 3dc907a` 比对，该行属**基线既有、本轮未改动**，登记不计入本轮缺陷。
 
 ---
 
