@@ -117,26 +117,26 @@ export function ChatHeader({
             </motion.span>
           )}
         </div>
-        <div className="flex items-center space-x-1">
+        <div className="flex items-center gap-1">
           {isFullscreenSupported && (
             <button
               onClick={onToggleFullscreen}
-              className="p-2 text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-white/10 rounded-lg transition-all duration-200"
+              className="p-1.5 text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-white/10 rounded-md transition-all duration-200"
               title={isFullscreen ? "退出全屏" : "全屏模式"}
             >
-              {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
+              {isFullscreen ? <Minimize size={16} /> : <Maximize size={16} />}
             </button>
           )}
           <button
             onClick={onOpenConsole}
-            className="p-2 text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-white/10 rounded-lg transition-all duration-200"
+            className="p-1.5 text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-white/10 rounded-md transition-all duration-200"
             title="控制台 (Console)"
           >
-            <Terminal size={18} />
+            <Terminal size={16} />
           </button>
           <button
             onClick={onOpenBypass}
-            className={`p-2 rounded-lg transition-all duration-200 flex items-center justify-center ${
+            className={`p-1.5 rounded-md transition-all duration-200 flex items-center justify-center ${
               isBypassActive
                 ? "text-red-500 bg-red-500/10 hover:bg-red-500/20"
                 : "text-gray-400 hover:text-red-500 hover:bg-gray-100 dark:hover:bg-white/10"
@@ -144,7 +144,7 @@ export function ChatHeader({
             title="绕过机制 (Bypass)"
           >
             <Flame
-              size={18}
+              size={16}
               className={isBypassActive ? "animate-pulse" : ""}
             />
           </button>
@@ -154,18 +154,18 @@ export function ChatHeader({
             <button
               type="button"
               aria-disabled="true"
-              className="p-2 text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-white/10 rounded-lg transition-all duration-200"
+              className="p-1.5 text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-white/10 rounded-md transition-all duration-200"
               title="扩展（暂未开放）"
             >
-              <Puzzle size={18} />
+              <Puzzle size={16} />
             </button>
           )}
           <button
             onClick={onOpenSettings}
-            className="p-2 text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-white/10 rounded-lg transition-all duration-200"
+            className="p-1.5 text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-white/10 rounded-md transition-all duration-200"
             title="设置"
           >
-            <Settings size={18} />
+            <Settings size={16} />
           </button>
         </div>
       </header>
