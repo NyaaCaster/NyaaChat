@@ -169,8 +169,28 @@
 | `GET /scripts/extensions/third-party/st-Quote-TTS/index.js` | **404** | ST alias 目标不存在（唯一期望 404 的项）✅ |
 | `POST /api/ext-host/t2i-agent/chat`（无 body） | **400** `t2i_agent_messages_required` | T2I 路由**仍挂载**（保留项）✅ |
 | `GET /api/ext-host/health` | **200** `{"ok":true,"service":"nyaachat-ext-host"}` | 边车健康 |
+| `GET /api/ext-host/status` | **200** | 边车运行状态（t4 保留的三条路由之一） |
+| `GET /api/ext-host/runtime-metadata` | **404** | 扩展运行时元数据路由**已删除** ✅ |
 
 > **SPA 回退 200 不算残留**（队长统一裁定，见 §11.3 第 4 条）：dev 与生产 app 都是 nginx + SPA（`try_files → /index.html`），判据是"**不再返回 ST shim 内容**"；唯一应期望 404 的是 `/scripts/extensions/third-party/<id>/*.js`（实测 404 ✅）。
+
+**内容级判据（关键 · 证明 200 不是 ST shim）**：上表 6 个"200 回退"路径（`/script.js`、`/extensions/`、`/scripts/extensions.js`、`/css/st-host.css` 等）——**字节数全部恰为 1564 B（与 `/` 和 `/index.html` 等长）**、`Content-Type: text/html`、响应体首 200 字符以 `<!doctype html>` 开头且含 `<div id="root">`；同时**容器内 `/usr/share/nginx/html` 中 `script.js` / `scripts` / `extensions` / `css/st-host.css` 全部 ABSENT**。⇒ 这些 200 **只可能**来自 `location / → try_files /index.html`，**不是 ST shim 内容**（判据从"是否 404"升级为"是否返回 ST shim"）。
+
+**被服务 bundle 计数（运行时字符串级证据）**：
+
+| 模式 | 命中 | 说明 |
+|------|------|------|
+| `扩展（暂未开放）` | **1** | 需求 1 的入口按钮**实机上线**（可见但无功能） |
+| `nyaachat_regex_global` | **2** | 正则存储键在服务产物中仍在（保留项） |
+| `isFrontendRenderingEnabled` | **15** | 前端渲染开关仍在（保留项） |
+| `t2i-agent/chat` | **1** | T2I 代理链路仍在（保留项） |
+| `installCompatLayer` / `__NYAA_COMPAT__` / `TavernHelper` / `window.SillyTavern` / `extensions_settings` | **全 0** | 扩展兼容符号在**被服务的 bundle** 中彻底消失 |
+
+> 方法论见 §11.5 第 4 条：dist 中本地函数名会被压缩，运行时 grep 只对**字符串/属性 token** 有效。
+
+**边界与副作用核查**：`error.log` 末尾只有 **2 条 `[error]`**，均为冒烟时主动打已删 ST 路径产生的**预期 404**，**无启动期错误**；主仓 `nginx.conf` 五模式 grep 重跑 **0 命中**；`git -C dev-server status --porcelain` = **空**（冻结私有仓未改）；未做任何 `ssh` / `scp` / docker context / macmini 操作，未启动主仓生产容器，`docker ps` 仅新增 3 个 `nyaachat-dev-*`。
+
+> **与任务原文的唯一不符项**（如实留档）：任务原文写"`/script.js`、`/extensions/` 期望 404"，实测 **200** —— 按队长裁定（方案 a）判 **passed**，理由即上面的内容级判据（回退到 SPA 且容器内不存在 ST 文件），非残留。
 
 **t12 纪律**：未改任何文件（`dev-server/**` 保持冻结，`git status` 为空）。
 
@@ -182,7 +202,7 @@
 **提交信息**：`refactor: remove sillytavern extension compatibility layer`
 **规模**：**91 files changed, 1040 insertions(+), 6760 deletions(-)**（3 个新增、56 个删除，git 另识别出 6 处"compat → lib"重命名）
 
-> **补录说明**：紧随其后还有一次**同一提交信息**的定稿提交，仅更新本文件（写入上面这行 commit SHA 与下面的硬指标实测输出）—— 因为一个 commit 的 SHA 无法被包含它的那个 commit 自身引用。两次提交都只落在主仓，内容上属同一次改动。
+> **补录说明**：紧随其后是若干次**同一提交信息**的文档定稿提交（仅更新本文件：补写本节的 commit SHA、四条硬指标，以及 §7 部署的内容级判据与 bundle 计数）—— 因为一个 commit 的 SHA 无法被包含它的那个 commit 自身引用。这些提交都只落在主仓，内容上属同一次改动；`git log -1 --format=%s` 因此始终等于上面的提交信息。
 
 **提交内容清点（关键项）**：删除 tracked 的 `public/extensions/registry.overrides.json`（`.gitignore` 只忽略 `public/extensions/*/` 与 `registry.json`，故必须显式入索引）、`scripts/generate-extension-registry.mjs`、`public/script.js`、21 个 `public/scripts/**`、`public/css/st-host.css`、`src/compat/**`（26 个 tracked）、`src/components/ExtensionsModal.tsx`、两个 `.docs/` 旧文档；新增 `src/lib/regex/`（5）、`src/lib/frontendCard/`（4）、本交接文档；其余为 31 个 `M`。
 
@@ -307,6 +327,7 @@ git -C NyaaChat -c credential.helper= -c "url.https://x-access-token:$GITHUB_PAT
 1. **`git grep` 只覆盖"已跟踪文件"**：本次改动几乎全部未提交，因此**新建文件**（`src/lib/regex/*`、`src/lib/frontendCard/*`）对 `git grep` 类门禁**完全不可见**。实证：`git grep -n -I -F nyaachat_regex_global -- src` 只返回 1 条（`src/lib/idbStorage.ts:143`），而 `src/lib/regex/store.ts:17` 的 `const STORAGE_KEY = "nyaachat_regex_global";` 未被检出。⇒ **残留判定必须"双手段"：`git grep`（跟踪面）+ `Get-ChildItem | Select-String`（落盘面，含未跟踪）。**
 2. **"剥注释后与 `HEAD` 逐字节比对"只在文件未被其它任务改过时才成立**：t18 的 5 个文件（`App.tsx` / `settingsBackup.ts` / `sillyTavernImport.ts` / `sessionStorage.ts` / `sillyTavernExport.ts`）同时承载 **t3 的有意代码改动**，而 `HEAD` 是摘除前基线，故该判据会**必然假失败**。**替代方法**：把「HEAD → 当前」差异逐行分为注释 / 代码，对**每一条代码行**归因。执行结果：`App.tsx`（+11/−2 代码 → `stripRetiredCharacterFields()` + `CharacterSettings` 导入）、`sillyTavernImport.ts`（0/+5 → 仅删 `passthroughExt`）、`sillyTavernExport.ts`（+1/−1 → `{ ...(char.extensions ?? {}) }` → `{}`）、`sessionStorage.ts`（+28/−4 → 两个 RETIRED 剥离机）、`settingsBackup.ts`（+29/−9 → `RETIRED_TOP_LEVEL_KEYS` + 两个 strip 函数）—— **代码级改动 100% 归因到 t3 的冻结验收条款，零条无法解释的代码行；t18 只贡献注释行。**
 3. （补充）认证指纹的清单口径必须**逐字**包含"路径分隔符为 `\`"这一细节，否则会得到不同的 digest（`/` 分隔会得到 `493E2572…`）。见 §1。
+4. **运行时 grep 只对字符串 / 属性 token 有效，不能用于判定函数是否存在**：生产 `dist` 经 vite/terser 压缩后**本地函数名会被改写**（实证：`getRegexedString` 在 `dist` 中 **0 命中**，而源码中该函数确有定义于 `chatPipeline.ts` 与 `src/lib/regex/*`）。⇒ 判断"某能力是否还在"必须看**字符串 / 属性 token**（如 `nyaachat_regex_global`、`isFrontendRenderingEnabled`、`t2i-agent/chat`、`扩展（暂未开放）`），或回落到源码级检查（§5）。
 
 ### 11.6 旧状态与私有仓的遗留（不影响功能）
 
