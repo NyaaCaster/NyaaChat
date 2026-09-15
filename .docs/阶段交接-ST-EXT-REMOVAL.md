@@ -176,11 +176,36 @@
 
 ---
 
-## 8. 提交推送到 GitHub 主仓（需求 4）
+## 8. 提交推送到 GitHub 主仓（需求 4）· t13 已完成
 
-**（待 t13 执行后补写：commit SHA、push 结果、提交后四条硬指标实测输出。）**
+**提交**：`6310735892fe76ca0a96d249c5974c1dd70dbf2f`
+**提交信息**：`refactor: remove sillytavern extension compatibility layer`
+**规模**：**91 files changed, 1040 insertions(+), 6760 deletions(-)**（3 个新增、56 个删除，git 另识别出 6 处"compat → lib"重命名）
 
-已核定的提交纪律与清单：
+> **补录说明**：紧随其后还有一次**同一提交信息**的定稿提交，仅更新本文件（写入上面这行 commit SHA 与下面的硬指标实测输出）—— 因为一个 commit 的 SHA 无法被包含它的那个 commit 自身引用。两次提交都只落在主仓，内容上属同一次改动。
+
+**提交内容清点（关键项）**：删除 tracked 的 `public/extensions/registry.overrides.json`（`.gitignore` 只忽略 `public/extensions/*/` 与 `registry.json`，故必须显式入索引）、`scripts/generate-extension-registry.mjs`、`public/script.js`、21 个 `public/scripts/**`、`public/css/st-host.css`、`src/compat/**`（26 个 tracked）、`src/components/ExtensionsModal.tsx`、两个 `.docs/` 旧文档；新增 `src/lib/regex/`（5）、`src/lib/frontendCard/`（4）、本交接文档；其余为 31 个 `M`。
+
+**提交后四条硬指标（实测）**：
+
+| # | 命令 | 期望 | 实测 |
+|---|------|------|------|
+| H1 | `git status --short` | 无 `??` / 无残留 | **输出为空** ✅ |
+| H2 | `git ls-files src/lib/regex src/lib/frontendCard` | 有输出 | **9 行**（regex 5 + frontendCard 4）✅ |
+| H3 | `git ls-files public/extensions` | 为空 | **空** ✅（7.1 项验收点达成） |
+| H4 | `git ls-files .docs/_st-removal` | 为空 | **空** ✅ |
+
+**入库内容合规检查**：`git show --stat --name-only HEAD` 全量文件名对 `^\.env` / `^dev-server/` / `^dist/` / `_st-removal` / `nyaachat-knowledge/` / `shared-server/` 的匹配 → **0 命中**；`.env`、`.env.linux` 由 `.gitignore:8` 忽略，`dev-server/` 由 `.gitignore:33` 忽略，均未入库。**一次提交只针对主仓**；未在 `nyaachat-knowledge/` 或 `shared-server/` 执行任何 git 操作（`git status --porcelain -- nyaachat-knowledge shared-server` 为空）。
+
+**推送命令（PAT 临时重写，不写进 remote/config）**：
+
+```bash
+git -C NyaaChat -c credential.helper= -c "url.https://x-access-token:$GITHUB_PAT@github.com/.insteadOf=https://github.com/" push origin master
+```
+
+**推送后校验**：`git rev-parse HEAD` 与 `git rev-parse origin/master` 一致（见 t13 回报）。
+
+已执行的提交纪律与清单（备查）：
 
 1. **必须显式 `git add` 的新增路径（2 个新目录 + 1 个新文件）**：
    - `src/lib/regex/`（`engine.ts` / `index.ts` / `io.ts` / `macros.ts` / `store.ts`）
@@ -309,8 +334,8 @@
 - 保留项全在位：正则（src/lib/regex）、前端卡渲染（src/lib/frontendCard）、前端渲染开关、T2I 代理、世界书/正则格式映射、
   nginx 11 个业务 location + 两个 ext-host 端点；设置往返夹具 51/51 exit 0。
 
-下一步（若交接文档 §7/§8 仍为空，先补齐再动手）：
-1. 复核交接文档 §7（部署 4095 dev 测试服）与 §8（提交推送）两节是否已由 t12/t13 填实。
+下一步（本节写作时 §7 部署与 §8 提交均已完成，可直接从"若要发版"开始）：
+1. 复核交接文档 §7（部署 4095 dev 测试服）与 §8（提交推送：commit SHA + 四条硬指标）——两者本轮均已填实。
 2. 若要发版：先在测试 image 上确认 rebuild.py 的 pre-build 删除后流程完整（build → push → registry 清理 → local cleanup），
    再执行 python rebuild.py；生产发行路径本轮仅做过静态验证，从未实跑。
 
