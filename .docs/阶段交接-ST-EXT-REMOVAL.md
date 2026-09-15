@@ -48,10 +48,11 @@
 | t14–t21 | 追加门禁：扩展按钮终态、注释中性化、rebuild skill/rebuild.py/nginx/tsconfig 措辞与死配置、正则宏默认 env 接线 | ✅ completed |
 | t22 / t23 | 验收清单维护与条目升级 | ✅ completed |
 | t24 | t10 之后产品面二次写入的复验，重出认证指纹 | ✅ completed，verdict = pass |
-| t12 | 部署到本机 dev 测试服（4095）并冒烟 | 🔄 见 §7（本文起草时正在执行） |
-| t13 | 阶段交接文档 + 清理临时脚手架 + 提交推送到 GitHub | 🔄 本文件即 t13 交付物之一，见 §8 |
+| t12 | 部署到本机 dev 测试服（4095）并冒烟 | ✅ completed（`rebuild-dev.py --up` exit 0 / 94.5s，3 容器 Up，状态码与内容级判据见 §7） |
+| t13 | 阶段交接文档 + 清理临时脚手架 + 提交推送到 GitHub | ✅ completed（本文件已入库；commit 与四条硬指标见 §8；`.docs/_st-removal/` 已删除） |
 
 工作树规模（t11 评审核查时快照）：`git status --porcelain` 共 90 行；**87 files changed, 464 insertions(+), 7479 deletions(-)**。
+提交后规模（`git diff --stat 3dc907a..HEAD`）：**91 files changed, 1086 insertions(+), 6760 deletions(-)**。
 
 ---
 
@@ -370,4 +371,4 @@ git -C NyaaChat -c credential.helper= -c "url.https://x-access-token:$GITHUB_PAT
 
 ---
 
-*本文件由 docs-ops（t13）起草；t12 部署结果与 t13 提交结果将在各自完成后补写 §7 / §8。*
+*本文件由 docs-ops（t13）定稿：t12 部署结果（§7）、t13 提交结果与硬指标（§8）均已补写完毕。*
