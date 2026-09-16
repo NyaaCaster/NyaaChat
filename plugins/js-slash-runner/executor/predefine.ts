@@ -718,41 +718,37 @@ export function buildCardPredefineScript(): string {
   const events = JSON.stringify(TAVERN_EVENTS);
   return `
 (function () {
-  var bridge = window.parent.__nyaScriptHostBridge;
-  if (!bridge) return;
-  var api = bridge.api;
-  // ⚠️ 形状必须与 ST 的 getAllVariables 一致：**顶层就是合并后的变量表**（卡片直接
-  //   取 vars.stat_data），而不是 {global,chat,message} 的嵌套壳。原先返回嵌套壳 ⇒
-  //   vars.stat_data === undefined ⇒ 状态栏每个字段都落到卡片里的字面兜底值
-  //   （真机 v12-2109 实测：JSONPatch 已把世界.当前时间改成 07:05，面板仍显示 07:00）。
-  function getAllVariables() {
-    return api.variables.getVariables('message', { messageId: 'latest' }) || {};
+  // ⚠️ **绝不能**因为桥还没就绪就整体 return（真机 harness 实测的回归）：
+  //    卡片 iframe 可能在插件 mount 之前就渲染（打开已有会话、重新渲染楼层、宿主重挂载），
+  //    那时 window.parent.__nyaScriptHostBridge 还不存在。早先这里第一行就是"没有桥就直接
+  //    return" ⇒ 卡片 iframe 里**一个 API 都没有** ⇒ 卡片自己的引导脚本立刻 ReferenceError
+  //    （苏婷卡：$(errorCatched(init)) → "errorCatched is not defined"；道渊卡：
+  //    "waitGlobalInitialized is not defined"），状态栏就停在"加载中… / --:--"。
+  //    这与"变量没进来"是两回事：宿主 iframe 里 MVU 其实已经把 stat_data 写好了
+  //    （同一份诊断快照里 setChatMessages / updateVariablesWith 都成功）。
+  //    现在改为：**立即可装的全部先装**（不依赖桥），依赖桥的走动态 getter + 轮询，
+  //    桥一到就补齐并广播一次 __nyaCardReady，让卡片有机会重画。
+  function getBridge() {
+    try { return window.parent.__nyaScriptHostBridge || null; } catch (e) { return null; }
   }
-  function getVariables(option) {
-    option = option || {};
-    var scope = option.type === 'chat' ? 'chat' : option.type === 'global' ? 'global' : 'message';
-    return api.variables.getVariables(scope, scope === 'message' ? { messageId: option.message_id || 'latest' } : undefined);
+  function getApi() {
+    var b = getBridge();
+    return b ? b.api : null;
   }
+
+  // ── 不依赖桥的部分（必须在卡片脚本执行前就位）──────────────────────────────
   // ST 侧辅助函数：MVU 卡片的引导脚本用 $(errorCatched(init)) 把它包起来。
-  // 缺失时前端卡 iframe 直接 ReferenceError（真机实测），状态栏因此渲染不出来。
   window.errorCatched = function (fn) {
     return function () {
       try { return fn.apply(this, arguments); }
       catch (e) { console.error('[js-slash-runner] errorCatched 捕获', e); }
     };
   };
-  window.getAllVariables = getAllVariables;
-  window.getVariables = getVariables;
-  window.getLastMessageId = function () { return api.messages.getLastId(); };
-  window.getCurrentPersonaName = function () { return api.identity.user; };
-  window.getCurrentCharName = function () { return api.identity.char; };
   window.tavern_events = ${events};
-  window.SillyTavern = { name1: api.identity.user, name2: api.identity.char };
 
-  // ── 事件总线 + Mvu 镜像（MVU技术性说明 §4.6）────────────────────────────────
-  // 状态栏 View 的自动重绘靠 eventOn(Mvu.events.VARIABLE_UPDATE_ENDED, redraw)；
-  // 早先这里没有事件总线、也没有 Mvu ⇒ View 只在 iframe 加载时用 getAllVariables() 画一次
-  // 初始快照，之后变量更新了也不重绘（真机实测：JSONPatch 已把时间改成 07:10，面板仍显示 07:00）。
+  // 事件总线 + Mvu 镜像（MVU技术性说明 §4.6）：状态栏 View 的自动重绘靠
+  // eventOn(Mvu.events.VARIABLE_UPDATE_ENDED, redraw)；早先这里没有事件总线、也没有
+  // Mvu ⇒ View 只在 iframe 加载时画一次初始快照，之后变量更新了也不重绘。
   var cardHandlers = new Map();
   window.eventOn = function (name, handler) {
     if (typeof handler !== 'function') return;
@@ -782,6 +778,108 @@ export function buildCardPredefineScript(): string {
       set: function () { /* 空 set：与脚本宿主侧一致 */ },
     });
   } catch (e) { /* 定义失败也不能影响卡片渲染 */ }
+
+  // ── 依赖桥的部分：动态 getter（每次调用现取 api，桥重挂载后自动跟上）─────────
+  // ⚠️ 形状必须与 ST 的 getAllVariables 一致：**顶层就是合并后的变量表**（卡片直接
+  //    取 vars.stat_data），而不是 {global,chat,message} 的嵌套壳。嵌套壳会让
+  //    vars.stat_data === undefined，状态栏每个字段都落到卡片里的字面兜底值
+  //    （真机 v12-2109 实测：JSONPatch 已把世界.当前时间改成 07:05，面板仍显示 07:00）。
+  window.getAllVariables = function () {
+    var api = getApi();
+    if (!api) return {};
+    return api.variables.getVariables('message', { messageId: 'latest' }) || {};
+  };
+  window.getVariables = function (option) {
+    var api = getApi();
+    if (!api) return {};
+    option = option || {};
+    var scope = option.type === 'chat' ? 'chat' : option.type === 'global' ? 'global' : 'message';
+    return api.variables.getVariables(scope, scope === 'message' ? { messageId: option.message_id || 'latest' } : undefined);
+  };
+  window.getLastMessageId = function () { var api = getApi(); return api ? api.messages.getLastId() : -1; };
+  window.getLastMessage = function () {
+    var api = getApi();
+    if (!api) return null;
+    var all = api.messages.getAll();
+    return all.length ? all[all.length - 1] : null;
+  };
+  window.getChatMessages = function (range) {
+    var api = getApi();
+    if (!api) return [];
+    var all = api.messages.getAll();
+    var last = api.messages.getLastId();
+    var idx = [];
+    if (range === undefined || range === null || range === 'latest') idx = [last];
+    else if (typeof range === 'number') idx = [range < 0 ? last + 1 + range : range];
+    else if (Array.isArray(range)) idx = range.map(function (r) { return typeof r === 'number' && r < 0 ? last + 1 + r : r; });
+    else if (typeof range === 'object') {
+      var s = range.start !== undefined ? range.start : 0;
+      var e = range.end !== undefined ? range.end : last;
+      if (s < 0) s = last + 1 + s;
+      if (e < 0) e = last + 1 + e;
+      for (var i = s; i <= e; i++) idx.push(i);
+    }
+    return idx
+      .filter(function (i) { return i >= 0 && i < all.length; })
+      .map(function (i) {
+        var m = all[i];
+        var data = (m.variables && m.variables[0]) || {};
+        return {
+          message_id: i, role: m.role, name: m.name,
+          message: m.content, data: data,
+          swipes_data: [data], swipes_id: [0], swipe_id: 0,
+        };
+      });
+  };
+  // 身份：用 getter 读**活值**（桥晚到时也能拿到；不是一次性快照）。
+  window.getCurrentPersonaName = function () { var api = getApi(); return api ? api.identity.user : ''; };
+  window.getCurrentCharName = function () { var api = getApi(); return api ? api.identity.char : ''; };
+  try {
+    Object.defineProperty(window, 'SillyTavern', {
+      configurable: true,
+      get: function () {
+        var api = getApi();
+        return { name1: api ? api.identity.user : '', name2: api ? api.identity.char : '' };
+      },
+      set: function () { /* 空 set */ },
+    });
+  } catch (e) { /* 定义失败也不能影响卡片渲染 */ }
+
+  // 全局初始化握手（M7 语义）：已存在则立即 resolve，否则轮询等上游写 window.Mvu。
+  window.waitGlobalInitialized = function (name, timeoutMs) {
+    var limit = typeof timeoutMs === 'number' ? timeoutMs : 20000;
+    return new Promise(function (resolve) {
+      var started = Date.now();
+      function check() {
+        try {
+          if (name !== 'Mvu' || (typeof window.Mvu !== 'undefined' && window.Mvu)) { resolve(); return; }
+        } catch (e) { /* getter 抛错按未就绪处理 */ }
+        if (Date.now() - started > limit) { resolve(); return; }
+        setTimeout(check, 50);
+      }
+      check();
+    });
+  };
+
+  // ── 桥就绪握手：动态轮询；桥出现后补装一次并广播 __nyaCardReady ─────────────
+  // 卡片常用 waitGlobalInitialized('Mvu') 或首次 render() 取数；桥晚于卡片脚本时，
+  // 让它们有一个"可以重画"的信号（不强制，缺失也不报错）。
+  var readyDone = false;
+  function installWhenReady() {
+    if (readyDone) return;
+    if (!getApi()) return;
+    readyDone = true;
+    try { window.dispatchEvent(new Event('__nyaCardReady')); } catch (e) {}
+  }
+  installWhenReady();
+  if (!readyDone) {
+    var tries = 0;
+    var timer = setInterval(function () {
+      tries++;
+      installWhenReady();
+      if (readyDone || tries > 400) clearInterval(timer);   // 最多 ~20s
+    }, 50);
+  }
 })();
 `;
 }

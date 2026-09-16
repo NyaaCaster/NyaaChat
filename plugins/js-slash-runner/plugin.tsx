@@ -25,7 +25,7 @@ export const JS_SLASH_RUNNER_PLUGIN_ID = "js-slash-runner";
 /** 初始化忙碌窗口上限：≤5s（脚本自身超时是 30s，绝不能让"脚本可能挂住"变成"用户被锁住"）。 */
 const INIT_BUSY_MAX_MS = 20000;
 /** 构建标记：在主页面控制台输入 __nyaScriptRunnerBuild 即可确认当前跑的是哪个构建。 */
-const BUILD_MARKER = 'v12-2135';
+const BUILD_MARKER = 'v12-2200';
 const log = pluginLogger(JS_SLASH_RUNNER_PLUGIN_ID);
 
 // ─── 模块级状态（面板与 setup 共享；插件是单例）─────────────────────────────

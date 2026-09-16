@@ -114,13 +114,16 @@ export function splitFrontendContent(content: string): FrontendContentPart[] | n
 
     if (!terminated) {
       // 未闭合：只有卡片围栏才按"到末尾"处理；未闭合的普通代码块保持原样（不切）。
+      // ⚠️ 处理完必须**结束整个扫描**（不能只 continue）：否则后面再出现的 ``` 行会被当成
+      //    新的开围栏，把同一张卡片又切一遍 —— 真机 v12-2135 实测的 `[card, markdown, card]`
+      //    （同一张卡出现两次、卡片 HTML 源码夹在中间漏成正文）。
       if (!isCard) continue;
       if (lineStarts[i] > markdownFrom) {
         parts.push({ type: "markdown", content: content.slice(markdownFrom, lineStarts[i]) });
       }
       parts.push({ type: "card", html: body, index: cardIndex++ });
       markdownFrom = content.length;
-      continue;
+      break;
     }
 
     open = { start: lineStarts[i], isCard, body };
