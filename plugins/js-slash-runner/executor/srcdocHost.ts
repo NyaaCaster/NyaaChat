@@ -102,7 +102,7 @@ function buildBootstrapScript(bridge: ScriptHostBridge, importMap: Record<string
   async function main() {
     // probe 先装、库后载：这样库加载期的 console 也被记进环形缓冲（用户只需一条命令看全貌）。
     try { if (window.__nyaInstallProbes) window.__nyaInstallProbes(); } catch (e) {}
-    try { console.info('[js-slash-runner] 宿主脚本构建 v12-2230'); } catch (e) {}
+    try { console.info('[js-slash-runner] 宿主脚本构建 v12-2300'); } catch (e) {}
     // F3（t7 实测）：逐库容错 —— 五个库原先共用一个 try，任一个失败（典型：
     // 后缀为 mjs 的库被 nosniff 以 application/octet-stream 拒掉）就会整轮中止、
     // 所有脚本都不跑。改为单库失败只记一条并继续；全部结束后若有失败库，汇总一条
@@ -157,7 +157,16 @@ function buildBootstrapScript(bridge: ScriptHostBridge, importMap: Record<string
       document.body.appendChild(helperRoot);
     } catch (e) { console.error('[js-slash-runner] 构建 #tavern_helper 失败，MVU 偏好状态可能取不到值', e); }
     for (var j = 0; j < data.scripts.length; j++) {
+      // S-d 探针：记下"每个脚本执行期间 getScriptId() 读到了什么"。判据是
+      // reads 里**只**出现该脚本自己的 id —— 出现别人的 id 就说明模块局部变量方案不够用。
+      var readsBefore = (window.__nyaScriptIdReads || []).length;
       await runOne(data.scripts[j]);
+      try {
+        var readsAfter = (window.__nyaScriptIdReads || []).slice(readsBefore);
+        var trace = window.__nyaScriptIdTrace;
+        if (!trace) { trace = []; window.__nyaScriptIdTrace = trace; }
+        trace.push({ id: data.scripts[j].id, name: data.scripts[j].name, reads: readsAfter });
+      } catch (e) { /* 探针失败不影响脚本执行 */ }
       try { if (window.__nyaSyncMvu) window.__nyaSyncMvu(); } catch (e) {}
     }
     // 脚本跑完后补发一次"当前会话/角色"状态：这些事件在宿主侧可能早于本 iframe 存在
@@ -188,6 +197,7 @@ ${origin ? `<base href="${origin}/">` : ""}
 ${importMapTag}
 </head>
 <body>
+<script>window.__nyaDispatchCalls = [];</script>
 <script>${buildPredefineScript()}</script>
 <script>${buildBootstrapScript(bridge, importMap)}</script>
 </body>

@@ -330,6 +330,12 @@ export function buildPredefineScript(): string {
 
   window.__nyaDispatch = function (name) {
     var args = Array.prototype.slice.call(arguments, 1);
+    // 探针：记录宿主派发过哪些事件（srcdoc 的 body 里预置了 __nyaDispatchCalls 数组）。
+    // 用于复核 S-c 的「global_Mvu_initialized 是否真的被派发」。
+    try {
+      var calls = window.__nyaDispatchCalls;
+      if (calls && calls.push) calls.push(String(name));
+    } catch (e) { /* 探针绝不能影响主流程 */ }
     eventEmit.apply(null, [name].concat(args));
     if (globalInitialized.has(name)) {
       globalInitialized.get(name).forEach(function (resolve) { resolve(); });
@@ -338,6 +344,16 @@ export function buildPredefineScript(): string {
   };
 
   // ── 全局初始化握手（M7）───────────────────────────────────────────────
+  // ⚠️ 常量表必须在**这里**就用一个运行时变量持有并挂上 window。教训（本轮 spike S-c 才暴露）：
+  //    TAVERN_EVENTS 只是**构建期的 TS 常量**，脚本字符串里的那个名字**不存在**；运行时真正
+  //    存在的是 window.tavern_events。而它原先要到下面 implemented 汇总处（≈L712）才赋值，
+  //    于是 initializeGlobal 与 __nyaSyncMvu 里的 String(TAVERN_EVENTS.…)
+  //    在运行期直接抛 ReferenceError: TAVERN_EVENTS is not defined
+  //    ⇒ global_Mvu_initialized **从未被派发** ⇒ 订阅它的脚本（mvu_zod 的迁移钩子）静默失效。
+  //    症状被掩盖的原因：window.parent.Mvu 的镜像发生在那次派发**之前**，所以"MVU 就绪"看起来
+  //    一切正常，只有事件链是断的。
+  var TAVERN_EVENT_NAMES = ${events};
+  window.tavern_events = TAVERN_EVENT_NAMES;
   function waitGlobalInitialized(name) {
     var key = String(name);
     if (key === 'Mvu' && typeof window.Mvu !== 'undefined' && window.Mvu) return Promise.resolve();
@@ -350,8 +366,12 @@ export function buildPredefineScript(): string {
     var key = String(name);
     try { window[key] = value; } catch (e) { window[key] = value; }
     try { window.parent[key] = value; } catch (e) { /* 跨源时忽略（本实现同源） */ }
-    eventEmit(String(TAVERN_EVENTS.GLOBAL_MVU_INITIALIZED), value);
-    window.__nyaDispatch(String(TAVERN_EVENTS.GLOBAL_MVU_INITIALIZED), value);
+    // JSR 契约：waitGlobalInitialized(name) 等的是 global_<name>_initialized（见 §4.3/M7）。
+    // 原先这里无论 name 是什么都派发 global_Mvu_initialized：对 'Mvu' 恰好等于该公式、
+    // 看着像对的，对别的名字就是错的。
+    var eventName = 'global_' + key + '_initialized';
+    eventEmit(eventName, value);
+    window.__nyaDispatch(eventName, value);
   }
 
   // ── 其它（M10/M11/M12）───────────────────────────────────────────────
@@ -596,7 +616,19 @@ export function buildPredefineScript(): string {
     getCurrentCharName: getCurrentCharName,
     waitGlobalInitialized: waitGlobalInitialized,
     initializeGlobal: initializeGlobal,
-    getScriptId: function () { return window.__nyaScriptId; },
+    // 脚本 id：由宿主在每个脚本执行前写 window.__nyaScriptId（见 srcdocHost.ts）。
+    // 探针：记下"每次读到什么值"，用于复核 S-d（脚本在注册期/回调期取 id 是否同一个）。
+    // ⚠️ 探针失败绝不能影响取 id —— 整段包 try/catch。
+    getScriptId: function () {
+      var id = window.__nyaScriptId;
+      try {
+        var reads = window.__nyaScriptIdReads;
+        if (!reads) { reads = []; window.__nyaScriptIdReads = reads; }
+        reads.push(String(id));
+        if (reads.length > 200) reads.shift();
+      } catch (e) { /* 探针绝不能影响主流程 */ }
+      return id;
+    },
     tavern_events: ${events}
   };
 
@@ -691,7 +723,7 @@ export function buildPredefineScript(): string {
     }
   } catch (e) { /* 定义失败也不能影响脚本执行 */ }
 
-  window.tavern_events = implemented.tavern_events;
+  window.tavern_events = TAVERN_EVENT_NAMES;
   window.TavernHelper = proxy;
   // SillyTavern 壳（见 buildSillyTavernShell：saveChat 必须是函数、chat 必须是 live getter）
   window.SillyTavern = buildSillyTavernShell(api);
@@ -700,7 +732,7 @@ export function buildPredefineScript(): string {
   window.__nyaSyncMvu = function () {
     if (typeof window.Mvu !== 'undefined' && window.Mvu) {
       try { window.parent.Mvu = window.Mvu; } catch (e) { /* ignore */ }
-      window.__nyaDispatch(String(TAVERN_EVENTS.GLOBAL_MVU_INITIALIZED), window.Mvu);
+      window.__nyaDispatch(String(TAVERN_EVENT_NAMES.GLOBAL_MVU_INITIALIZED), window.Mvu);
       return true;
     }
     return false;
