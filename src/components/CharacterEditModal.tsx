@@ -34,6 +34,8 @@ import { exportCharacterPng, imageBlobToCoverWebp } from "../lib/pngCard";
 import { toNativeCardJson } from "../lib/sillyTavernScripts";
 import { loadCover, saveCover, deleteCover, COVER_MARKER } from "../lib/coverStorage";
 import { BaseModal } from "./BaseModal";
+// SSOT §2.7：本弹窗是**世界书（worldInfo）的编辑入口**，保存成功即"世界书已更新"。
+import { emitPluginEvent } from "../plugins/runtime";
 import { DeleteConfirmDialog } from "./DeleteConfirmDialog";
 import { WorldInfoRuleModal } from "./WorldInfoRuleModal";
 import { KnowledgeBaseModal } from "./KnowledgeBaseModal";
@@ -218,6 +220,12 @@ export function CharacterEditModal({
       // 标签就被静默抹掉（与 t9 修掉的 scripts 丢字段是同一类缺口）。空数组视同没有。
       ...(initialCharacter?.tags?.length ? { tags: initialCharacter.tags } : {}),
     });
+
+    // SSOT §2.7：best-effort，`worldinfo:updated`（脚本侧 WORLDINFO_UPDATED）。
+    // 本弹窗是世界书条目的编辑入口 ⇒ 保存成功即"世界书已更新"，MVU 靠它重读 `[initvar]`。
+    // 放在 `onSave` **之后**（此时写入已提交）；只带 id，不带整份条目（载荷保持最小、
+    // 也不把可能很大的世界书复制进事件总线）。
+    emitPluginEvent("worldinfo:updated", { characterId: id });
 
     onClose();
   };

@@ -184,6 +184,8 @@ const plugin: NyaaPlugin = {
     let handle: ScriptHostHandle | null = null;
     let disposed = false;
     let mounting = false;
+    /** `message:rendered` 是否已为当前载体的脚本处理器补发过（见 mount 末尾）。 */
+    let backfilled = false;
     // 初始化忙碌窗口：起点 = 开始装配；终点 = 第一个脚本给出结果 / 5s 上限 / 停用。
     // ⚠️ 上限刻意只有 5s（脚本本身的超时是 30s）：绝不能让"脚本可能挂住"变成
     // "用户被锁 30 秒"。到点就放行，失败信息仍留在运行日志里。
@@ -227,6 +229,9 @@ const plugin: NyaaPlugin = {
       // character:changed 会再触发一次 mount，两个等待同时通过就会各自建一个宿主 iframe
       // （MVU 被初始化两次）。置位后走到 finally 再复位。
       mounting = true;
+      // `message:rendered` 的补发只做一次（见 mount 末尾）。每次重挂载重置：新载体的脚本
+      // 处理器是全新的，需要重新补一遍已渲染楼层。
+      backfilled = false;
       try {
         // ⚠️ 等宿主聊天状态就绪再装配：MVU 的 initvar（bundle 内 `Zt`）只有两个**静默**退出点，
         // 且都只打同一句 runtime.initvar.noMessagesLog（真机原文「不存在任何一条消息，退出」），
@@ -270,6 +275,37 @@ const plugin: NyaaPlugin = {
           },
         });
         log.info("host", `脚本宿主已装配（${scripts.length} 个脚本${runOnLoad ? "" : "，未执行"}）`);
+
+        // ── `message:rendered` 的**补发**（真机实测的时序坑）────────────────────────
+        // 问题：楼层的 `MessageItem` 挂载时（实测 ~6s）本插件的订阅还没建立 ——
+        //   `mount()` 要先等聊天就绪，MVU 脚本求值完还要更久（实测 `global_Mvu_initialized`
+        //   出现在 ~14s）。宿主那条 `emitPluginEvent("message:rendered")` 是**同步直发**
+        //   （见 `runtime.ts` 的 `emitPluginEvent`：没有订阅者就直接 return），
+        //   于是它在插件听到之前就消失了 ⇒ 派发记录里恒为 0 次。
+        // 修法：本插件是"晚来的订阅者"，就由它自己**补发**一次已渲染楼层的事件 ——
+        //   这也正是 ST 的做法（渲染器晚挂载时会把已有楼层补渲染一遍）。
+        // 时序：必须等 `window.Mvu` 就位再发，否则脚本侧处理器还没注册（发了等于没发）。
+        // 幂等：`backfilled` 标志 + 每次 mount 重置，避免重挂载时重复补发。
+        if (runOnLoad && scripts.length > 0) {
+          void (async () => {
+            const frame = container.querySelector<HTMLIFrameElement>(
+              'iframe[data-js-slash-runner-host]',
+            );
+            if (!frame) return;
+            for (let i = 0; i < 60 && !disposed && frame.isConnected; i++) {
+              const w = frame.contentWindow as unknown as { Mvu?: unknown } | null;
+              if (w && w.Mvu) break;
+              await new Promise((r) => setTimeout(r, 500));
+            }
+            if (disposed || !frame.isConnected || backfilled) return;
+            backfilled = true;
+            const msgs = api.messages.getAll();
+            for (let idx = 0; idx < msgs.length; idx++) {
+              handle?.emit(TAVERN_EVENTS.CHARACTER_MESSAGE_RENDERED, idx);
+            }
+            log.info("host", `已补发 ${msgs.length} 条 message:rendered（订阅晚于楼层挂载）`);
+          })();
+        }
       } catch (err) {
         log.error("host", "装配脚本宿主失败", err);
       } finally {

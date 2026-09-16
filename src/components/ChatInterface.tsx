@@ -487,10 +487,15 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
   );
 
   const handleStop = () => {
+    const hadInflight = !!abortControllerRef.current;
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
     }
+    // SSOT §2.7：best-effort，用户中止生成时发射 `generation:stopped`
+    // （映射到脚本侧 GENERATION_STOPPED，MVU 用它中止"额外模型解析"等自身请求）。
+    // 只在**确实有在飞请求**时发：否则重复点"停止"会重复派发。
+    if (hadInflight) emitPluginEvent("generation:stopped", {});
   };
 
   const scrollToBottom = () => {
@@ -994,6 +999,18 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
       // 触发点（MVU技术性说明 §4.4 的三条入口之一）。
       // ⚠️ 放在**组装之后、发送之前**：放在组装之前的话，脚本侧读到的仍是上一轮状态。
       emitPluginEvent("generation:started", { messageId: botMessageId });
+
+      // SSOT §2.7：best-effort，`completion:settings-ready`（脚本侧
+      // CHAT_COMPLETION_SETTINGS_READY）。MVU 的 `eventMakeLast` 用它抓"生成结束"时机。
+      // ⚠️ 载荷口径：只给宿主**真正持有**的那部分（`ApiSettings` 只有 baseUrl/apiKey/model/
+      // isStreaming/apiFormat —— 采样参数在提供者配置侧，不在这里）。**刻意不编**
+      // temperature/max_tokens 之类"看起来该有"的字段：脚本侧缺什么会自行兜底，
+      // 而编出来的值会让脚本以为拿到了真实设置。紧随 generation:started 发射。
+      emitPluginEvent("completion:settings-ready", {
+        model: activeApi.model,
+        api_format: activeApi.apiFormat,
+        stream: activeApi.isStreaming === true,
+      });
 
       // Request-side entry: url / model / advertised tools only. The rendered
       // prompt ("renderedMessages" — system / bypass / world-info / history) is

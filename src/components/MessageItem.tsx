@@ -21,7 +21,7 @@ import { getRegexedString, regex_placement } from "../lib/regex";
 import { setDefaultEnvProvider } from "../lib/regex/macros";
 import { renderPluginDecorations } from "../plugins/decorators";
 import type { DecorationRenderInput } from "../plugins/decorators";
-import { getPluginRuntimeSnapshot, subscribePluginRuntime } from "../plugins/runtime";
+import { emitPluginEvent, getPluginRuntimeSnapshot, subscribePluginRuntime } from "../plugins/runtime";
 import { FrontendCard, splitFrontendContent } from "../lib/frontendCard";
 import type { RegexScript } from "../types";
 
@@ -381,6 +381,22 @@ export const MessageItem = React.memo(function MessageItem({
       editRef.current.setSelectionRange(editRef.current.value.length, editRef.current.value.length);
     }
   }, [editing]);
+
+  // SSOT §2.7：best-effort，楼层渲染完成后发射 `message:rendered`
+  // （映射到脚本侧 CHARACTER_MESSAGE_RENDERED）。MVU 用它做"该楼层已可读"的钩子。
+  //
+  // ⚠️ 三条约束：
+  //  1. **必须在 effect 里、不能在渲染体里**发射（渲染期发事件会触发 setState 警告/回环）；
+  //  2. **每条消息只发一次**（用 ref 记已发过的 id）—— 本组件是 React.memo，编辑/重渲都会
+  //     重跑 effect，不设闸会导致同一楼层反复派发；
+  //  3. 不把 `messages` 之类会变的对象放进依赖，避免"发事件 → 父级重渲 → 再发"的回环。
+  const renderedEmittedFor = useRef<string | null>(null);
+  useEffect(() => {
+    const key = `${message.id}:${mesid ?? ""}`;
+    if (renderedEmittedFor.current === key) return;
+    renderedEmittedFor.current = key;
+    emitPluginEvent("message:rendered", { messageId: message.id, mesid });
+  }, [message.id, mesid]);
 
   const handleCopyMsg = async () => {
     // Copy what the user sees: placeholders resolved AND, when AnswererFlagalac's
