@@ -359,11 +359,30 @@ export type PluginEventName =
 | `generation:started` | 必须 | `ChatInterface.tsx` ✅（**本轮补**，组装完 prompt、发请求之前） |
 | `message:sent` | 必须 | `ChatInterface.tsx` ✅（**本轮补**，`setMessages` 之后 —— 早于写入会让 MVU 读到"还没有这条消息"） |
 | `message:deleted` | 必须 | `ChatInterface.tsx` ✅（**本轮补**，删除 + 重生成两条路径） |
-| `generation:stopped` / `message:rendered` / `worldinfo:updated` / `completion:settings-ready` | best-effort | ❌ **仍未接线**（按本节约定如实登记；矩阵模式会以 SKIP 列出） |
+| `generation:stopped` | best-effort | `ChatInterface.tsx` ✅（**本轮补**，用户中止时；带『确有在飞请求』闸门） |
+| `message:rendered` | best-effort | `MessageItem.tsx` ✅（**本轮补**）+ 插件在 MVU 就绪后**补发**已渲染楼层（见下） |
+| `worldinfo:updated` | best-effort | `CharacterEditModal.tsx` ✅（**本轮补**，角色保存 = 世界书编辑入口） |
+| `completion:settings-ready` | best-effort | ⛔ **刻意不派发**（载荷契约不满足，见下） |
 
-> 为什么这四条 best-effort 不补：它们映射到脚本侧 BEST-EFFORT 档，本轮与真实卡片（苏婷 / 变装女友）
-  的状态栏与变量链均已跑通，补它们属于"扩大改动面"而非"修复已知缺陷"。矩阵断言会持续把它们
-  标成 SKIP，**不会**被误读成"已接线"。
+**两条实测得来的约束（接手者务必先读）**
+
+1. **`message:rendered` 不能只加一个发射点**。宿主 `emitPluginEvent` 是**同步直发**
+   （无订阅者即 return），而楼层挂载（实测 ~6s）早于本插件订阅建立（`mount()` 要等聊天就绪 +
+   MVU 求值，~14s）⇒ 那条发射**没有任何听众**、计数恒为 0。修法是**插件自己补发**：
+   MVU 就绪后遍历已有楼层发一遍 `CHARACTER_MESSAGE_RENDERED`（ST 的渲染器晚挂载时也这么做）。
+   实测 3 条消息 = 3 次派发且不增长（无回环）。
+2. **`completion:settings-ready` 刻意不派发**（真机报错实证）。曾按本节派发它并带
+   `{model, api_format, stream}`，MVU 侧立刻抛
+   `TypeError: Cannot read properties of undefined (reading 'filter')`
+   （其 `chat_completion_settings_ready` 处理器）。两条独立证据：① `__nyaShellProbe.events` 显示
+   MVU **从未注册**该事件处理器（11 个已注册事件里没有它）；② 它读的是酒馆式
+   `chat_completion_settings` / `chat` 结构，而宿主只有 `ApiSettings`（无采样参数、无该结构）。
+   ⇒ **载荷契约不满足时宁可不派发**（派一个"看着像、其实缺字段"的载荷只会让脚本侧崩溃，
+   与 D9「未实现即显式报错、不静默糊弄」同一条纪律）。矩阵断言把它标为
+   **「not-wired-by-contract」第三态**，并反向断言"标记为不派发却出现发射点"要报 FAIL。
+
+> 另外三条（`generation:stopped` / `message:rendered` / `worldinfo:updated`）经查 **MVU bundle 里
+  对应常量一次都没出现**（0 处），即 MVU 从不订阅 ⇒ 派发它们没有副作用。
 
 ---
 
@@ -696,6 +715,7 @@ osniff 下发 ⇒ 动态 import 被拒 ⇒ 库加载整轮中止、mvu/bundle.js
 | 2026-09-16 | **§8 P4 的断言载体核实（更正上一轮的登记）**：上一轮交接文档写"P4 的导出/round-trip 无自动断言"——**该结论有误**。`dev-server/tools/check-card-scripts.ts` 早已覆盖 §8 P4 验收 1–7（[1] 导入 / [2] ST 卡导 `tavern_helper.scripts` 逐字段相等 / [3] 原生卡 round-trip / [3b] tags+共享字段无损往返 / [3c] ST 侧标签保真 / [4] 既有 regex 无回归 / [4b] 脚本随角色不串卡 / [5] 映射兜底 / [6] 唯一实现 / [7] 导出与保存路径带 scripts / [8] t11 description 口径），且**全绿**。<br>同轮修掉其中**一处过宽的断言**：[6](b) 原判据是"全仓只有映射模块出现 `tavern_helper` 字符串字面量"，而 `srcdocHost.ts:150` 有 `helperRoot.id = 'tavern_helper'` —— 那是给 MVU 判定"当前启用脚本"用的 **DOM 元素 id**（JSR 兼容壳，见 §2.4 步骤 6），与卡片 JSON 键名是两件事。旧判据把它们混为一谈 ⇒ 假失败；**若为了让它变绿去改那行 DOM id，打坏的恰是 MVU 的偏好状态取值**。改为"宽扫描减去 `.id = 'tavern_helper'` 这一类 DOM 用法"，并做了**三种违规形态的反向验证**（双引号键 / 单引号键 / 裸赋值）—— 三者都被正确抓出，证明判据未退化成恒真。 |
 | 2026-09-16 | **§9 V6「位于尾部 system 消息」的取证边界（结论，不是待办）**：应用在 `App.tsx` 用 `SENSITIVE_LOG_META_KEYS = ["renderedMessages"]` **主动剥离**出站 prompt 的日志 meta（安全设计：不把完整出站载荷留在客户端日志状态里，见该常量上方的注释）。因此 devlog 里**永远拿不到**可用于位置断言的完整请求体数组。⇒ 该形态只能由离线 `pipeline` 模式断言（用的是 `buildRequestMessages` 的真实返回值），"真实请求体上的位置"**按设计取不到**，不再作为待办跟踪。 |
 | 2026-09-16 | **K1 修复：安全头真正下发（含 dev 侧同步）**。由 §12 K1 登记的「CSP 与全部安全头未下发」查出**真身**：安全头在 `nginx.conf` 里**早就写好了**（server 级 5 条），但 `location = /index.html` 自带 `add_header` ⇒ 按 nginx 的覆盖规则把 server 级那组**整组吃掉**；而 SPA 回退（`location /` 的 `try_files … /index.html`）最终正是命中该 location ⇒ 用户实际收到的文档响应**一个安全头都没有**。**修法**：用 `set $nyaHeader*` 把值**只定义一次**，两处（server 级 + `location = /index.html`）引用变量；顺带给自带 `add_header` 的 `/assets/` 与 `/api/image-proxy/` 补上 `nosniff`（子资源只需这一项）。**`script-src` 必须保留 `'unsafe-inline'`**：S-a4 沙箱实验（给静态服务器下发与 nginx 一致的 CSP，再跑真实卡片）实证 `script-src 'self'` 会让 srcdoc 的**内联**装配脚本被拒（宿主 iframe console 连启动那行都没有）⇒ 该版本 CSP **不得**直接下发，收紧到 `'self'` 依赖 D13② 的载体迁移（独立立项）。**验证**：真实 nginx 容器 + 生产产物逐路径核对（`/`、`/index.html`、SPA 路由 5/5；`/assets/*.js` 仅 nosniff），且 CSP 下发后端到端 V4/V5/V8 **仍全绿**（srcdoc 与前端卡未被破坏）；`dev-server` 模板同源缺陷一并修好（dev 现 6/6）。新增**防漂移断言** `verify-prod-artifacts.py --only K1`。 |
+| 2026-09-16 | **撤回 `completion:settings-ready` 的派发（真机报错驱动的反馈）**：本轮按 §2.7 补全四条 best-effort 事件时，给 `completion:settings-ready` 派了 `{model, api_format, stream}`。用户在浏览器控制台立刻收到 `[js-slash-runner] 事件处理器抛错 chat_completion_settings_ready TypeError: Cannot read properties of undefined (reading 'filter')`（栈指向 MVU bundle 的 `dr`）。**定位**：MVU 用 `jn='chat_completion_settings_ready'` 注册处理器，它读酒馆式 `chat_completion_settings`/`chat` 结构；而宿主只持有 `ApiSettings`（baseUrl/apiKey/model/isStreaming/apiFormat，**无采样参数、无该结构**），且 `__nyaShellProbe.events` 显示它**从未注册**该处理器。⇒ **撤回派发**，并在矩阵断言里引入第三态 `not-wired-by-contract`（"刻意不派发"，且反向断言"标记为不派发却存在发射点"必须报 FAIL）。**教训**：§2.7 只规定了"哪些事件该发"，没规定"载荷长什么样"；而脚本侧的处理器会按酒馆的形状去读 —— **发给脚本的事件，其载荷形状是契约的一部分，不能只看事件名就补发射点**。 |
 | 2026-09-16 | **待复核项汇总（结账后状态）**：① ✅ §9 的 `verify-js-slash-runner.py` **已创建并跑通 V1–V8**（本条下一行）；② ⬜ P1 的四作用域真机往返（§8 P1 验收 4/5）仍未在 dev 上复跑；③ ⬜ S-b/S-c/S-d（§2.4 的 spike 结论）仍未逐条复核；④ ✅ 变量宏的非空 YAML 实例证据与静态前缀字节一致**已补**（V6/V7）；⑤ ⬜ §9 的 V6"位于尾部 system 消息"目前只由离线 `pipeline` 模式断言（真实请求体被日志截断，无法可靠判定位置）。 |
 | 2026-09-16 | **§9 验收清单落地并跑通（`verify-js-slash-runner.py`）**：V1–V8 全部通过（V2 记 SKIP+原因，见下表）。新增两个文件：`dev-server/tools/verify-js-slash-runner.py`（Python 主脚本，**手写最小 RFC6455/CDP 客户端** ⇒ 零新依赖）与 `dev-server/tools/verify-js-slash-runner-helpers.ts`（Node 侧助手，提供 V6/V7 需要的真实 `chatPipeline` 逐字节比较与 devlog 解析）。**连带补齐两项此前的缺口**：① **P2 的实例证据**——真实 devlog 里取到非空 YAML 块（`世界: 当前时间 "07:30" …`），"非空 `stat_data` → 合法 YAML"不再只有代码依据；② **V2b 的守门行为断言**（此前只有"设计上会剥离"的推断）。**三个实现陷阱已写入 §9 的执行说明**（V2b 必须触发真实写入、V7 的切点不能用 `includes("<session_rules>")`、V2 需新鲜 dist）。 |
 

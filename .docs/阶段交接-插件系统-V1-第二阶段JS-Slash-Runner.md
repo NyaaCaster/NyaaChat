@@ -103,6 +103,35 @@ MVU 要拉 56 个 closure，串行应答慢到让脚本宿主的 15s 超时先�
 
 ---
 
+### 1.7 第五轮：撤回一条会崩脚本侧的事件派发（用户报错驱动）
+
+补全 §2.7 四条 best-effort 事件后，用户在浏览器控制台收到：
+
+```
+[js-slash-runner] 事件处理器抛错 chat_completion_settings_ready
+TypeError: Cannot read properties of undefined (reading 'filter')
+    at dr (bundle.js)  ← MVU 的 chat_completion_settings_ready 处理器
+    at eventEmit … at window.__nyaDispatch … at Object.emit (index-*.js)
+```
+
+**根因**：§2.7 只规定"哪些事件该发"，**没规定载荷形状**；而 MVU 的该处理器按**酒馆结构**读
+（`e.chat ?? e.messages` → 再对某字段 `.filter`），宿主给的是 `ApiSettings` 那三字段，对它等于空载荷。
+两条独立证据：① `__nyaShellProbe.events` 里 MVU **从未注册**该处理器（11 个已注册事件中没有它）；
+② MVU bundle 里 `chat_completion_settings_ready` 只出现 1 次（定义常量处），另三条新事件的常量
+**0 次出现**（从不订阅）。
+
+**处理**：撤回该派发，并把它登记为矩阵的**第三态** `not-wired-by-contract`（刻意不派发），
+同时反向断言"标记为不派发却存在发射点"必须 FAIL —— 否则将来有人"顺手补上"会再把错误带回来。
+
+**为什么撤回而不是伪造完整载荷**：那条路径只服务 MVU 的"额外模型解析"（`generate`/`generateRaw`），
+本阶段 NG4 明确不实现 —— 伪造一个 `chat_completion_settings` 只会让脚本以为拿到了真实设置，
+与 D9「未实现即显式报错、不静默糊弄」相悖。
+
+**验证**：撤回后 dev 日志最近 12 分钟内 `事件处理器抛错` **0 命中**（历史 57 次是修复前对照）；
+端到端 V4/V5/V8 仍全绿；矩阵 `--matrix` 显示 9 接线 + 1 因契约不派发、必须级 6/6。
+
+---
+
 ## 2. 本轮已修复 / 已实现（按文件）
 
 ### 2.1 `plugins/js-slash-runner/executor/predefine.ts`
