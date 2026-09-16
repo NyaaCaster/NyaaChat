@@ -4,7 +4,14 @@ dist/
 coverage/
 .DS_Store
 *.log
+# Scratch/probe directories used by agents while a task is in flight (temporary
+# scripts that are deleted before the task closes). They must never enter the
+# repo — and, just as important, they must not trip the shared `npm run lint`
+# gate (`tsc --noEmit && eslint .`) while somebody is still writing in them.
+# Both are also listed in tsconfig.json's `exclude` and eslint.config.js's
+# `ignores`; keep the three lists in sync when adding another scratch dir.
 src/temp/
+.verify-tmp/
 .env*
 !.env.example
 # Claude Code per-machine settings (permissions, env, etc.) — not for sharing

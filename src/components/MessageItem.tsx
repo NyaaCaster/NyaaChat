@@ -19,6 +19,9 @@ import {
 } from "../lib/flagalacUnicode";
 import { getRegexedString, regex_placement } from "../lib/regex";
 import { setDefaultEnvProvider } from "../lib/regex/macros";
+import { renderPluginDecorations } from "../plugins/decorators";
+import type { DecorationRenderInput } from "../plugins/decorators";
+import { getPluginRuntimeSnapshot, subscribePluginRuntime } from "../plugins/runtime";
 import { FrontendCard, splitFrontendContent } from "../lib/frontendCard";
 import type { RegexScript } from "../types";
 
@@ -139,12 +142,36 @@ function highlightQuotes(text: string): React.ReactNode[] {
   return result;
 }
 
-function renderTextWithQuotes(children: React.ReactNode): React.ReactNode {
-  if (typeof children === "string") return highlightQuotes(children);
+function renderTextWithQuotes(
+  children: React.ReactNode,
+  decoration?: DecorationRenderInput,
+): React.ReactNode {
+  if (typeof children === "string") return decorateAndHighlight(children, decoration);
   if (Array.isArray(children)) return children.map((c, i) =>
-    typeof c === "string" ? <React.Fragment key={i}>{highlightQuotes(c)}</React.Fragment> : c
+    typeof c === "string" ? <React.Fragment key={i}>{decorateAndHighlight(c, decoration)}</React.Fragment> : c
   );
   return children;
+}
+
+/** 先做**插件装饰**（产出「字符串 + React 节点」的混合数组），再对剩余的纯字符串做
+ *  引号高亮。顺序不可颠倒：`highlightQuotes` 只吃 `string`，装饰产物里的 React 节点
+ *  会原样透传（与下方 `renderTextWithQuotes` 的数组分支同一条规则）。 */
+function decorateAndHighlight(
+  text: string,
+  decoration?: DecorationRenderInput,
+): React.ReactNode {
+  const decorated = decoration ? renderPluginDecorations(text, decoration) : text;
+  if (typeof decorated === "string") return highlightQuotes(decorated);
+  if (Array.isArray(decorated)) {
+    return decorated.map((node, index) =>
+      typeof node === "string" ? (
+        <React.Fragment key={index}>{highlightQuotes(node)}</React.Fragment>
+      ) : (
+        node
+      ),
+    );
+  }
+  return decorated;
 }
 
 // ─── AnswererFlagalac · 编辑通道（t9 / Q-08 方案 b）──────────────────────────
@@ -443,6 +470,28 @@ export const MessageItem = React.memo(function MessageItem({
     [regexedContent, resolvedUser, resolvedChar],
   );
 
+  // 插件消息装饰的渲染上下文（SSOT §2.6，逐块方案）。
+  //
+  // ① 必须先**订阅运行时快照**：本组件是 React.memo，props 引用稳定时不会因为父级
+  //    渲染而重跑；而在扩展 modal 里启用/停用插件、或改插件配置，都只改运行时快照，
+  //    不改本组件的 props。不订阅的话，已渲染消息上的装饰要等到它因别的原因重渲染
+  //    才更新 —— 直接违反 P5 验收里「启用开关即时生效 / 切换音色即时生效」。
+  //    返回值刻意不接收：它只负责在快照变化时触发本次重渲染（`getPluginRuntimeSnapshot`
+  //    的引用只在内容变化时替换，因此无关的设置保存不会引发全屏重渲染）。
+  //    注意此处**不能**把快照塞进下面对象的 useMemo 依赖里 —— 那样会被
+  //    react-hooks/exhaustive-deps 判为"未在函数体内使用的多余依赖"。
+  // ② 上下文对象**不做 memo**：它每帧都要按最新快照重算，而下方 Markdown 的
+  //    `components` 映射本来就是每帧新建的内联字面量，memo 这个对象买不到任何收益。
+  //
+  // `senderName` 用**展示口径**的 resolvedUser / resolvedChar —— 与设置面板枚举
+  // 参与者的口径一致（音色映射按"人名"建表，ST 原版取的也是 `.name_text` 展示名）。
+  React.useSyncExternalStore(subscribePluginRuntime, getPluginRuntimeSnapshot);
+  const decorationInput: DecorationRenderInput = {
+    messageId: message.id,
+    role: message.role,
+    senderName: message.role === "user" ? resolvedUser : resolvedChar,
+  };
+
   if (isSystem) {
     const systemText = applyPlaceholders(message.content, resolvedUser, resolvedChar);
     return (
@@ -691,8 +740,16 @@ export const MessageItem = React.memo(function MessageItem({
                       remarkPlugins={markdownRemarkPlugins}
                       rehypePlugins={markdownRehypePlugins}
                       components={{
-                        p: ({ children }) => <p>{renderTextWithQuotes(children)}</p>,
-                        li: ({ children }) => <li>{renderTextWithQuotes(children)}</li>,
+                        p: ({ children }) => <p>{renderTextWithQuotes(children, decorationInput)}</p>,
+                        li: ({ children }) => <li>{renderTextWithQuotes(children, decorationInput)}</li>,
+                        blockquote: ({ children }) => <blockquote>{renderTextWithQuotes(children, decorationInput)}</blockquote>,
+                        td: ({ children }) => <td>{renderTextWithQuotes(children, decorationInput)}</td>,
+                        h1: ({ children }) => <h1>{renderTextWithQuotes(children, decorationInput)}</h1>,
+                        h2: ({ children }) => <h2>{renderTextWithQuotes(children, decorationInput)}</h2>,
+                        h3: ({ children }) => <h3>{renderTextWithQuotes(children, decorationInput)}</h3>,
+                        h4: ({ children }) => <h4>{renderTextWithQuotes(children, decorationInput)}</h4>,
+                        h5: ({ children }) => <h5>{renderTextWithQuotes(children, decorationInput)}</h5>,
+                        h6: ({ children }) => <h6>{renderTextWithQuotes(children, decorationInput)}</h6>,
                         a: ({ children, ...props }) => (
                           <a {...props} target="_blank" rel="noopener noreferrer">
                             {children}
@@ -714,8 +771,16 @@ export const MessageItem = React.memo(function MessageItem({
                 remarkPlugins={markdownRemarkPlugins}
                 rehypePlugins={markdownRehypePlugins}
                 components={{
-                  p: ({ children }) => <p>{renderTextWithQuotes(children)}</p>,
-                  li: ({ children }) => <li>{renderTextWithQuotes(children)}</li>,
+                  p: ({ children }) => <p>{renderTextWithQuotes(children, decorationInput)}</p>,
+                  li: ({ children }) => <li>{renderTextWithQuotes(children, decorationInput)}</li>,
+                  blockquote: ({ children }) => <blockquote>{renderTextWithQuotes(children, decorationInput)}</blockquote>,
+                  td: ({ children }) => <td>{renderTextWithQuotes(children, decorationInput)}</td>,
+                  h1: ({ children }) => <h1>{renderTextWithQuotes(children, decorationInput)}</h1>,
+                  h2: ({ children }) => <h2>{renderTextWithQuotes(children, decorationInput)}</h2>,
+                  h3: ({ children }) => <h3>{renderTextWithQuotes(children, decorationInput)}</h3>,
+                  h4: ({ children }) => <h4>{renderTextWithQuotes(children, decorationInput)}</h4>,
+                  h5: ({ children }) => <h5>{renderTextWithQuotes(children, decorationInput)}</h5>,
+                  h6: ({ children }) => <h6>{renderTextWithQuotes(children, decorationInput)}</h6>,
                   // Force any link inside chat content (LLM-rendered or user-
                   // pasted) to open in a new tab. rel guards against tabnabbing
                   // and stops the new page from leaking referrer info.

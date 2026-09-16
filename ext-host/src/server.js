@@ -44,6 +44,138 @@ async function readJson(request, maxBytes = 1024 * 1024) {
   }
 }
 
+// ── quote-tts plugin speech proxy ──────────────────────────────────────────
+// 受控 TTS 代理——上游 URL / 模型 / 鉴权只能来自 process.env，前端 body 只带
+// { input, voice, response_format }。这是被删除的 /openai/custom/generate-voice
+// 的替代实现：那个代理从 body 取 provider_endpoint（任意 URL 转发 = SSRF 面），
+// 该形态**不允许**重建——body 里出现 provider_endpoint / baseUrl / model /
+// api_key 一律忽略。
+//
+// Only the upstream address is mandatory: 没配 URL 就是「未配置」⇒ 503。模型与
+// 鉴权都有可用默认值，且默认值仍会发出非空 Authorization（上游 schema 要求）。
+const QUOTE_TTS_UPSTREAM_URL = (process.env.PLUGIN_QUOTE_TTS_UPSTREAM_URL || "").trim();
+const QUOTE_TTS_MODEL = (process.env.PLUGIN_QUOTE_TTS_MODEL || "tts-1-hd").trim() || "tts-1-hd";
+// Non-empty on purpose — the upstream speech schema rejects an empty Authorization.
+const QUOTE_TTS_API_KEY = (process.env.PLUGIN_QUOTE_TTS_API_KEY || "none").trim() || "none";
+const QUOTE_TTS_TIMEOUT_MS = clampInt(process.env.PLUGIN_QUOTE_TTS_TIMEOUT_MS, 1000, 600000, 60000);
+
+// 14 音色白名单（zh-CN / zh-HK / zh-TW 的 Edge-TTS 声音，移植自 st-Quote-TTS）。
+// 白名单同时是 SSOT §7 的注入防线：非法 voice 直接 400，绝不落到上游。
+const QUOTE_TTS_VOICES = new Set([
+  "zh-CN-XiaoxiaoNeural",
+  "zh-CN-XiaoyiNeural",
+  "zh-CN-liaoning-XiaobeiNeural",
+  "zh-CN-shaanxi-XiaoniNeural",
+  "zh-HK-HiuGaaiNeural",
+  "zh-HK-HiuMaanNeural",
+  "zh-TW-HsiaoChenNeural",
+  "zh-TW-HsiaoYuNeural",
+  "zh-CN-YunjianNeural",
+  "zh-CN-YunxiNeural",
+  "zh-CN-YunxiaNeural",
+  "zh-CN-YunyangNeural",
+  "zh-HK-WanLungNeural",
+  "zh-TW-YunJheNeural",
+]);
+const QUOTE_TTS_MAX_INPUT = 1000;
+
+function quoteTtsConfigured() {
+  return Boolean(QUOTE_TTS_UPSTREAM_URL);
+}
+
+async function proxyQuoteTtsSpeech(request) {
+  if (!quoteTtsConfigured()) {
+    return errorResponse(
+      503,
+      "quote_tts_not_configured",
+      "quote-tts speech proxy is not configured. Set PLUGIN_QUOTE_TTS_UPSTREAM_URL in .env.",
+    );
+  }
+
+  const payload = await readJson(request, 64 * 1024);
+  // 只读取白名单字段：provider_endpoint / baseUrl / model / api_key 等一律忽略。
+  const input = typeof payload.input === "string" ? payload.input.trim() : "";
+  if (!input) {
+    return errorResponse(400, "quote_tts_input_required", "A non-empty input string is required.");
+  }
+  if (input.length > QUOTE_TTS_MAX_INPUT) {
+    return errorResponse(
+      400,
+      "quote_tts_input_too_long",
+      `input must be at most ${QUOTE_TTS_MAX_INPUT} characters (got ${input.length}).`,
+    );
+  }
+
+  const voice = payload.voice;
+  if (typeof voice !== "string" || !QUOTE_TTS_VOICES.has(voice)) {
+    return errorResponse(
+      400,
+      "quote_tts_invalid_voice",
+      "voice must be one of the 14 supported Edge-TTS zh voices.",
+      { allowed: [...QUOTE_TTS_VOICES] },
+    );
+  }
+
+  const upstreamUrl = `${QUOTE_TTS_UPSTREAM_URL.replace(/\/$/, "")}/v1/audio/speech`;
+  // model / 鉴权 / 上游地址全部由 env 强制，body 无法覆盖。
+  const upstreamBody = {
+    model: QUOTE_TTS_MODEL,
+    input,
+    voice,
+    // V1 只有 mp3；body 里的其它取值不下传，避免把任意值透给上游。
+    response_format: "mp3",
+  };
+
+  let upstream;
+  try {
+    upstream = await fetch(upstreamUrl, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${QUOTE_TTS_API_KEY}`,
+        "user-agent": "NyaaChat-Ext-Host",
+      },
+      body: JSON.stringify(upstreamBody),
+      signal: AbortSignal.timeout(QUOTE_TTS_TIMEOUT_MS),
+    });
+  } catch (err) {
+    // 连接失败 / 超时 ⇒ 502 结构化错误。只回显上游地址（部署方配置的非密钥值），
+    // 绝不把上游原始响应体回给浏览器。
+    console.error(`[quote-tts] upstream unreachable: ${upstreamUrl} — ${err?.message}`);
+    return errorResponse(
+      502,
+      "quote_tts_upstream_unreachable",
+      `Upstream speech endpoint is unreachable: ${upstreamUrl}`,
+    );
+  }
+
+  if (!upstream.ok) {
+    // Drop the body instead of piping it: it can be arbitrarily large and may
+    // echo request/credential material back to the browser.
+    try {
+      await upstream.body?.cancel();
+    } catch {
+      /* the body may already be unusable — nothing to do */
+    }
+    console.error(`[quote-tts] upstream error: ${upstreamUrl} -> ${upstream.status}`);
+    return errorResponse(
+      502,
+      "quote_tts_upstream_error",
+      `Upstream speech endpoint returned ${upstream.status}. See the ext-host logs for details.`,
+      { upstream: upstreamUrl, status: upstream.status },
+    );
+  }
+
+  // 音频字节流原样透传（含上游 content-type）。
+  const responseHeaders = new Headers();
+  responseHeaders.set(
+    "content-type",
+    upstream.headers.get("content-type") || "application/octet-stream",
+  );
+  responseHeaders.set("cache-control", "no-store");
+  return new Response(upstream.body, { status: 200, headers: responseHeaders });
+}
+
 // ── COMFYUI_FIXED T2I Agent ────────────────────────────────────────────────
 // 服务端 LLM 代理——从 process.env 取部署方 key/baseURL/model，前端 body 只带
 // messages。密钥绝不进入前端 bundle。
@@ -181,6 +313,11 @@ function statusPayload() {
       configured: t2iAgentConfigured(),
       maxTokens: T2I_MAX_TOKENS,
     },
+    plugins: {
+      quoteTts: {
+        configured: quoteTtsConfigured(),
+      },
+    },
   };
 }
 
@@ -196,6 +333,9 @@ async function route(request) {
   }
   if (request.method === "POST" && path === "/t2i-agent/chat") {
     return proxyT2iAgent(request);
+  }
+  if (request.method === "POST" && path === "/plugins/quote-tts/speech") {
+    return proxyQuoteTtsSpeech(request);
   }
 
   return errorResponse(404, "not_found", "Endpoint not found.");

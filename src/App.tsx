@@ -17,7 +17,9 @@ import { getItem, setItem, removeItem } from "./lib/idbStorage";
 import { SettingsProvider } from "./lib/settingsContext";
 import { MIN_THRESHOLD_PCT, MAX_THRESHOLD_PCT, DEFAULT_THRESHOLD_PCT } from "./lib/contextBudget";
 import { maybeHeartbeat } from "./lib/memoryLifecycle";
-import { ChatSession, CharacterSettings, LlmProvider, ImageProvider, LlmProviderKind } from "./types";
+import { ChatSession, CharacterSettings, LlmProvider, ImageProvider, LlmProviderKind, Message } from "./types";
+import { normalizePluginOrder, normalizePluginStates } from "./plugins/normalize";
+import { emitPluginEvent, setPluginConfigWriter, setPluginHostContext, syncPluginRuntime } from "./plugins/runtime";
 
 // Modals are rendered only when opened, so each one's chunk loads on-demand
 // rather than bloating the initial bundle. Trade-off: closing a modal unmounts
@@ -106,7 +108,14 @@ function stripRetiredCharacterFields(chars: any[]): CharacterSettings[] {
 // written before it (missing `perTarget` reads as "everything at its template
 // default"), so the migration is a version marker only — it exists so the
 // shape change is recorded in the chain rather than silently implied.
-const SCHEMA_VERSION = 11;
+//
+// v12 adds `plugins` (the native plugin system's per-user state: enabled flag +
+// per-plugin config). This axis is the LOCAL-Storage shape only — it does NOT
+// participate in import/export validation. `settingsBackup.ts`'s EXPORT_VERSION
+// deliberately stays 9 (see SSOT §2.8.1/§2.8.2: bumping it would make older
+// builds reject new archives one-sidedly); the new field rides along as an
+// incremental key that old builds read and ignore.
+const SCHEMA_VERSION = 13;
 
 function migrate(raw: any): any {
   if (!raw || typeof raw !== "object") return raw;
@@ -141,6 +150,12 @@ function migrate(raw: any): any {
   }
   if (v < 11) {
     raw = migrateV10ToV11(raw);
+  }
+  if (v < 12) {
+    raw = migrateV11ToV12(raw);
+  }
+  if (v < 13) {
+    raw = migrateV12ToV13(raw);
   }
 
   return raw;
@@ -202,6 +217,41 @@ function migrateV10ToV11(raw: any): any {
   return {
     ...raw,
     _version: 11,
+  };
+}
+
+/**
+ * v11 → v12: 原生插件系统的每用户状态位 `plugins`。
+ *
+ * 旧存档没有这个字段 ⇒ 归一为 `{}`（即"所有插件默认停用、无配置"）。归一化本身
+ * 就是收敛点：未知插件 id 直接丢弃（插件集合的唯一权威是 `plugins/registry.ts`，
+ * 不是用户存档），因此不需要在这里做"已下线插件清理"这类迁移。
+ *
+ * 只动 localStorage 形状；导出归档的版本轴（`EXPORT_VERSION = 9`）刻意不动，
+ * 详见 SSOT §2.8.1/§2.8.2。
+ */
+function migrateV11ToV12(raw: any): any {
+  return {
+    ...raw,
+    plugins: normalizePluginStates(raw.plugins),
+    _version: 12,
+  };
+}
+
+/**
+ * v12 → v13：新增 `pluginOrder`（用户自定义的插件显示顺序，纯 UI 偏好）。
+ *
+ * 与 v10 → v11 同样是「读取时归一化 + 版本标记」：`normalizePluginOrder()` 会把
+ * 非数组 / 未知 id / 重复项收敛掉，旧存档缺该字段等价于 `[]`（列表按注册表顺序），
+ * 因此**无需改写存量数据**，本迁移只把版本号推进到 13，让这次形状变更有明确记录。
+ *
+ * 注：导出归档轴（`EXPORT_VERSION = 9`）依旧不动 —— 见 SSOT §2.8.1/§2.8.2。
+ */
+function migrateV12ToV13(raw: any): any {
+  return {
+    ...raw,
+    pluginOrder: normalizePluginOrder(raw.pluginOrder),
+    _version: 13,
   };
 }
 
@@ -569,6 +619,12 @@ const DEFAULT_SETTINGS: AppState = {
   modelContextOverrides: {},
   // memoryDisclosureAcceptedAt intentionally absent — undefined means
   // "disclosure not yet accepted". Toggling off and on again re-shows it.
+  // Empty = "no plugin state yet": every registered plugin reads as disabled
+  // (normalizePluginStates never fabricates entries for plugins the user has
+  // never touched), and the 扩展 list comes from the code registry, not from
+  // these keys.
+  plugins: {},
+  pluginOrder: [],
 };
 
 function findMostRecentSessionForCharacter(characterId: string): ChatSession | null {
@@ -600,6 +656,10 @@ export default function App() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
   const chatRef = useRef<ChatInterfaceHandle>(null);
+  // 插件运行时的配置 writer 是一次注册、长期存活的回调；用 ref 读取最新 settings，
+  // 避免它在多次渲染之间读到过期快照（SSOT §2.4 的接线片段）。
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
 
   useEffect(() => {
     // Read new key first, fall back to legacy `rikkachat_settings` for users
@@ -786,6 +846,12 @@ export default function App() {
             Number.isFinite(parsed.memoryDisclosureAcceptedAt)
               ? parsed.memoryDisclosureAcceptedAt
               : undefined,
+          // 插件状态：三处入口（localStorage 加载 / 本地导入 / 云端下载）共用
+          // normalizePluginStates()。未知插件 id 一律丢弃 —— 插件集合的唯一权威
+          // 是 plugins/registry.ts，不是用户存档（SSOT §2.8.4）。
+          plugins: normalizePluginStates(parsed.plugins),
+          // 插件显示顺序（纯 UI 偏好）：只保留已知 id，未列到的按注册表顺序补齐。
+          pluginOrder: normalizePluginOrder(parsed.pluginOrder),
         });
       } catch (e) {
         console.error("Failed to load settings", e);
@@ -841,6 +907,82 @@ export default function App() {
     }
   };
 
+  // ---------------------------------------------------------------------------
+  // 原生插件系统接线（SSOT §2.4）
+  // ---------------------------------------------------------------------------
+
+  // 配置写入的**唯一路径**：插件 updateConfig → 运行时深合并进当前 config →
+  // 这里 → handleSaveSettings() ⇒ 必然落盘（nyaachat_settings）。插件不得只改
+  // 内存快照（否则刷新即丢，SSOT R3）。
+  useEffect(() => {
+    setPluginConfigWriter((pluginId, patch) => {
+      const cur = settingsRef.current;
+      handleSaveSettings({
+        ...cur,
+        plugins: {
+          ...cur.plugins,
+          [pluginId]: {
+            enabled: !!cur.plugins[pluginId]?.enabled,
+            config: { ...(cur.plugins[pluginId]?.config ?? {}), ...patch },
+          },
+        },
+      });
+    });
+    // 只注册一次：writer 经 settingsRef 读取最新 settings，闭包不会过期，
+    // 因此刻意不把 handleSaveSettings 放进依赖（它每次渲染都是新函数）。
+  }, []);
+
+  // 启用/停用 + setup 生命周期 + 快照通知：settings.plugins 变化即同步（含首次加载）。
+  useEffect(() => {
+    syncPluginRuntime(settings.plugins);
+  }, [settings.plugins]);
+
+  // 插件事件 1/3：会话切换（首帧也会发射一次 —— App 可能直接从上次会话恢复）。
+  useEffect(() => {
+    emitPluginEvent("session:changed", {
+      sessionId: currentSession?.id ?? null,
+      characterId: currentSession?.characterId ?? null,
+    });
+  }, [currentSession?.id, currentSession?.characterId]);
+
+  // 插件事件 2/3：当前角色切换。
+  useEffect(() => {
+    emitPluginEvent("character:changed", {
+      characterId: settings.currentCharacterId,
+    });
+  }, [settings.currentCharacterId]);
+
+  // 宿主上下文（SSOT §2.4 增补）：给插件设置面板提供"参与者"枚举所需的
+  // 当前用户角色名 / 当前角色名 / 当前会话消息数组。走 `setPluginHostContext`
+  // 而不是改 `PluginSettingsPanelProps` 契约签名（§10.1 要求契约变更先经用户确认）。
+  //
+  // **取值口径**：与消息渲染一致 —— `ChatInterface.tsx` L190-197 的
+  // `charName = currentCharacter?.name || "AI助手"` / `userName = currentUserRole?.name || "user"`，
+  // 这两个值经 props 传到 `MessageItem`，成为 L330-331 的 `resolvedUser` / `resolvedChar`，
+  // 也就是装饰管线 `MessageDecorationContext.senderName` 与消息行上显示的名字。
+  // （注意与本文件另处的宏语义不同：`syncMacroIdentity` 拿的是**原始 props**
+  //  —— 无角色时 char 为空串；这里刻意取展示口径，好让插件按"消息里出现的名字"
+  //  建音色映射。）
+  //
+  // 用「每次渲染后经 ref 推送」而不是依赖数组：`currentSession?.messages ?? []`
+  // 每次渲染都产生新数组，把它放进依赖会让 effect 每帧重跑。`setPluginHostContext`
+  // 内部已做收敛（身份或消息数组未变则直接返回、不通知订阅者），因此无依赖的
+  // effect 是安全且无额外重渲染的。
+  const hostContextRef = useRef({ user: "user", char: "AI助手", messages: [] as Message[] });
+  hostContextRef.current = {
+    user:
+      settings.userRoles?.find((role) => role.id === settings.currentUserRoleId)?.name ||
+      "user",
+    char:
+      settings.characters?.find((character) => character.id === settings.currentCharacterId)
+        ?.name || "AI助手",
+    messages: currentSession?.messages ?? [],
+  };
+  useEffect(() => {
+    const { user, char, messages } = hostContextRef.current;
+    setPluginHostContext({ identity: { user, char }, sessionMessages: messages });
+  });
+
   const handleAddLog = (logDraft: Omit<LogEntry, "id" | "timestamp">) => {
     // Request entries keep their non-content metadata (url / model / tools);
     // only the rendered outgoing prompt is stripped — see SENSITIVE_LOG_META_KEYS.
@@ -855,6 +997,23 @@ export default function App() {
         timestamp: Date.now(),
       },
     ]);
+
+    // 插件事件 3/3：助手消息落地（message:received）。
+    //
+    // App 侧能观测到的"一条助手回复完成"信号就是 ChatInterface 在流式/非流式
+    // 回复落地时追加的 `direction: "response"` 日志（见 ChatInterface.tsx
+    // 「Received chat completion stream fully」等发射点，meta.response 是完整
+    // 回复文本）。ChatInterface 的 onSessionChange 只在会话 id 变化时回调，
+    // 无法逐条观测，因此这里以日志落地为触发时机（P1 不改 ChatInterface 的
+    // props 面；若将来需要逐条精确信号，可在 ChatInterface 增一个
+    // onAssistantMessage 属性并把本发射点搬过去）。
+    if (logDraft.direction === "response") {
+      const response = (meta as Record<string, unknown> | undefined)?.response;
+      emitPluginEvent("message:received", {
+        text: typeof response === "string" ? response : "",
+        meta,
+      });
+    }
   };
 
   const handleCharacterSelect = (id: string) => {

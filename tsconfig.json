@@ -24,6 +24,8 @@
     "noEmit": true
   },
   "exclude": [
-    "dist/**"
+    "dist/**",
+    "src/temp/**",
+    ".verify-tmp/**"
   ]
 }

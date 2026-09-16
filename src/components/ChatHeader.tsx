@@ -23,10 +23,9 @@ import { VersionModal } from "./VersionModal";
 import { RegexModal } from "./RegexModal";
 import { UserAccountModal } from "./UserAccountModal";
 import { KnowledgeBaseModal } from "./KnowledgeBaseModal";
-
-/** 「扩展」入口按钮开关。按用户需求保留该入口 UI（按钮可见），但当前不挂任何功能：
- *  SillyTavern 扩展兼容系统已整体摘除，此按钮不再打开任何面板。 */
-const EXTENSIONS_UI_ENABLED = true;
+import { ExtensionsModal } from "./ExtensionsModal";
+import { getRegisteredPlugins } from "../plugins/registry";
+import { getPluginRuntimeSnapshot, subscribePluginRuntime } from "../plugins/runtime";
 
 interface ChatHeaderProps {
   characters: CharacterSettings[] | undefined;
@@ -72,6 +71,26 @@ export function ChatHeader({
   const [isRegexOpen, setIsRegexOpen] = useState(false);
   const [isAccountOpen, setIsAccountOpen] = useState(false);
   const [isKnowledgeBaseOpen, setIsKnowledgeBaseOpen] = useState(false);
+  const [isExtensionsOpen, setIsExtensionsOpen] = useState(false);
+
+  // 「有任意插件启用」→ 扩展入口按钮着色 + 呼吸（与 Bypass 按钮同一机制，改色为扩展的
+  // 蓝系：亮蓝线框 + 暗蓝底）。
+  //
+  // 这里**直接订阅插件运行时快照**、不新增 prop：`ChatHeader` 由 `ChatInterface` 渲染，
+  // 若从 App 透传就要同时改 `ChatInterface` 的 props 面 —— 订阅方式既等价又不动别人的面。
+  // 快照只含"存档里出现过的插件"，故用注册表过滤一次（插件集合的唯一权威是代码）。
+  const pluginSnapshot = React.useSyncExternalStore(
+    subscribePluginRuntime,
+    getPluginRuntimeSnapshot,
+  );
+  const hasEnabledPlugin = React.useMemo(
+    () =>
+      getRegisteredPlugins().some((plugin) => {
+        const id = plugin?.meta?.id;
+        return !!id && pluginSnapshot[id]?.enabled === true;
+      }),
+    [pluginSnapshot],
+  );
 
   return (
     <div data-app-header className="flex-shrink-0 bg-white/70 dark:bg-[#0A0A0A]/70 backdrop-blur-xl border-b border-gray-200/60 dark:border-white/5 sticky top-0 z-20 flex flex-col">
@@ -148,18 +167,20 @@ export function ChatHeader({
               className={isBypassActive ? "animate-pulse" : ""}
             />
           </button>
-          {EXTENSIONS_UI_ENABLED && (
-            // 「扩展」入口按钮：仅保留 UI，不挂任何功能（不打开面板、不调用任何 API）。
-            // 用 title + aria-disabled 明示当前暂未开放。
-            <button
-              type="button"
-              aria-disabled="true"
-              className="p-1.5 text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-white/10 rounded-md transition-all duration-200"
-              title="扩展（暂未开放）"
-            >
-              <Puzzle size={16} />
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => setIsExtensionsOpen(true)}
+            className={`p-1.5 rounded-md transition-all duration-200 flex items-center justify-center ${
+              hasEnabledPlugin
+                ? // 有插件启用：暗蓝底 + 亮蓝线框 + 呼吸；悬浮时底色与线框一起高亮
+                  "text-blue-500 bg-blue-500/10 hover:bg-blue-500/20 hover:text-blue-400"
+                : // 无插件启用：维持原样式（灰/白线框），悬浮时线框着色
+                  "text-gray-400 hover:text-blue-500 hover:bg-gray-100 dark:hover:bg-white/10"
+            }`}
+            title="扩展"
+          >
+            <Puzzle size={16} className={hasEnabledPlugin ? "animate-pulse" : ""} />
+          </button>
           <button
             onClick={onOpenSettings}
             className="p-1.5 text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-white/10 rounded-md transition-all duration-200"
@@ -251,6 +272,13 @@ export function ChatHeader({
         <KnowledgeBaseModal
           isOpen={isKnowledgeBaseOpen}
           onClose={() => setIsKnowledgeBaseOpen(false)}
+        />,
+        document.body,
+      )}
+      {createPortal(
+        <ExtensionsModal
+          isOpen={isExtensionsOpen}
+          onClose={() => setIsExtensionsOpen(false)}
         />,
         document.body,
       )}

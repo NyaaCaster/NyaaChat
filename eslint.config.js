@@ -8,6 +8,12 @@ import globals from "globals";
 // unused/undefined identifiers. The project uses `any` widely on the
 // API boundary, so no-explicit-any is off — that's tracked as tech debt
 // elsewhere, not as a per-PR blocker.
+//
+// Plugin sources (`plugins/**`, the developer-side plugin tree at the repo root)
+// are linted with the SAME react-hooks + browser-globals ruleset as `src/**`:
+// plugins are React code that ships inside the main bundle, so a hooks violation
+// there is exactly as costly as one in src/. See SSOT §2.1 的「必须同步修改的
+// 工程配置」表 —— 漏掉这一条时插件内的 hooks 违规不会被 lint 拦下。
 export default tseslint.config(
   {
     // `.private/**` is the NyaaChat-Private sub-repo (its own git repo, ignored
@@ -15,10 +21,20 @@ export default tseslint.config(
     // not lint targets, same as `.ref/**`.
     // `dev-server/**` is the local dev-container repo (NyaaChat-dev, also
     // git-ignored): Node/nginx tooling with its own conventions, never shipped.
+    //
+    // `src/temp/**` and `.verify-tmp/**` are the agents' in-flight scratch
+    // directories (probe scripts that are deleted before a task closes). They
+    // are deliberately NOT linted: `npm run lint` is the shared acceptance gate
+    // for every task, and a half-written probe sitting in one of them would
+    // turn it red for everybody else. The same two paths are in .gitignore and
+    // in tsconfig.json's `exclude` — all three lists must stay in sync.
+    // Do NOT add `src/**` / `plugins/**` here: those are real product code and
+    // the gate is only worth anything if it keeps checking them.
     ignores: [
       "dist/**",
       "node_modules/**",
       "src/temp/**",
+      ".verify-tmp/**",
       ".claude/**",
       ".ref/**",
       ".private/**",
@@ -29,7 +45,7 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    files: ["src/**/*.{ts,tsx}"],
+    files: ["src/**/*.{ts,tsx}", "plugins/**/*.{ts,tsx}"],
     plugins: {
       "react-hooks": reactHooks,
     },

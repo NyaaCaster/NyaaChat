@@ -6,6 +6,9 @@ import { requiredStreamingForTarget } from "./flagalacOptions";
 import { loadCover, saveCover } from "./coverStorage";
 import { COMFYUI_FIXED_NAME, createDefaultLlmProviders, defaultComfyFields } from "./providers";
 import { MIN_THRESHOLD_PCT, MAX_THRESHOLD_PCT, DEFAULT_THRESHOLD_PCT } from "./contextBudget";
+// P3 — 插件集合的**唯一权威是代码**（`plugins/registry.ts`），所以 `AppState.plugins`
+// 的归一化在本地导入、云端下载与导出三条路径上必须是同一个函数（SSOT §2.8.3/§2.8.4）。
+import { normalizePluginOrder, normalizePluginStates } from "../plugins/normalize";
 
 const EXPORT_KIND = "nyaachat_settings_export";
 /** Bumped to 3 when the AppState gained MCP fields (`isMcpEnabled`,
@@ -204,6 +207,20 @@ export function buildExportPayload(settings: AppState): ExportPayload {
     llmProviders: settings.llmProviders.map(stripLlmProvider),
     imageProviders: settings.imageProviders.map(stripImageProvider),
     characters: settings.characters.map(stripRetiredCharacterFields),
+    // P3 — 出口防御（SSOT §2.8.4 第 3 条）：插件集合的唯一权威是代码
+    // （`plugins/registry.ts`），所以 `...settings` 展开进来的 `plugins` 必须再过一遍
+    // `normalizePluginStates()`，把已下线插件的 id 连同配置一并剥离。
+    //
+    // Protection, not repair:与 `RETIRED_TOP_LEVEL_KEYS` 同思路 —— 活跃状态本应已被
+    // 入口归一化（localStorage 加载 / 本地导入 / 云端下载）清干净，但**手改过的
+    // localStorage** 仍可能夹带死数据，而 `...settings` 会原样把它复制进归档。只守
+    // 入口不守出口，就无法满足用户的要求「新版本导出的存档里不得残留已下线插件的
+    // 配置」。此处是两条导出路径（本地下载 `exportSettings()` + 云端上传
+    // SettingsModal）共用的唯一构造器，改这里即同时覆盖两者。
+    plugins: normalizePluginStates(settings.plugins),
+    // 插件显示顺序（纯 UI 偏好）同样**过滤一次**：只保留已知插件 id，避免手改过的
+    // localStorage 把已下线插件的 id 带进新归档（与 `plugins` 同一"出口防御"思路）。
+    pluginOrder: normalizePluginOrder(settings.pluginOrder),
   };
 
   // Protection, not repair: live state should already be clean (the load path
@@ -756,6 +773,26 @@ function validateImportPayload(raw: unknown): ImportResult {
   if (!Number.isFinite(filled.memoryDisclosureAcceptedAt)) {
     delete filled.memoryDisclosureAcceptedAt;
   }
+
+  // P3 — `plugins` 段（SSOT §2.8.3/§2.8.4 的**入口归一化**）。
+  //
+  // 这是**两条导入路径共用的唯一收敛点**：本地导入（SettingsModal 的
+  // `parseImportText(file.text)`）与云端下载（SettingsModal 的
+  // `parseImportText(JSON.stringify(res.data.payload))`）都走本函数 ⇒ 同步收敛到
+  // `normalizePluginStates()` 一处，不存在"本地导入正常、云端恢复丢配置"的分叉
+  // （审计报告 D3 的待验证风险 / R4）。
+  //
+  // 语义与 `RETIRED_TOP_LEVEL_KEYS` 的剥离一致：归档里多带东西**不是拒绝导入的
+  // 理由**（`validateImportPayload` 刻意不为 `plugins` 增加任何拒绝条件），但它也
+  // 不许把宿主不认识的插件 id 带进活跃状态。
+  //   · 老存档缺 `plugins` ⇒ 回填 `{}`（V7）；
+  //   · `plugins` 非对象 ⇒ `{}`；
+  //   · 已从注册表下线的插件 id ⇒ **丢弃**（V8），这是用户复核确认的期望行为：
+  //     插件集合以代码为权威，配置只对当前构建有效。
+  // 插件 defaults 的深合并同样在本函数内完成（`mergePluginDefaults`）。
+  filled.plugins = normalizePluginStates(filled.plugins);
+  // 插件显示顺序：与 `plugins` 走同一处收敛（导入的本地与云端两条路径共用本函数）。
+  filled.pluginOrder = normalizePluginOrder(filled.pluginOrder);
 
   // Finally, drop every field that was retired with the removed extension
   // compatibility layer. Archives written before the removal carry them

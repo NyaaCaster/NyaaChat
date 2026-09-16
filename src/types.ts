@@ -250,6 +250,22 @@ export interface RegexScript {
   maxDepth: number | null;
 }
 
+/** 单用户维度的插件持久化状态（`AppState.plugins` 的值类型）。
+ *
+ *  ⚠️ **声明位置刻意放在这里**（而不是 `src/plugins/types.ts`）：`AppState`
+ *  需要它，而 `src/types.ts` 不 import 任何插件模块，因此不会产生循环依赖。
+ *  插件作者仍然只需从 `src/plugins/types` 导入 —— 那里把它 re-export 出来。
+ *
+ *  `enabled` 缺失/非布尔 ⇒ false（默认全部停用）；`config` 非对象 ⇒ {}，
+ *  随后由 `src/plugins/normalize.ts` 以插件 defaults 做深合并（用户值优先）。 */
+export interface PluginState {
+  enabled: boolean;
+  config: Record<string, unknown>;
+}
+
+/** 插件 id → 单用户持久化状态。只保留 `plugins/registry.ts` 中注册的 id。 */
+export type PluginStateMap = Record<string, PluginState>;
+
 export interface AppState {
   bypass: BypassSettings;
   userRoles: UserRoleSettings[];
@@ -297,6 +313,19 @@ export interface AppState {
    *  shown; the dialog is gated on this rather than on isMemoryEnabled so that
    *  toggling off and on again does not silently skip the disclosure. */
   memoryDisclosureAcceptedAt?: number;
+  /** 原生插件系统的每用户状态（启用开关 + 插件配置）。
+   *  插件集合的唯一权威是代码（`plugins/registry.ts`）——这里的键只是"已知插件的
+   *  用户数据"，未知 id 在加载/导入/云端下载三条入口都会被 `normalizePluginStates()`
+   *  丢弃，导出侧同样再过一次归一化（出口防御）。 */
+  plugins: PluginStateMap;
+  /**
+   * **用户自定义的插件显示顺序**（2026-09-15 追加）—— 纯 UI 偏好：只决定扩展
+   * modal 列表的排列，**不影响任何插件逻辑**（启用/配置/装饰/后端调用都与它无关）。
+   * 只应出现已注册的插件 id；未列到的插件由界面按注册表顺序追加到末尾。
+   * 三条入口（加载 / 本地导入 / 云端下载）与出口（`buildExportPayload`）都过
+   * `normalizePluginOrder()`。
+   */
+  pluginOrder?: string[];
 }
 
 export type ModelCapability =
