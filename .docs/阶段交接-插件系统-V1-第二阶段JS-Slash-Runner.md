@@ -48,6 +48,17 @@
 
 ---
 
+### 1.4 第二轮（"继续完成"那轮）：1 个真缺陷 + 3 项复核结账
+
+| # | 提交 | 症状 | 根因 |
+|---|---|---|---|
+| 6 | 见 §4.5 | `global_Mvu_initialized` **从未被派发**；订阅它的脚本（`mvu_zod` 的用户键迁移钩子）静默失效。`waitGlobalInitialized('Mvu')` 仅靠"已存在即 resolve"兜底才能工作 | `__nyaSyncMvu()` / `initializeGlobal()` 引用了**构建期 TS 常量** `TAVERN_EVENTS`，而脚本字符串里运行时存在的是 `window.tavern_events`（原先要到 `implemented` 汇总处才赋值）⇒ 运行期抛 `ReferenceError: TAVERN_EVENTS is not defined`，且**恰好发生在 `window.parent.Mvu` 镜像成功之后**，所以"MVU 就绪"看着一切正常 |
+
+**这个缺陷是 §9 的 V1–V8 全绿都发现不了的**（它断的是端到端行为，而事件链断裂不影响 V1–V8 的任何一条）——
+是专门为 §2.4 的 spike 结论写 `verify-script-host-spike.py` 时才查出来。**这是"继续完成"那轮最有价值的一件事。**
+
+---
+
 ## 2. 本轮已修复 / 已实现（按文件）
 
 ### 2.1 `plugins/js-slash-runner/executor/predefine.ts`
@@ -196,25 +207,59 @@ npx tsx dev-server/tools/diag-regex-replacement.ts "<卡.png>"
 
 ---
 
+### 4.5 第二轮新增的两份可复跑清单（均全绿）
+
+**(a) §8 P1 四作用域真机往返** —— `python dev-server/tools/verify-variables-scopes.py`：
+
+```
+✓ P1a  message：播种可读 → 改写落盘 → 重载读回**新值**
+✓ P1b  chat：同上
+✓ P1c  global：同上（IDB nyaachat_vars_global）
+```
+
+判据刻意是**"值真的换掉了"**而不是"键还在"：先播种初值、经插件变量 API
+（`window.__nyaScriptHostBridge.api.variables.*`，即应用自己的写路径）改写成新值、
+重载后同时从 **IDB** 与 **API** 两侧读回新值。只断言"存在"无法区分"没写进去"。
+
+**(b) §2.4 spike S-b/S-c/S-d 运行期复核** —— `python dev-server/tools/verify-script-host-spike.py`：
+
+```
+✓ S-b  五个全局就位且可调用（$/_/z/YAML/TavernHelper，含 TavernHelper.getVariables）
+✓ S-c  window.Mvu 已发布 + 事件名实测 = mag_variable_update_ended + window.parent.Mvu 镜像
+       + global_Mvu_initialized 已派发（修复 §1.4 的缺陷之后）+ waitGlobalInitialized 存在
+✓ S-d  注册期每脚本只读到自己的 id；**回调期**（注入探针在 eventOn 处理器里取值）同样是自己的 id
+```
+
+* **S-d 的结论是"模块局部常量方案成立、无需回退到一脚本一 iframe"** —— 这消除了 SSOT §2.4 里
+  一直悬着的那条回退风险。回调期那半是用一段**注入探针脚本**做的（注册 `eventOn` 处理器读
+  `getScriptId()`），因为真实卡片恰好没在回调里取值。
+* **S-a 未单独复核**：srcdoc + importmap + 自托管 ESM 已由 §9 V3–V5 的运行期链路间接覆盖
+  （vendor 可达 + MVU 起得来 + 变量落盘），但"**prod 构建下同样成立**"这一半仍未直接验证。
+* 顺带修了 `initializeGlobal` 的语义：原先无论 `name` 是什么都派发 `global_Mvu_initialized`
+  （对 `'Mvu'` 恰好等于契约公式、看着像对的），现按契约派发 `global_<name>_initialized`。
+
+---
+
 ## 5. 仍需继续验证 / 已知问题（**接手者请优先结账**）
 
 ### 5.1 未复核项（SSOT §11 同步登记）
 
-1. ✅ **已结账**：§9 的 `dev-server/tools/verify-js-slash-runner.py` **已创建并跑通 V1–V8**
-   （`python dev-server/tools/verify-js-slash-runner.py`；`--only V5` 单跑、`--list` 看清单）。
-   连同 Node 侧助手 `verify-js-slash-runner-helpers.ts` 一起，§9 的验收断言现已**全部有可复跑载体**。
-   本轮顺带补齐了两项旧缺口：**P2 的"非空 `stat_data` → 合法 YAML"实例证据**（真实 devlog 里
-   取到 `<status_current_variables>` 内为非空 YAML），以及 **V2b 的守门行为断言**。
-   详见 §4.4 与 SSOT §9 的执行说明。
-2. ⬜ **P1 的四作用域真机往返**（§8 P1 验收 4/5）：V2b 已覆盖 `message` 作用域"写入→真实保存→
-   重载仍在"，但 `chat` / `global` 两个作用域的真机往返仍未复跑。
-3. ⬜ **S-b / S-c / S-d**（§2.4 的 spike 结论）仍未逐条复核。
-4. ⬜ **§9 V6 的"位于尾部 system 消息"** 目前只由离线 `pipeline` 模式断言：真实请求体在
-   devlog 里被截断（`…`），无法可靠判定位置；离线断言用的是 `buildRequestMessages` 的真实
-   输出，因此结论可信，但"真实请求体上的位置"这一形态**没有直接证据**。
-5. ⬜ **§9 V2 需要新鲜 `dist/`** 才会真正执行（当前记 SKIP：本地 dist 比源码旧 666 分钟）。
-   要让它转绿需跑一次 `npm run build`；V1 已用**容器内产物**覆盖"新代码进产物"这一断言。
-6. ⬜ **K1（CSP 未下发）** 依旧未修：修完后**必须**同步迁移脚本载体（`ScriptHost` 换实现）
+> **第二轮已把原来 6 条中的 5 条结掉**（§9 清单、P1 四作用域、S-b/S-c/S-d、"非空 YAML"实例、V2b 守门）。
+> 下面只剩真正未做的 2 条 + 2 条"有结论但缺直接证据"的形态。
+
+1. ⬜ **S-a 的"prod 构建下同样成立"**：srcdoc + importmap + 自托管 ESM 在 **dev** 上已由 §9 V3–V5
+   间接覆盖，但**生产构建（`npm run build` 产物 + 生产 nginx）下没有直接验证**过。SSOT §5.3 的
+   t14 结论（importmap 能覆盖模块内说明符）是 headless 实测，但那是在 dev 基底上做的。
+2. ⬜ **SSOT §2.7 的 best-effort 事件接线**：`GENERATION_STOPPED`、`message:rendered`、
+   `worldinfo:updated`、`completion:settings-ready` 四条仍按 §2.7 的约定"未接线需如实登记"。
+   **本轮没有逐条核对它们当前到底接没接**（§1.4 的教训正是"事件派发必须单独断言"）。
+   接手时建议给 `verify-script-host-spike.py` 加一个"事件接线矩阵"模式：逐个派发并断言接收。
+3. ⬜ **P4 的卡片 IO 另一半**：`§8 P4 验收 2/3/4`（ST 卡导出逐字段相等、原生卡 round-trip、
+   编辑弹窗保存路径保留 `scripts`）**仍无自动断言**。§9 V4 只覆盖了"导入得 2 个脚本"。
+4. ⬜ **§9 V6 的"位于尾部 system 消息"** 只有离线 `pipeline` 断言：真实请求体在 devlog 里被 `…`
+   截断，位置无法可靠判定。离线断言用的是 `buildRequestMessages` 的真实输出，结论可信，
+   但"真实请求体上的位置"这一形态缺直接证据。
+5. ⬜ **K1（CSP 未下发）** 依旧未修：修完后**必须**同步迁移脚本载体（`ScriptHost` 换实现）
    + 前端卡载体（`__nyaCardDispatch` 是私有约定，见 SSOT §12 K6）。
 
 ### 5.2 已知问题（不修，登记）
@@ -243,12 +288,25 @@ npx tsx dev-server/tools/diag-regex-replacement.ts "<卡.png>"
 
 > 继续开发 NyaaChat 插件系统第二阶段（JS-Slash-Runner）。**以 plan 模式推进**。
 >
-> 先读：`.docs/阶段交接-插件系统-V1.md`（前一阶段）→ `.docs/plugin-system/插件开发_JS-Slash-Runner/开发计划-SSOT.md`（**唯一事实来源**，重点看 §8 状态总览、§9 验收清单、§11 变更记录、§12 已知问题）→ `MVU技术性说明.md`（状态栏契约 §3.9/§4.6）→ `NyaaChat/CLAUDE.md` + `commit-push` skill。
+> 先读：`.docs/阶段交接-插件系统-V1.md`（前一阶段）→ `.docs/plugin-system/插件开发_JS-Slash-Runner/开发计划-SSOT.md`
+> （**唯一事实来源**，重点看 §8 状态总览、§9 验收清单、§11 变更记录、§12 已知问题 K1–K8）→
+> `MVU技术性说明.md`（状态栏契约 §3.9/§4.6）→ `NyaaChat/CLAUDE.md` + `commit-push` skill。
 >
-> 当前状态：脚本执行层 / 变量层 / 卡片脚本 IO / 脚本库 UI / 前端卡状态栏注入**都已落地并在真机跑通**（收尾基线 `bf2639e`，dev 构建 `v12-2230`）。本轮修掉 5 个真机缺陷（`getAllVariables` 形状、多参数事件、围栏配对、卡片 API 注入竞态、未闭合围栏被切两遍），详见 SSOT §11 最后一条。
+> 当前状态：脚本执行层 / 变量层 / 卡片脚本 IO / 脚本库 UI / 前端卡状态栏注入**都已落地并复核通过**
+> （dev 构建 `v12-2300`）。**§9 V1–V8 9/9 全绿**；**P1 三作用域真机往返全绿**；**S-b/S-c/S-d 全绿**。
+> 两轮共修 6 个真缺陷，其中第 6 个（`TAVERN_EVENTS` 运行期未定义 ⇒ `global_Mvu_initialized` 从未派发）
+> 只有专门的事件链断言才能发现——见交接文档 §1.4。
 >
-> **§9 的验收清单已落地并跑通**：`python dev-server/tools/verify-js-slash-runner.py` → V1–V8 通过 8 / 失败 0 / 跳过 1（V2 因本地 `dist/` 过期而记 SKIP+原因）。P2 的"非空 `stat_data` → 合法 YAML"实例证据、V2b 的守门行为断言**都已补齐**。
+> 下一件事（按优先级）：
+> ① **给 `verify-script-host-spike.py` 加"事件接线矩阵"模式**，逐条核对 §2.7 的 best-effort 事件
+>    （`GENERATION_STOPPED` / `message:rendered` / `worldinfo:updated` / `completion:settings-ready`）
+>    当前到底接没接——§1.4 的教训就是这类"派发→订阅"路径必须单独断言；
+> ② **S-a 的 prod 构建复核**（生产产物 + 生产 nginx 下 srcdoc + importmap 是否仍成立）；
+> ③ **P4 的导出/round-trip 断言**（§8 P4 验收 2/3/4 目前无载体）；
+> ④ 若要补 V6 的真实请求体位置证据，需给 devlog 的请求体日志**关掉截断**。
 >
-> 下一件事（按优先级）：① 跑一次 `npm run build` 让 **§9 V2** 真正执行（当前 SKIP）；② 复跑 **P1 的四作用域真机往返**（`chat` / `global` 两作用域仍无真机断言）；③ 逐条复核 **S-b/S-c/S-d**（§2.4 spike 结论）；④ 若要让 V6 的"尾部 system 消息"有真实请求体证据，需要给 devlog 的请求体日志**关掉截断**（现在 `renderedMessages` 被 `…` 截断，只能离线断言）。
->
-> **关键约束**：改 `plugins/js-slash-runner/executor/{predefine,srcdocHost}.ts` 前**必跑** `npx tsx dev-server/tools/check-script-host.ts`；不要用 PowerShell 重写源文件（改行尾会破坏 dev patch）；`.docs/` 下的文档是**纯 LF**（改动前先确认行尾，别整文件改 CRLF）；未经明确要求**不** commit/push；`dev-server/` 是**独立仓库**（`NyaaChat-dev.git`，分支 `main`），与主仓分开提交。
+> **关键约束**：改 `plugins/js-slash-runner/executor/{predefine,srcdocHost}.ts` 前**必跑**
+> `npx tsx dev-server/tools/check-script-host.ts`——**模板字符串内部的注释里也不能出现反引号**，
+> 本轮被它拦下两次；不要用 PowerShell 重写源文件（改行尾会破坏 dev patch）；`.docs/` 下的文档是
+> **纯 LF**（改动前先确认行尾）；验证脚本改动后要重跑对应清单；未经明确要求**不** commit/push；
+> `dev-server/` 是**独立仓库**（`NyaaChat-dev.git`，分支 `main`），与主仓分开提交。
