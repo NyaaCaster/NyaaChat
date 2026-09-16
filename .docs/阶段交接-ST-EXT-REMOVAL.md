@@ -160,7 +160,7 @@
 
 ## 7. 部署到本机 dev 测试服（4095）（需求 5）· t12 已完成
 
-**验收入口**：`http://localhost:4095/`　**Basic Auth**：`nyaa` / `undine77`（匿名 → **401**，认证 → **200**）。
+**验收入口**：`http://localhost:4095/`　**Basic Auth**：用户名 `nyaa`　密码见 **`dev-server/.env` 的 `DEV_BASIC_AUTH_PASSWORD`**（该文件被 `.gitignore` 忽略，**绝不入库**；本文档原先把密码明文写在这里，已于 2026-09-16 移除）。匿名 → **401**，认证 → **200**。
 
 **容器状态**：
 
