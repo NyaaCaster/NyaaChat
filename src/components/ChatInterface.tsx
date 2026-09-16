@@ -48,6 +48,9 @@ import {
   isFlagalacTraceCleanupEnabled,
   isFlagalacUnicodeEncodingEnabled,
 } from "../lib/chatPipeline";
+// 插件事件总线（SSOT §2.7）：宿主 → 插件的 `message:sent` / `generation:started` /
+// `message:deleted` 都在本组件发射（这里是唯一同时持有"用户消息写入"与"请求组装"两处时序的地方）。
+import { emitPluginEvent } from "../plugins/runtime";
 import { nextBatchSeq, findBoundaryIndex } from "../lib/memoryBoundary";
 import { getEffectiveRegexScripts, subscribeRegexScripts } from "../lib/regex";
 import { MessageItem } from "./MessageItem";
@@ -636,6 +639,11 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
       newUserMessage,
       { id: botMessageId, role: "assistant", content: "", timestamp: Date.now() },
     ]);
+    // SSOT §2.7：用户消息写入会话后发射 `message:sent`（映射到脚本侧 MESSAGE_SENT）。
+    // ⚠️ 必须在 `setMessages` **之后**：MVU 的 MESSAGE_SENT 处理器会立刻读楼层（`getChatMessages`），
+    //    早于写入就会读到"还没有这条消息"的状态（与 v12-2109 修过的"回复日志早于正文进 messages"
+    //    是同一类时序坑）。本发射点由 `verify-script-host-spike.py --matrix` 断言守护。
+    emitPluginEvent("message:sent", { messageId: newUserMessage.id });
     setIsLoading(true);
     // t17: a new turn owns the bubble status line — never inherit the previous
     // turn's notice (belt-and-braces next to the msgId key and the isLoading
@@ -980,6 +988,12 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
         memoryContext,
         mcpAdvertisedToolNames: advertisedToolNames,
       });
+
+      // SSOT §2.7：prompt 组装完成、真正发出请求之前发射 `generation:started`
+      // （映射到脚本侧 GENERATION_STARTED）。MVU 靠它 + MESSAGE_SENT 做"变量初始化"的
+      // 触发点（MVU技术性说明 §4.4 的三条入口之一）。
+      // ⚠️ 放在**组装之后、发送之前**：放在组装之前的话，脚本侧读到的仍是上一轮状态。
+      emitPluginEvent("generation:started", { messageId: botMessageId });
 
       // Request-side entry: url / model / advertised tools only. The rendered
       // prompt ("renderedMessages" — system / bypass / world-info / history) is
@@ -1552,6 +1566,11 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
       }
       return next;
     });
+    // SSOT §2.7：删除消息后发射 `message:deleted`（映射到脚本侧 MESSAGE_DELETED）。
+    // MVU 靠它做"清理旧楼层变量"（MVU技术性说明 §1.2 阶段 5 的自动清理）。
+    // 放在 setMessages 之外（而非 updater 内）：updater 必须保持纯函数，React 在
+    // 严格模式下会**重复调用**它，在里面发事件会导致重复派发。
+    emitPluginEvent("message:deleted", { messageId: id });
   }, []);
 
   const handleEditMessage = useCallback((id: string, newContent: string) => {
@@ -1571,6 +1590,13 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
     if (!lastUser) return;
     const withoutLastUser = trimmed.filter((m) => m.id !== lastUser.id);
     setMessages(withoutLastUser);
+    // SSOT §2.7：重生成会**裁掉楼层**，与删除同源 ⇒ 逐条补发 `message:deleted`
+    // （MVU 靠它清理被裁掉楼层的变量，见 MVU技术性说明 §1.2 阶段 5）。
+    // 用 `msgs.length - withoutLastUser.length` 反推被裁掉的那一段，而不是硬编码"1 条"——
+    // 截断范围是 `[idx, end)`，将来若改成"重生成并丢弃后续 N 楼"这里不必再改。
+    for (const gone of msgs.slice(withoutLastUser.length)) {
+      emitPluginEvent("message:deleted", { messageId: gone.id });
+    }
     void sendChatRef.current!(lastUser.content, [], withoutLastUser);
   }, []);
 

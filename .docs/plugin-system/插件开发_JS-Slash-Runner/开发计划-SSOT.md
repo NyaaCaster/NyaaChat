@@ -349,6 +349,22 @@ export type PluginEventName =
 - **`tavern_events` 常量表必须完整定义**（含上表全部 + `SETTINGS_UPDATED` 等），即使宿主不发射 —— 否则脚本拿到 `undefined` 事件名并静默失效（M6）。
 - best-effort 项若在 P3 结束时**未接线**，必须在 SSOT 的 §11 变更记录与本阶段交接文档中如实登记为"未接线"，不得含糊。
 
+**接线现状（2026-09-16 复核，`verify-script-host-spike.py --matrix` 可复跑）**
+
+| 事件 | 优先级 | 发射点 |
+|---|---|---|
+| `message:received` | 必须 | `App.tsx` ✅（原有） |
+| `session:changed` | 必须 | `App.tsx` ✅（原有） |
+| `character:changed` | 必须 | `App.tsx` ✅（原有） |
+| `generation:started` | 必须 | `ChatInterface.tsx` ✅（**本轮补**，组装完 prompt、发请求之前） |
+| `message:sent` | 必须 | `ChatInterface.tsx` ✅（**本轮补**，`setMessages` 之后 —— 早于写入会让 MVU 读到"还没有这条消息"） |
+| `message:deleted` | 必须 | `ChatInterface.tsx` ✅（**本轮补**，删除 + 重生成两条路径） |
+| `generation:stopped` / `message:rendered` / `worldinfo:updated` / `completion:settings-ready` | best-effort | ❌ **仍未接线**（按本节约定如实登记；矩阵模式会以 SKIP 列出） |
+
+> 为什么这四条 best-effort 不补：它们映射到脚本侧 BEST-EFFORT 档，本轮与真实卡片（苏婷 / 变装女友）
+  的状态栏与变量链均已跑通，补它们属于"扩大改动面"而非"修复已知缺陷"。矩阵断言会持续把它们
+  标成 SKIP，**不会**被误读成"已接线"。
+
 ---
 
 ## 3. 存储与兼容
@@ -675,6 +691,10 @@ osniff 下发 ⇒ 动态 import 被拒 ⇒ 库加载整轮中止、mvu/bundle.js
 | 2026-09-16 | **P2 复核结果（原「待复核」条，已更新）**：`substituteVariableMacros` 与永久条目分流（`chatPipeline.ts:831-844`）已落地，且真机日志里 `<status_current_variables>` **确实出现在组装后的 `session_rules` 中**（证明宏参与了渲染），但**尚未抓到"非空 `stat_data` 时输出合法 YAML 块"的实例**，`§8 P2 验收 1–5` 亦未写成可复跑断言。⇒ 该缺口已由下面的 §9 验收清单补齐（真实 devlog 里取到非空 YAML 块 + 离线逐字节断言）。**P2 现记"验收通过"**。 |
 | 2026-09-16 | **真缺陷：事件表在运行期根本不存在 ⇒ `global_Mvu_initialized` 从未被派发**。由 §2.4 的 spike 复核（`verify-script-host-spike.py`）查出，非推断。**症状**：`__nyaSyncMvu()` 在把 `window.Mvu` 镜像到父窗口**之后**、派发 `global_Mvu_initialized` 之前抛 `ReferenceError: TAVERN_EVENTS is not defined` ⇒ 该事件从未派发 ⇒ 订阅它的脚本（典型的：`mvu_zod` 挂在 `mag_variable_initialized` / `VARIABLE_UPDATE_ENDED` 上的用户键迁移逻辑）**静默失效**；`waitGlobalInitialized('Mvu')` 只能靠"已存在即 resolve"兜底才能工作。**根因**：`TAVERN_EVENTS` 只是**构建期的 TS 常量**，脚本字符串里不存在该名字；运行时真正存在的是 `window.tavern_events`，而它原先要到 `implemented` 汇总处才赋值，`initializeGlobal`（原 L359/L360）与 `__nyaSyncMvu` 却在更早处引用了裸 `TAVERN_EVENTS`。**为何长期未被发现**：镜像那一步在派发之前，所以"MVU 就绪/父窗口可读/端到端全绿"都成立，只有事件链是断的（§9 的 V1–V8 原本也覆盖不到这一点）。**修法**：在脚本**早期**用构建期的 `${events}` 字面量建立运行时变量 `TAVERN_EVENT_NAMES` 并同时挂 `window.tavern_events`，三处引用改用它；顺带修正 `initializeGlobal` 的语义（原先无论 `name` 是什么都派发 `global_Mvu_initialized`，现按契约派发 `global_<name>_initialized`）。**验证**：修复后 `dispatchCalls` 观测到 `global_Mvu_initialized` 被派发 3 次、注入订阅者收到（`viaSubscriber=true`）；S-b/S-c/S-d 三项全绿；§9 V1–V8 回归 9/9 仍绿。 |
 | 2026-09-16 | **§2.4 spike S-b/S-c/S-d 运行期复核完成**（`dev-server/tools/verify-script-host-spike.py`）：**S-b** ✅ 宿主 iframe 内 `$`/`_`/`z`/`YAML`/`TavernHelper` 五项就位且可调用（`TavernHelper.getVariables` 是函数）；**S-c** ✅ `window.Mvu` 已发布、`Mvu.events.VARIABLE_UPDATE_ENDED` 实测值 = `mag_variable_update_ended`、`window.parent.Mvu` 镜像成立、`global_Mvu_initialized` 已派发（**修复上述缺陷之后**）、`waitGlobalInitialized` 存在；**S-d** ✅ 每个脚本执行期 `getScriptId()` 只读到自己的 id，**且回调期**（注入探针在 `eventOn` 处理器里取值）同样是自己的 id ⇒ **模块局部常量方案成立，无需回退到"一脚本一 iframe"**。**S-a** 未单独复核：它（srcdoc + importmap + 自托管 ESM）已由 §9 V3–V5 的运行期链路间接覆盖（vendor 可达 + MVU 起得来 + 变量落盘），但 **"prod 构建下同样成立"这一半仍未直接验证**。 |
+| 2026-09-16 | **§2.7「必须」级事件接线缺口已补齐（3 条）+ 新增接线矩阵断言**。`verify-script-host-spike.py --matrix` 逐个核对宿主侧 `emitPluginEvent("<name>")` 的发射点，首跑结果：**6 条「必须」里只有 3 条接了**（`message:received` / `session:changed` / `character:changed`），而 `generation:started` / `message:sent` / `message:deleted` **一条发射点都没有** ⇒ 这三条事件链是断的。按 §2.7 的映射，它们对应脚本侧 `GENERATION_STARTED` / `MESSAGE_SENT` / `MESSAGE_DELETED`，其中前两条正是 MVU 变量初始化（MVU技术性说明 §4.4）的触发入口。**修法**：`ChatInterface.tsx` 三处补发射 —— `message:sent` 在 `setMessages` **之后**（早于写入会让 MVU 立刻 `getChatMessages` 读到空）、`generation:started` 在 `buildRequestMessages` **之后**（放在组装前会让脚本读到上一轮状态）、`message:deleted` 覆盖删除与重生成两条裁楼路径（重生成按 `msgs.slice()` 反推被裁的每一楼，逐条发）。修后矩阵 **6/6 必须全接**；四条 best-effort 仍按 §2.7 登记为未接线。**该矩阵的存在理由**：`global_Mvu_initialized` 从未派发那件事说明"端到端全绿"证明不了"事件链完整"，所以每条派发→订阅路径都要单独断言。 |
+| 2026-09-16 | **§2.4 S-a 的生产侧复核完成**（新增 `dev-server/tools/verify-prod-artifacts.py`）：`npm run build` → 用**多线程**静态服务器托管 `dist/` → 复用 `verify-card-status.ts`（新增 `NYAACHAT_ORIGIN` 覆盖）在其上跑真实卡片。结果 **S-a1/S-a2/S-a3 全绿**：① `dist/index.html` 引用构建产物且**不含** dev 的 console 收集器（dev-only 注入没漏进产物）；② vendor 的 manifest / MVU bundle / lodash 均 200；③ **生产产物下 srcdoc + importmap + MVU 全链路成立** —— 三个卡片 iframe 的 `getAllVariables().stat_data` 均非空、零未捕获错误，且资源计时显示 MVU 的 56 个 closure **全部走本地、CDN 请求 0 次**（importmap 重映射在产物与 `about:srcdoc` 帧内同样有效）。<br>⚠️ **过程中踩到一个夹具假阴性（已修正并写进脚本注释）**：静态服务器最初用单线程 `socketserver.TCPServer`，56 个 closure 串行应答 ⇒ 脚本宿主的 15s 超时先触发 ⇒ MVU 永远起不来、变量永远为空，**看起来像"生产构建有缺陷"**。对照实验（同一夹具只换服务器类）：单线程 `iframeMvu=undefined, withVars=0`；多线程 `ThreadingHTTPServer` `iframeMvu=object, withVars=1`。生产 nginx 是并发的，夹具必须对齐。 |
+| 2026-09-16 | **§8 P4 的断言载体核实（更正上一轮的登记）**：上一轮交接文档写"P4 的导出/round-trip 无自动断言"——**该结论有误**。`dev-server/tools/check-card-scripts.ts` 早已覆盖 §8 P4 验收 1–7（[1] 导入 / [2] ST 卡导 `tavern_helper.scripts` 逐字段相等 / [3] 原生卡 round-trip / [3b] tags+共享字段无损往返 / [3c] ST 侧标签保真 / [4] 既有 regex 无回归 / [4b] 脚本随角色不串卡 / [5] 映射兜底 / [6] 唯一实现 / [7] 导出与保存路径带 scripts / [8] t11 description 口径），且**全绿**。<br>同轮修掉其中**一处过宽的断言**：[6](b) 原判据是"全仓只有映射模块出现 `tavern_helper` 字符串字面量"，而 `srcdocHost.ts:150` 有 `helperRoot.id = 'tavern_helper'` —— 那是给 MVU 判定"当前启用脚本"用的 **DOM 元素 id**（JSR 兼容壳，见 §2.4 步骤 6），与卡片 JSON 键名是两件事。旧判据把它们混为一谈 ⇒ 假失败；**若为了让它变绿去改那行 DOM id，打坏的恰是 MVU 的偏好状态取值**。改为"宽扫描减去 `.id = 'tavern_helper'` 这一类 DOM 用法"，并做了**三种违规形态的反向验证**（双引号键 / 单引号键 / 裸赋值）—— 三者都被正确抓出，证明判据未退化成恒真。 |
+| 2026-09-16 | **§9 V6「位于尾部 system 消息」的取证边界（结论，不是待办）**：应用在 `App.tsx` 用 `SENSITIVE_LOG_META_KEYS = ["renderedMessages"]` **主动剥离**出站 prompt 的日志 meta（安全设计：不把完整出站载荷留在客户端日志状态里，见该常量上方的注释）。因此 devlog 里**永远拿不到**可用于位置断言的完整请求体数组。⇒ 该形态只能由离线 `pipeline` 模式断言（用的是 `buildRequestMessages` 的真实返回值），"真实请求体上的位置"**按设计取不到**，不再作为待办跟踪。 |
 | 2026-09-16 | **待复核项汇总（结账后状态）**：① ✅ §9 的 `verify-js-slash-runner.py` **已创建并跑通 V1–V8**（本条下一行）；② ⬜ P1 的四作用域真机往返（§8 P1 验收 4/5）仍未在 dev 上复跑；③ ⬜ S-b/S-c/S-d（§2.4 的 spike 结论）仍未逐条复核；④ ✅ 变量宏的非空 YAML 实例证据与静态前缀字节一致**已补**（V6/V7）；⑤ ⬜ §9 的 V6"位于尾部 system 消息"目前只由离线 `pipeline` 模式断言（真实请求体被日志截断，无法可靠判定位置）。 |
 | 2026-09-16 | **§9 验收清单落地并跑通（`verify-js-slash-runner.py`）**：V1–V8 全部通过（V2 记 SKIP+原因，见下表）。新增两个文件：`dev-server/tools/verify-js-slash-runner.py`（Python 主脚本，**手写最小 RFC6455/CDP 客户端** ⇒ 零新依赖）与 `dev-server/tools/verify-js-slash-runner-helpers.ts`（Node 侧助手，提供 V6/V7 需要的真实 `chatPipeline` 逐字节比较与 devlog 解析）。**连带补齐两项此前的缺口**：① **P2 的实例证据**——真实 devlog 里取到非空 YAML 块（`世界: 当前时间 "07:30" …`），"非空 `stat_data` → 合法 YAML"不再只有代码依据；② **V2b 的守门行为断言**（此前只有"设计上会剥离"的推断）。**三个实现陷阱已写入 §9 的执行说明**（V2b 必须触发真实写入、V7 的切点不能用 `includes("<session_rules>")`、V2 需新鲜 dist）。 |
 
@@ -694,7 +714,7 @@ osniff 下发 ⇒ 动态 import 被拒 ⇒ 库加载整轮中止、mvu/bundle.js
 | K6 | **前端卡的状态栏刷新依赖"宿主广播变量变更"这一私有通道** | `src/lib/frontendCard/FrontendCard.tsx` 订阅 `subscribeVariables` 后调用卡片 iframe 的 `__nyaCardDispatch('mag_variable_update_ended')`；卡片侧由 `buildCardPredefineScript()` 提供同名事件总线 | 与 ST 的"渲染器把变量变更派进楼层 iframe"等价，但**接口名 `__nyaCardDispatch` 是本工程私有约定**。将来若换前端卡载体（K1 修复后）需一并迁移；已在该文件与本表双向登记。 |
 | K7 | **非 MVU 卡的状态栏也走同一条前端卡通道，且同样被注入宿主 API** | G·RPG 卡（`tavern_helper.scripts` 为空）的状态栏是"正则把 `<CharData>` 替换成整页 HTML"；插件启用时该 iframe 同样拿到 `errorCatched`/事件总线/`Mvu` getter | 注入是**超集**：卡片用不到也无害，但**非 MVU 卡因此也受注入层缺陷影响**（2026-09-16 的"无法连接变量系统"就是这条）。已在 `verify-card-status.ts` 里保留"无脚本卡"的回归位。 |
 
-| K8 | **事件派发曾长期静默失效**（已在 2026-09-16 修复，此处登记为"同类风险的体检点"） | `__nyaSyncMvu()` 引用构建期常量 `TAVERN_EVENTS` ⇒ 运行期 `ReferenceError` ⇒ `global_Mvu_initialized` 从未派发；§9 的 V1–V8 全部通过也**没能**发现它 | 教训：**"端到端全绿"不等于"事件链完整"**。凡是"派发一个事件让别人响应"的路径，都应有独立断言（本次新增 `verify-script-host-spike.py`）。同类体检点：`eventMakeFirst/Last`、`GENERATION_STOPPED`、`WORLDINFO_UPDATED`、`completion:settings-ready` 等 best-effort 事件接线（SSOT §2.7 已登记为"未接线需如实标注"） |
+| K8 | **事件派发曾长期静默失效**（已在 2026-09-16 修复，此处登记为"同类风险的体检点"） | `__nyaSyncMvu()` 引用构建期常量 `TAVERN_EVENTS` ⇒ 运行期 `ReferenceError` ⇒ `global_Mvu_initialized` 从未派发；§9 的 V1–V8 全部通过也**没能**发现它 | 教训：**"端到端全绿"不等于"事件链完整"**。凡是"派发一个事件让别人响应"的路径，都应有独立断言（本次新增 `verify-script-host-spike.py`）。同类体检点：`eventMakeFirst/Last`、`GENERATION_STOPPED`、`WORLDINFO_UPDATED`、`completion:settings-ready` 等 best-effort 事件接线（SSOT §2.7 已登记为"未接线需如实标注"）。**已就位的体检工具**：`verify-script-host-spike.py --matrix` 会逐个核对 §2.7 全部事件名是否有宿主发射点（本轮靠它查出 3 条「必须」级缺失），四条 best-effort 持续以 SKIP 列出 |
 
 ---
 

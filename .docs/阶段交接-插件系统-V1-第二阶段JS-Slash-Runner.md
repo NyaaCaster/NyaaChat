@@ -59,6 +59,28 @@
 
 ---
 
+### 1.5 第三轮（"继续 4 条"那轮）：1 处接线缺口 + 1 处夹具假阴性 + 1 处登记更正
+
+| # | 内容 | 结论 |
+|---|---|---|
+| 7 | **§2.7「必须」级事件接线缺 3 条** | `generation:started` / `message:sent` / `message:deleted` **一条发射点都没有**（6 条「必须」里只接了 3 条）。它们对应脚本侧 `GENERATION_STARTED` / `MESSAGE_SENT` / `MESSAGE_DELETED`，前两条正是 MVU 变量初始化的触发入口。→ **已补齐**，矩阵 6/6 |
+| 8 | **S-a 生产产物复核** | **全绿**（`verify-prod-artifacts.py` S-a1/a2/a3）。生产产物下 srcdoc + importmap + MVU 全链路成立，56 个 closure 全走本地、**CDN 请求 0 次**；`dist/index.html` 不含 dev 收集器 |
+| 9 | **P4 登记更正** | 上一轮写"P4 导出/round-trip 无自动断言"**有误**——`check-card-scripts.ts` 早已覆盖 §8 P4 验收 1–7 且全绿。同轮修掉其中一处**过宽断言**（把 DOM 元素 id 误当卡片 JSON 键名），并以三种违规形态做反向验证 |
+| 10 | **V6 取证边界** | 应用**主动剥离** `renderedMessages`（`App.tsx` 的安全设计）⇒ 真实请求体上的位置按设计取不到，**这是结论而非待办** |
+
+**过程中踩到一个夹具假阴性（值得记）**：S-a 的静态服务器最初用单线程 `socketserver.TCPServer`。
+MVU 要拉 56 个 closure，串行应答慢到让脚本宿主的 15s 超时先触发 ⇒ **MVU 永远起不来、变量永远为空**，
+看起来极像"生产构建有缺陷"。对照实验（同一夹具，只换服务器类）：
+
+| 服务器 | `iframeMvu` | 变量楼层 |
+|---|---|---|
+| 单线程 `TCPServer` | undefined | 0 |
+| 多线程 `ThreadingHTTPServer` | **object** | **1** |
+
+⇒ 生产 nginx 是并发的，夹具必须对齐。已写进 `verify-prod-artifacts.py` 的注释。
+
+---
+
 ## 2. 本轮已修复 / 已实现（按文件）
 
 ### 2.1 `plugins/js-slash-runner/executor/predefine.ts`
@@ -240,27 +262,50 @@ npx tsx dev-server/tools/diag-regex-replacement.ts "<卡.png>"
 
 ---
 
+### 4.6 第三轮新增的三份证据
+
+**(a) §2.7 事件接线矩阵** —— `python dev-server/tools/verify-script-host-spike.py --matrix`：
+
+```
+✓ EV:generation:started   [必须] 1 个发射点 —— src/components/ChatInterface.tsx:996
+✓ EV:message:sent         [必须] 1 个发射点 —— src/components/ChatInterface.tsx:646
+✓ EV:message:received     [必须] 1 个发射点 —— src/App.tsx:1058
+✓ EV:session:changed      [必须] 1 个发射点 —— src/App.tsx:988
+✓ EV:character:changed    [必须] 1 个发射点 —— src/App.tsx:996
+✓ EV:message:deleted      [必须] 1 个发射点 —— src/components/ChatInterface.tsx:1573
+– generation:stopped / message:rendered / worldinfo:updated / completion:settings-ready  （best-effort，未接线）
+```
+
+**首跑时前三条是缺的**（`generation:started` / `message:sent` / `message:deleted`），本轮补齐。
+这个矩阵是"`global_Mvu_initialized` 从未派发"那件事的直接产物：
+**"端到端全绿"证明不了"事件链完整"**。
+
+**(b) §2.4 S-a 生产产物复核** —— `python dev-server/tools/verify-prod-artifacts.py`：**3/3 全绿**。
+`npm run build` → 多线程静态服务器托管 `dist/` → 复用 `verify-card-status.ts`（新增 `NYAACHAT_ORIGIN` 覆盖）
+跑真实卡片。关键证据：三个卡片 iframe 的 `getAllVariables().stat_data` 均非空、零未捕获错误；
+资源计时显示 **56 个 closure 全部本地、CDN 请求 0 次**。
+
+**(c) §8 P4 断言核实** —— `npx tsx dev-server/tools/check-card-scripts.ts`：**全绿**（[1]–[8] 覆盖
+§8 P4 验收 1–7）。同轮修正一处过宽断言并做三种违规形态的反向验证。
+
+---
+
 ## 5. 仍需继续验证 / 已知问题（**接手者请优先结账**）
 
 ### 5.1 未复核项（SSOT §11 同步登记）
 
-> **第二轮已把原来 6 条中的 5 条结掉**（§9 清单、P1 四作用域、S-b/S-c/S-d、"非空 YAML"实例、V2b 守门）。
-> 下面只剩真正未做的 2 条 + 2 条"有结论但缺直接证据"的形态。
+> 三轮下来，原列的待办**只剩下面这 1 条**（外加 4 条 best-effort 事件，见 §4.6(a)）。
 
-1. ⬜ **S-a 的"prod 构建下同样成立"**：srcdoc + importmap + 自托管 ESM 在 **dev** 上已由 §9 V3–V5
-   间接覆盖，但**生产构建（`npm run build` 产物 + 生产 nginx）下没有直接验证**过。SSOT §5.3 的
-   t14 结论（importmap 能覆盖模块内说明符）是 headless 实测，但那是在 dev 基底上做的。
-2. ⬜ **SSOT §2.7 的 best-effort 事件接线**：`GENERATION_STOPPED`、`message:rendered`、
-   `worldinfo:updated`、`completion:settings-ready` 四条仍按 §2.7 的约定"未接线需如实登记"。
-   **本轮没有逐条核对它们当前到底接没接**（§1.4 的教训正是"事件派发必须单独断言"）。
-   接手时建议给 `verify-script-host-spike.py` 加一个"事件接线矩阵"模式：逐个派发并断言接收。
-3. ⬜ **P4 的卡片 IO 另一半**：`§8 P4 验收 2/3/4`（ST 卡导出逐字段相等、原生卡 round-trip、
-   编辑弹窗保存路径保留 `scripts`）**仍无自动断言**。§9 V4 只覆盖了"导入得 2 个脚本"。
-4. ⬜ **§9 V6 的"位于尾部 system 消息"** 只有离线 `pipeline` 断言：真实请求体在 devlog 里被 `…`
-   截断，位置无法可靠判定。离线断言用的是 `buildRequestMessages` 的真实输出，结论可信，
-   但"真实请求体上的位置"这一形态缺直接证据。
-5. ⬜ **K1（CSP 未下发）** 依旧未修：修完后**必须**同步迁移脚本载体（`ScriptHost` 换实现）
+1. ⬜ **§2.7 的四条 best-effort 事件仍未接线**：`generation:stopped` / `message:rendered` /
+   `worldinfo:updated` / `completion:settings-ready`。它们映射到脚本侧 BEST-EFFORT 档，
+   本轮真实卡片（苏婷 / 变装女友）的状态栏与变量链均已跑通 ⇒ 补它们属于"扩大改动面"而非
+   "修复已知缺陷"。**矩阵会持续把它们标成 SKIP，不会被误读成已接线。**
+2. ⬜ **K1（CSP 未下发）** 依旧未修：修完后**必须**同步迁移脚本载体（`ScriptHost` 换实现）
    + 前端卡载体（`__nyaCardDispatch` 是私有约定，见 SSOT §12 K6）。
+
+> 已结账的（三轮累计）：§9 V1–V8 9/9；§8 P1 三作用域真机往返；§2.4 S-a/S-b/S-c/S-d 全部；
+> §8 P4 断言（早就有，本轮更正登记 + 收紧一处）；§2.7「必须」级 6/6。
+> **V6 的"真实请求体位置"按设计取不到**（应用主动剥离 `renderedMessages`），已登记为结论。
 
 ### 5.2 已知问题（不修，登记）
 
@@ -289,24 +334,32 @@ npx tsx dev-server/tools/diag-regex-replacement.ts "<卡.png>"
 > 继续开发 NyaaChat 插件系统第二阶段（JS-Slash-Runner）。**以 plan 模式推进**。
 >
 > 先读：`.docs/阶段交接-插件系统-V1.md`（前一阶段）→ `.docs/plugin-system/插件开发_JS-Slash-Runner/开发计划-SSOT.md`
-> （**唯一事实来源**，重点看 §8 状态总览、§9 验收清单、§11 变更记录、§12 已知问题 K1–K8）→
+> （**唯一事实来源**：§2.7 事件接线现状、§8 状态总览、§9 验收清单、§11 变更记录、§12 已知问题 K1–K8）→
 > `MVU技术性说明.md`（状态栏契约 §3.9/§4.6）→ `NyaaChat/CLAUDE.md` + `commit-push` skill。
 >
-> 当前状态：脚本执行层 / 变量层 / 卡片脚本 IO / 脚本库 UI / 前端卡状态栏注入**都已落地并复核通过**
-> （dev 构建 `v12-2300`）。**§9 V1–V8 9/9 全绿**；**P1 三作用域真机往返全绿**；**S-b/S-c/S-d 全绿**。
-> 两轮共修 6 个真缺陷，其中第 6 个（`TAVERN_EVENTS` 运行期未定义 ⇒ `global_Mvu_initialized` 从未派发）
-> 只有专门的事件链断言才能发现——见交接文档 §1.4。
+> 当前状态：脚本执行层 / 变量层 / 卡片脚本 IO / 脚本库 UI / 前端卡状态栏注入**全部落地并复核通过**
+> （dev 构建 `v12-2300`）。三轮共修 **7 个真缺陷/缺口**，其中两个只有专门的断言才能发现：
+> ① `TAVERN_EVENTS` 运行期不存在 ⇒ `global_Mvu_initialized` 从未派发（§1.4）；
+> ② §2.7「必须」级 6 条事件里有 3 条**根本没有发射点**（§1.5）。
+>
+> 已成体系的可复跑清单：
+> ```bash
+> python dev-server/tools/verify-js-slash-runner.py        # §9 V1–V8（9/9）
+> python dev-server/tools/verify-variables-scopes.py       # §8 P1 三作用域往返（3/3）
+> python dev-server/tools/verify-script-host-spike.py      # §2.4 S-b/S-c/S-d（3/3）
+> python dev-server/tools/verify-script-host-spike.py --matrix   # §2.7 事件接线矩阵（6/6 必须）
+> python dev-server/tools/verify-prod-artifacts.py         # §2.4 S-a 生产产物（3/3）
+> npx tsx dev-server/tools/check-card-scripts.ts           # §8 P4 卡片 IO（全绿）
+> ```
 >
 > 下一件事（按优先级）：
-> ① **给 `verify-script-host-spike.py` 加"事件接线矩阵"模式**，逐条核对 §2.7 的 best-effort 事件
->    （`GENERATION_STOPPED` / `message:rendered` / `worldinfo:updated` / `completion:settings-ready`）
->    当前到底接没接——§1.4 的教训就是这类"派发→订阅"路径必须单独断言；
-> ② **S-a 的 prod 构建复核**（生产产物 + 生产 nginx 下 srcdoc + importmap 是否仍成立）；
-> ③ **P4 的导出/round-trip 断言**（§8 P4 验收 2/3/4 目前无载体）；
-> ④ 若要补 V6 的真实请求体位置证据，需给 devlog 的请求体日志**关掉截断**。
+> ① **补 §2.7 四条 best-effort 事件**（若用户要求把事件面做完整）—— 注意它们不阻塞任何已知功能；
+> ② **K1（CSP 与安全头）独立立项**：修完必须同步迁移脚本载体与前端卡载体；
+> ③ 若要让 §9 V6 有"真实请求体位置"证据，需要改 `App.tsx` 的 `SENSITIVE_LOG_META_KEYS` 策略
+>    （当前**故意**剥离 `renderedMessages`，属安全设计，改前先确认这个取舍）。
 >
 > **关键约束**：改 `plugins/js-slash-runner/executor/{predefine,srcdocHost}.ts` 前**必跑**
-> `npx tsx dev-server/tools/check-script-host.ts`——**模板字符串内部的注释里也不能出现反引号**，
-> 本轮被它拦下两次；不要用 PowerShell 重写源文件（改行尾会破坏 dev patch）；`.docs/` 下的文档是
-> **纯 LF**（改动前先确认行尾）；验证脚本改动后要重跑对应清单；未经明确要求**不** commit/push；
-> `dev-server/` 是**独立仓库**（`NyaaChat-dev.git`，分支 `main`），与主仓分开提交。
+> `npx tsx dev-server/tools/check-script-host.ts`——**模板字符串内部的注释里也不能出现反引号**（被拦过 3 次）；
+> 不要用 PowerShell 重写源文件（改行尾会破坏 dev patch）；`.docs/` 下的文档是**纯 LF**；
+> 写验证夹具时注意**并发性**（单线程静态服务器会让 MVU 的 56 个 closure 串行加载而超时 ⇒ 假阴性）；
+> 未经明确要求**不** commit/push；`dev-server/` 是**独立仓库**（`NyaaChat-dev.git`，分支 `main`）。
