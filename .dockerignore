@@ -7,3 +7,8 @@ dist
 .git
 .gitignore
 src/temp/
+# dev-server 是独立的本地开发预览栈（自己的 git 仓库）：它的 tools/ 探针脚本、
+# secrets/（构建密钥）、logs/（浏览器落盘日志，可能含对话内容）都不属于发布镜像的
+# 构建上下文。最终镜像只从 builder 复制 dist，本来就不会包含它；这里排除是为了
+# 不再把密钥与日志传进构建上下文和 builder 缓存层。
+dev-server
