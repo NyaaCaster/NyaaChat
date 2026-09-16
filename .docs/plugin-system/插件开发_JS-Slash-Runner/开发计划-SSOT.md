@@ -532,11 +532,11 @@ srcdoc = `<script type="importmap">${JSON.stringify({ imports })}</script>` + �
 
 | P | 名称 | 依赖 | 状态 |
 |---|---|---|---|
-| P1 | 数据模型与变量层内核 | — | ⬜ |
-| P2 | 变量宏进提示词（D6-①'） | P1 | ⬜ |
-| P3 | 脚本执行器 + 宿主 API（含 spike） | P1 | ⬜ |
-| P4 | 卡片脚本 IO | P1 | ⬜ |
-| P5 | 脚本库 UI + 前端卡注入 + 端到端 | P2, P3, P4 | ⬜ |
+| P1 | 数据模型与变量层内核 | — | ✅ 代码落地并已提交（`3e255c5`）；§8 验收 1–7 的自动化项由 `check-variables-core.ts` 覆盖，**真机四作用域往返待复跑** |
+| P2 | 变量宏进提示词（D6-①'） | P1 | ✅ 代码落地（`macros.ts` / `yamlOut.ts` / `chatPipeline.ts:831-844`）；**真机断言待复跑**（见 §11「P2 待复核」） |
+| P3 | 脚本执行器 + 宿主 API（含 spike） | P1 | ✅ 代码落地并已提交；spike 的运行期结论以 §9 V4–V8 为准，**部分仍未复核**（见 §11） |
+| P4 | 卡片脚本 IO | P1 | ✅ 代码落地并已提交；验收 1–7 待独立复跑 |
+| P5 | 脚本库 UI + 前端卡注入 + 端到端 | P2, P3, P4 | 🟡 UI / 前端卡注入 / 脚本库均已落地；**端到端（§9 V1–V8）与前端卡状态栏真机验收在 2026-09-16 晚通过，但尚未写成可复跑的 `verify-js-slash-runner.py`**（见 §12 滚动待办） |
 
 > P2 / P3 / P4 三者在 P1 完成后**可并行**。
 
@@ -663,6 +663,9 @@ osniff 下发 ⇒ 动态 import 被拒 ⇒ 库加载整轮中止、mvu/bundle.js
 | 2026-09-16 | **P3 spike 结论（S-a..S-d）**：⚠️ **未在浏览器/headless 里实跑**（本轮未起 dev 容器），故以下为**设计级结论 + t1 的实测输入**，运行期结论一律登记为待 §9 V4–V8 复核，不当作已通过：<br>· **S-a（srcdoc + importmap + 自托管 ESM）**：importmap **由 `manifest.json` 生成**（t14 产出）；t1 已实测 `yaml`/`zod` 是生成的最小 ESM 包装、**必须 `import()` 加载**，zod v4 `.prefault` 可用。**未验证**：importmap 能否覆盖"模块内部的绝对 https 说明符"（`mvu/bundle.js` 的 51 个 import）—— 已列为 t14 的必答项。<br>· **S-b（脚本能否拿到 predefine 定义的全局）**：设计为同一 iframe 文档内、预置脚本先于用户脚本执行；`_`/`$`/`YAML`/`z` 由自托管全局提供。**未验证**（需浏览器）。<br>· **S-c（MVU bundle 能否跑起来、`waitGlobalInitialized('Mvu')` 能否 resolve）**：设计为脚本全跑完后 `__nyaSyncMvu()` 把 iframe 的 `Mvu` 镜像到 `window.parent.Mvu` 并派发 `global_Mvu_initialized`；`waitGlobalInitialized` 亦支持"已存在则立即 resolve"。**未验证**（需浏览器）。<br>· **S-d（`getScriptId()` 方案）**：采用"每个脚本执行前写 `window.__nyaScriptId`"的模块内常量方案（已实现并有断言）；**回退方案**（实测不够用时）：一脚本一 iframe。**未验证**（需浏览器）。<br>若 V4–V8 判定 S-a/S-b/S-c 失败，按 §2.4 的回退顺序切换载体实现（`ScriptHost` 抽象已就位，改 `host.ts` 选择器即可）。 |
 | 2026-09-16 | **t1 实测修正 §5.3（重要）**：MVU 产物**不自包含** —— `mvu/bundle.js` 有 51 个、`mvu_zod.js` 有 5 个静态远程 ESM import（全部指向 `testingcf.jsdelivr.net/npm/…`）。故原"只映射 2 个 URL"的方案不足：那 56 个依赖会直接走公网 CDN（当前无 CSP 才"看起来能用"），网络不可达或真下发 `script-src 'self'` 时 MVU 整链失败。已新增 **t14**：用同一张 ASSETS 表把**传递闭包**自托管（闭合约 0.42 MB），并让更新脚本生成 **`manifest.json`**（`url → path + sha256`），P3 的 importmap 改为**由清单生成**而非手写。另记：`yaml`/`zod` 官方无 UMD ⇒ 用生成的最小 ESM 包装、**必须以 `<script type="module">` 加载**；zod 必须 v4（`.prefault` 已实测可用）。 |
 | 2026-09-16 | **新增 P6「插件观测层」（用户拍板）**：统一日志叶子 `src/plugins/pluginLog.ts` + 事件处理器归属修复 + 扩展面板运行日志区 + 全局错误兜底（F4，由 t6 在 App.tsx 接线）+ backend 失败记录（F6）。**F5（iframe 卡片脚本错误捕获）仍在 P3/t6。** 同时把 §2.1 的模块规则由"只允许两个模块"改写成**真实不变量（不得通向 `plugins/registry`）+ UI 原语登记式白名单**，使既有 `quote-tts → SettingsFormBits` 用法合规，并禁止插件复制 UI 原语。 |
+| 2026-09-16 | **深夜真机验收轮（v12-2043 → v12-2230，4 次修复）**。`3e255c5` 之后，前端卡状态栏在真机上"能渲染但读不到变量"，逐条定位并修复，均已提交（`9ca5caf` / `0acb763` / `bf2639e`）。**逐条如实登记**：<br>① **`getAllVariables()` 形状错误（`9ca5caf`）**：卡片 predefine 原先返回 `{global, chat, message}` 嵌套壳，而 ST 的 `getAllVariables()` 顶层就是合并后的变量表（卡片直接读 `vars.stat_data`）⇒ `stat_data` 永远 `undefined` ⇒ 状态栏每个字段落回**卡片里写死的字面兜底值**（真机：JSONPatch 已把 `世界.当前时间` 改成 07:05，面板仍显示 07:00）。改为返回 `message` 作用域的扁平快照。<br>② **提示词侧 `eventEmit` 丢参数（同 `9ca5caf`）**：`predefine` 的 `eventEmit(name, payload)` 只转发第一个参数，而 MVU 用 `eventEmit(VARIABLE_INITIALIZED, a, o)` 发两个 ⇒ zod 侧处理器拿到 `undefined`（真机 v12-1753 报 `Cannot read properties of undefined (reading 'forEach')`）。改为 `eventEmit(event, ...args)` 逐参转发，`srcdocHost.emit` 同步放宽为 `(name, ...args)`。<br>③ **围栏配对错误（同 `9ca5caf`，`detect.ts`）**：模型会在同一条消息里先给**裸 ``` 围栏**（"[美化]变量完成"正则产出的 CSS 片段）再给卡片围栏；"惰性正则配对"会拿裸围栏去配 ` ```html `，把真正的卡片开围栏当成 CSS 代码块的收尾 ⇒ 整条消息 `types: null`，正文 + CSS + 卡片 HTML 一起漏成气泡纯文本。改为**按行扫描**（`FENCE_LINE`，对齐 GFM"收尾围栏不得带 info string"），未闭合的**卡片**围栏按"到消息末尾"处理，未闭合的**普通**代码块不切。**该修复经 14 个构造形态 + 2 个真实序列（真卡文本回放）验证。**<br>④ **卡片 API 注入整体竞态（`0acb763`）**：`buildCardPredefineScript()` 第一行 `if (!bridge) return;` —— 卡片 iframe 可能早于插件 mount 完成就渲染（打开已有会话 / 楼层重渲染 / 宿主重挂载），那一刻 `window.parent.__nyaScriptHostBridge` 不存在 ⇒ **该 iframe 什么都不装** ⇒ 卡片的 `$(errorCatched(init))` 直接 `ReferenceError`，init 根本没跑。用户可见症状 = **"无法连接变量系统，当前仅显示静态卡面。"**（变装女友卡），非 MVU 卡则是状态栏整块不渲染。改为：不依赖桥的（`errorCatched` / `tavern_events` / 事件总线 / `__nyaCardDispatch` / `Mvu` getter）**无条件先装**；依赖桥的改**动态 getter**（每次调用现取桥，宿主重挂载后自动跟上）；另补上缺失的 `waitGlobalInitialized`，并广播一次 `__nyaCardReady` 供卡片重画。<br>⑤ **未闭合卡片围栏被切两遍（同 `0acb763`，`detect.ts`）**：未闭合分支原来 `continue`，后面再出现一行 ` ``` ` 会被当成新的开围栏，把同一张卡再切一遍 ⇒ `types: [card, markdown, card]`（真机 G·RPG 那次），卡片 HTML 源码夹在中间漏成正文。改为处理完**结束扫描**。<br>**验证方式（新增工具，已入 dev-server 仓 `a4acd75`）**：`dev-server/tools/verify-card-status.ts` —— 每张卡一个独立 Chrome profile，用仓库自己的 `convertSillyTavernCharacter` 导入卡片、向 IDB 播种"插件启用 + 该卡为当前角色 + 开场白"，reload 后采集宿主 iframe 诊断、每个卡片 iframe 的 `getAllVariables()` 形状与渲染文本、切分结果与未捕获错误。**修复前后各跑一遍**：修复前 苏婷卡报 `ReferenceError: errorCatched is not defined`、状态栏退化为 `--:-- 加载中...`；修复后 苏婷 / 变装女友 两张卡**零未捕获错误**且状态栏为真实变量（变装女友：好感度 85 / 羞耻度 70 / 勇气 25 / 顺从度 85 / 性欲 20、時刻 上午、場所 同居公寓·客厅）。 |
+| 2026-09-16 | **P2 待复核（如实登记）**：`substituteVariableMacros` 与永久条目分流（`chatPipeline.ts:831-844`）已落地，且真机日志里 `<status_current_variables>` **确实出现在组装后的 `session_rules` 中**（证明宏参与了渲染），但**尚未抓到"非空 `stat_data` 时输出合法 YAML 块"的实例**，`§8 P2 验收 1–5` 亦未写成可复跑断言。⇒ 在补出断言前，P2 **只记"代码已落地 + 宏有被展开的日志证据"**，不记"验收通过"。 |
+| 2026-09-16 | **待复核项汇总（接手者请优先结账）**：① §9 的 `verify-js-slash-runner.py` **未创建**（P2/P3/P4/P5 的验收断言因此都没有可复跑载体）；② P1 的四作用域真机往返（§8 P1 验收 4/5）需在 dev 上复跑；③ S-b/S-c/S-d（§2.4 的 spike 结论）仍未逐条复核；④ 本轮的卡片级验证（`verify-card-status.ts`）覆盖的是"宿主 iframe 起得来 + 变量写进楼层 + 卡片读到真实变量"，**未覆盖** §9 的 V6（变量宏进 prompt 的位置）与 V7（静态前缀逐字节一致）。 |
 
 > 实施期间发现的偏离、spike 结论、未接线事件、未验证项，**必须追加到本表**，不得静默。
 
@@ -677,6 +680,8 @@ osniff 下发 ⇒ 动态 import 被拒 ⇒ 库加载整轮中止、mvu/bundle.js
 | K3 | `[phone_link]` 等其它 ST 扩展的宏（`{{phone_chat:…}}`）不被替换 | 样例卡世界书条目 | 透传；如需要另立阶段 |
 | K4 | 同源 iframe 共享事件循环 ⇒ 死循环冻结应用 | 架构事实 | 与 K1 一起考虑（独立文档 + 沙箱化） |
 | K5 | `ScriptLibraryModal` 自带了 `LocalModal` 底座（复制了 BaseModal 的 class/ESC/焦点/滚动锁），而 §2.1 现已允许 import UI 原语 | uilib 的 t4 交付说明；§2.1 白名单为 2026-09-16 事后登记 | 功能上可用；风险是**两套 ESC 处理**在内层弹窗叠加时的行为（LocalModal 的栈顶判定 vs 扩展面板的 ESC）。**必须在 P5 端到端（§9 V4–V8）里实测**：脚本库弹窗打开时按 ESC 只关最内层。若实测有问题，改为 import `BaseModal`（届时一个 PR 内替换即可）。 |
+| K6 | **前端卡的状态栏刷新依赖"宿主广播变量变更"这一私有通道** | `src/lib/frontendCard/FrontendCard.tsx` 订阅 `subscribeVariables` 后调用卡片 iframe 的 `__nyaCardDispatch('mag_variable_update_ended')`；卡片侧由 `buildCardPredefineScript()` 提供同名事件总线 | 与 ST 的"渲染器把变量变更派进楼层 iframe"等价，但**接口名 `__nyaCardDispatch` 是本工程私有约定**。将来若换前端卡载体（K1 修复后）需一并迁移；已在该文件与本表双向登记。 |
+| K7 | **非 MVU 卡的状态栏也走同一条前端卡通道，且同样被注入宿主 API** | G·RPG 卡（`tavern_helper.scripts` 为空）的状态栏是"正则把 `<CharData>` 替换成整页 HTML"；插件启用时该 iframe 同样拿到 `errorCatched`/事件总线/`Mvu` getter | 注入是**超集**：卡片用不到也无害，但**非 MVU 卡因此也受注入层缺陷影响**（2026-09-16 的"无法连接变量系统"就是这条）。已在 `verify-card-status.ts` 里保留"无脚本卡"的回归位。 |
 
 ---
 
