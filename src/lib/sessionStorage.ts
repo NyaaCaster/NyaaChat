@@ -1,4 +1,4 @@
-import { ChatSession, Message } from "../types";
+import { ChatSession } from "../types";
 import { getItem, setItem, removeItem } from "./idbStorage";
 
 export const STORAGE_KEY = "nyaachat_sessions";
@@ -7,22 +7,28 @@ const LAST_SESSION_KEY = "nyaachat_last_session_id";
 // ---------------------------------------------------------------------------
 // Retired-field hygiene
 //
-// A ChatSession and its messages used to carry two fields owned by the removed
-// extension compatibility layer: the session-level `metadata` (the per-chat
-// metadata scope) and the per-message `variables` (the front-end-card per-floor
-// state). Nothing writes them any more, but a session list can still *arrive*
-// carrying them — an old `nyaachat_sessions` blob in IndexedDB, or a cloud chat
-// backup uploaded by a pre-removal client (decryptChatPayload returns the server
-// JSON verbatim). Every write therefore strips them, so the local store can
-// never re-persist dead data.
+// A ChatSession used to carry a session-level `metadata` field owned by the
+// removed SillyTavern extension compatibility layer. Nothing writes it any
+// more, but a session list can still *arrive* carrying it — an old
+// `nyaachat_sessions` blob in IndexedDB, or a cloud chat backup uploaded by a
+// pre-removal client (decryptChatPayload returns the server JSON verbatim).
+// Every write therefore strips it, so the local store can never re-persist
+// dead data.
+//
+// 🔺 2026-09-16（插件系统 V1 第二阶段 · D3①）：**message 级守门已撤销**。
+//     `Message.variables` 不再是"死数据"——它是 JS-Slash-Runner 插件的 MVU
+//     变量存储（见 `src/lib/variables/`、SSOT §2.5 / §3）。原先这里的
+//     `RETIRED_MESSAGE_KEYS = ["variables"]` 会在每次写会话时把楼层变量剥掉，
+//     表现为"写入后刷新即消失"，故按拍板结论只撤销 **message 级**那一半：
+//     session 级 `metadata` **仍然被剥离**（`RETIRED_TOP_LEVEL_KEYS` 一侧同理，
+//     `src/lib/settingsBackup.ts` 一行未改）。
 //
 // The clean case — by far the common one — is allocation-free: a session is
-// returned untouched unless a retired key is actually present, so the per-message
-// autosave path pays only a property lookup per message.
+// returned untouched unless the retired key is actually present, so the
+// per-message autosave path pays only a property lookup per session.
 // ---------------------------------------------------------------------------
 
 const RETIRED_SESSION_KEYS = ["metadata"] as const;
-const RETIRED_MESSAGE_KEYS = ["variables"] as const;
 
 function hasRetiredKeys(value: unknown, keys: readonly string[]): boolean {
   if (!value || typeof value !== "object") return false;
@@ -30,21 +36,10 @@ function hasRetiredKeys(value: unknown, keys: readonly string[]): boolean {
 }
 
 function stripRetiredSessionFields(session: ChatSession): ChatSession {
-  const messages: Message[] = Array.isArray(session?.messages) ? session.messages : [];
-  const sessionDirty = hasRetiredKeys(session, RETIRED_SESSION_KEYS);
-  const messagesDirty = messages.some((m) => hasRetiredKeys(m, RETIRED_MESSAGE_KEYS));
-  if (!sessionDirty && !messagesDirty) return session;
+  if (!hasRetiredKeys(session, RETIRED_SESSION_KEYS)) return session;
 
   const cleanSession = { ...(session as unknown as Record<string, unknown>) };
   for (const key of RETIRED_SESSION_KEYS) delete cleanSession[key];
-  if (messagesDirty) {
-    cleanSession.messages = messages.map((m) => {
-      if (!hasRetiredKeys(m, RETIRED_MESSAGE_KEYS)) return m;
-      const cleanMessage = { ...(m as unknown as Record<string, unknown>) };
-      for (const key of RETIRED_MESSAGE_KEYS) delete cleanMessage[key];
-      return cleanMessage as unknown as Message;
-    });
-  }
   return cleanSession as unknown as ChatSession;
 }
 
@@ -119,8 +114,9 @@ export async function saveLastSessionId(id: string | null): Promise<void> {
 
 /** Replace ALL local sessions at once (used by cloud chat-session download).
  *  A backup uploaded by a pre-removal client may still carry the retired
- *  `metadata` / `variables` fields; they are stripped here so the local store
- *  never accepts them back. */
+ *  session-level `metadata` field; it is stripped here so the local store never
+ *  accepts it back. (Message-level `variables` is **kept** since 2026-09-16 —
+ *  it is live MVU state now, see the header note.) */
 export async function replaceAllSessions(sessions: ChatSession[]): Promise<void> {
   sessionsCache = sessions.map(stripRetiredSessionFields);
   try {

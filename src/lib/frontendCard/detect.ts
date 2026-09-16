@@ -45,8 +45,13 @@ export function splitFrontendContent(content: string): FrontendContentPart[] | n
   let cardIndex = 0;
 
   while ((match = fenceRe.exec(content)) !== null) {
+    // 围栏语言标签是**显式意图**：```html / ```htm 一律当卡片 —— 即便正文只是
+    // `<div>` + `<style>` 片段。ST 卡片把状态栏/变量美化做成"正则 → ```html 片段"，
+    // 这类片段不含 html>/<head>/<body 子串，早先的启发式会把它们**丢掉**，
+    // 于是 <style> 里的 CSS 与裸 </div> 直接漏成气泡里的正文文本（真机复现）。
+    const lang = (match[1] ?? "").toLowerCase();
     const body = match[2] ?? "";
-    if (!isFrontendHtml(body)) continue;
+    if (lang !== "html" && lang !== "htm" && !isFrontendHtml(body)) continue;
 
     if (match.index > lastIndex) {
       parts.push({ type: "markdown", content: content.slice(lastIndex, match.index) });

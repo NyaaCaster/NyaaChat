@@ -20,6 +20,9 @@ import { maybeHeartbeat } from "./lib/memoryLifecycle";
 import { ChatSession, CharacterSettings, LlmProvider, ImageProvider, LlmProviderKind, Message } from "./types";
 import { normalizePluginOrder, normalizePluginStates } from "./plugins/normalize";
 import { emitPluginEvent, setPluginConfigWriter, setPluginHostContext, syncPluginRuntime } from "./plugins/runtime";
+import { setScriptHostApi } from "./plugins/scriptHost";
+import { characterApiFrom, createScriptHostApi } from "./plugins/scriptHostImpl";
+import { installPluginErrorSafetyNet } from "./plugins/pluginLog";
 
 // Modals are rendered only when opened, so each one's chunk loads on-demand
 // rather than bloating the initial bundle. Trade-off: closing a modal unmounts
@@ -936,6 +939,49 @@ export default function App() {
   useEffect(() => {
     syncPluginRuntime(settings.plugins);
   }, [settings.plugins]);
+
+  // 脚本宿主门面（SSOT §2.3）+ 插件报错全局兜底（P6 F4）。
+  //
+  // · 门面只在这里**注册一次**：其中的角色/身份部分经 `settingsRef` 与 getter 读活值，
+  //   所以闭包不会过期（与上面的 configWriter 同一约定）。
+  // · F4 的 `installPluginErrorSafetyNet()` 在这里接线（它的实现在叶子
+  //   `src/plugins/pluginLog.ts` 里，本身幂等）；插件树不能引用 App，故只能由宿主装。
+  useEffect(() => {
+    const character = characterApiFrom({
+      getCharacter: () =>
+        settingsRef.current.characters?.find(
+          (c) => c.id === settingsRef.current.currentCharacterId,
+        ) ?? null,
+      setScripts: (next) => {
+        const cur = settingsRef.current;
+        handleSaveSettings({
+          ...cur,
+          characters: (cur.characters ?? []).map((c) =>
+            c.id === cur.currentCharacterId ? { ...c, scripts: next ?? [] } : c,
+          ),
+        });
+      },
+    });
+    const api = createScriptHostApi({ character, identity: { user: "", char: "" } });
+    // 身份用 getter 提供活值（脚本宿主每次装配时读一次即可）。
+    Object.defineProperty(api, "identity", {
+      configurable: true,
+      get: () => {
+        const cur = settingsRef.current;
+        return {
+          user: cur.userRoles?.find((r) => r.id === cur.currentUserRoleId)?.name || "user",
+          char:
+            cur.characters?.find((c) => c.id === cur.currentCharacterId)?.name || "AI助手",
+        };
+      },
+    });
+    setScriptHostApi(api);
+    installPluginErrorSafetyNet();
+    return () => {
+      setScriptHostApi(null);
+    };
+    // 只注册一次；活值经 settingsRef 读取（刻意不把 handleSaveSettings 放进依赖）。
+  }, []);
 
   // 插件事件 1/3：会话切换（首帧也会发射一次 —— App 可能直接从上次会话恢复）。
   useEffect(() => {

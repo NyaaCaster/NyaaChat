@@ -71,7 +71,21 @@ export type PluginBackendCaller = <T = unknown>(
   payload?: unknown,
 ) => Promise<T>;
 
-export type PluginEventName = "message:received" | "session:changed" | "character:changed";
+/** 插件可订阅的宿主事件（SSOT §2.7）。
+ *
+ *  前三个是 V1 首版就有的；后七个是 2026-09-16 第二阶段为 JS-Slash-Runner 增加的
+ *  **纯增量**成员。脚本侧把它们映射成 `tavern_events` 常量（错拼名照抄上游）。 */
+export type PluginEventName =
+  | "message:received"
+  | "session:changed"
+  | "character:changed"
+  | "message:sent"
+  | "generation:started"
+  | "generation:stopped"
+  | "message:deleted"
+  | "message:rendered"
+  | "worldinfo:updated"
+  | "completion:settings-ready";
 
 export interface PluginContext {
   meta: PluginMeta;

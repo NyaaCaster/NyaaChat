@@ -14,6 +14,13 @@
  * **宿主上下文已拆到叶子模块 `./hostContext`**（t12 断环）：本文件是"下游含插件注册表"
  * 的模块，插件实现直接引用它会构成模块环 ⇒ 插件侧只能引 `./hostContext`。本文件仍
  * re-export 旧名（`setPluginHostContext` / `getPluginHostContext`）以保持既有用法不变。
+ *
+ * **P6 观测层（F1/F2）**：本文件里所有报错都改走叶子 `./pluginLog`（`recordPluginError` /
+ * `recordPluginWarn` / `recordFrameworkError`），不再直接 `console.*` —— 统一格式
+ * `[plugins:<id>] <scope> — <message>`、原始 Error 作为额外参数保留栈，并且同时进入
+ * 扩展面板的「运行日志」区。事件总线改为按 `{ pluginId, handler }` 记录**归属**，
+ * 因此处理器抛错时能打出是哪个插件（原先是裸 Set，只能打事件名）。
+ * ⚠️ `./pluginLog` 是**零 import 的叶子**，引它不会重建 t12 记下的那个环。
  */
 import type {
   NyaaPlugin,
@@ -24,9 +31,23 @@ import type {
 import { getPluginById, getRegisteredPlugins } from "./registry";
 import { deepMergeConfig, mergePluginDefaults, normalizePluginStates } from "./normalize";
 import { callPluginBackend as callPluginBackendRequest } from "./backend";
+import {
+  recordFrameworkError,
+  recordPluginError,
+  recordPluginWarn,
+} from "./pluginLog";
 
 type ConfigWriter = (pluginId: string, patch: Record<string, unknown>) => void;
 type PluginEventHandler = (payload?: unknown) => void;
+
+/**
+ * 一条事件订阅（P6 F2）。**必须带 `pluginId`**：`emitPluginEvent` 的 catch 要能打出
+ * 是哪个插件的处理器抛错 —— 裸 `Set<PluginEventHandler>` 做不到这一点。
+ */
+interface PluginEventSubscription {
+  pluginId: string;
+  handler: PluginEventHandler;
+}
 
 /** 当前启用状态 + 配置快照；只在 `syncPluginRuntime` 里被替换（引用稳定，供
  *  `useSyncExternalStore` 使用）。 */
@@ -38,8 +59,8 @@ const runtimeListeners = new Set<() => void>();
 const disposers = new Map<string, () => void>();
 /** pluginId → 该插件注册的全部事件取消订阅函数（停用时兜底清理）。 */
 const pluginSubscriptions = new Map<string, Set<() => void>>();
-/** 事件名 → 处理器集合。 */
-const eventHandlers = new Map<PluginEventName, Set<PluginEventHandler>>();
+/** 事件名 → 订阅项集合（每项带 pluginId，见 `PluginEventSubscription`）。 */
+const eventHandlers = new Map<PluginEventName, Set<PluginEventSubscription>>();
 
 function notifyRuntimeListeners(): void {
   // 逐个 try/catch：一个订阅者抛错不能拖垮其它订阅者。
@@ -47,7 +68,8 @@ function notifyRuntimeListeners(): void {
     try {
       listener();
     } catch (err) {
-      console.error("[plugins] 运行时订阅者抛错", err);
+      // 运行时订阅者由宿主/第三方代码注册，可能不属于任何插件 ⇒ 记到框架桶（前缀 `[plugins]`）。
+      recordFrameworkError("runtime.subscriber", "运行时订阅者抛错", err);
     }
   }
 }
@@ -117,12 +139,14 @@ export function getPluginConfig(pluginId: string): Record<string, unknown> {
  */
 export function updatePluginConfig(pluginId: string, patch: Record<string, unknown>): void {
   if (!getPluginById(pluginId)) {
-    console.error(`[plugins] updateConfig 被未知插件调用：${pluginId}`);
+    recordPluginError(pluginId, "runtime.updateConfig", `updateConfig 被未知插件调用：${pluginId}`);
     return;
   }
   if (!configWriter) {
-    console.error(
-      `[plugins] 配置 writer 尚未注册（App 未挂载？），插件 "${pluginId}" 的配置写入被丢弃`,
+    recordPluginError(
+      pluginId,
+      "runtime.updateConfig",
+      `配置 writer 尚未注册（App 未挂载？），插件 "${pluginId}" 的配置写入被丢弃`,
     );
     return;
   }
@@ -130,8 +154,10 @@ export function updatePluginConfig(pluginId: string, patch: Record<string, unkno
   let configPatch = patch;
   if (Object.prototype.hasOwnProperty.call(patch, "enabled")) {
     const { enabled: _enabled, ...rest } = patch;
-    console.warn(
-      `[plugins] 插件 "${pluginId}" 试图经配置通道写入 enabled=${String(_enabled)}：` +
+    recordPluginWarn(
+      pluginId,
+      "runtime.updateConfig",
+      `插件 "${pluginId}" 试图经配置通道写入 enabled=${String(_enabled)}：` +
         "enabled 属于宿主状态（AppState.plugins[id].enabled），由扩展 UI 的启用开关写入，" +
         "该键已被剥离、不会进入 config。",
     );
@@ -144,13 +170,14 @@ export function updatePluginConfig(pluginId: string, patch: Record<string, unkno
 }
 
 export function emitPluginEvent(name: PluginEventName, payload?: unknown): void {
-  const handlers = eventHandlers.get(name);
-  if (!handlers || handlers.size === 0) return;
-  for (const handler of [...handlers]) {
+  const subscriptions = eventHandlers.get(name);
+  if (!subscriptions || subscriptions.size === 0) return;
+  for (const subscription of [...subscriptions]) {
     try {
-      handler(payload);
+      subscription.handler(payload);
     } catch (err) {
-      console.error(`[plugins] 事件 "${name}" 的处理器抛错`, err);
+      // 归属修复（P6 F2）：订阅项自带 pluginId，因此这里能打出是哪个插件的处理器抛错。
+      recordPluginError(subscription.pluginId, `event "${name}"`, "处理器抛错", err);
     }
   }
 }
@@ -195,20 +222,23 @@ function subscribePluginEvent(
   event: PluginEventName,
   handler: PluginEventHandler,
 ): () => void {
-  let handlers = eventHandlers.get(event);
-  if (!handlers) {
-    handlers = new Set();
-    eventHandlers.set(event, handlers);
+  let subscriptions = eventHandlers.get(event);
+  if (!subscriptions) {
+    subscriptions = new Set();
+    eventHandlers.set(event, subscriptions);
   }
-  handlers.add(handler);
-  const handlerSet = handlers;
+  // ⚠️ 入表的是**订阅项**（含 pluginId），不是裸 handler —— 同一 handler 被两个插件
+  // 以不同 id 注册时也必须各自可归属。
+  const subscription: PluginEventSubscription = { pluginId, handler };
+  subscriptions.add(subscription);
+  const subscriptionSet = subscriptions;
 
   let active = true;
   const unsubscribe = () => {
     if (!active) return;
     active = false;
-    handlerSet.delete(handler);
-    if (handlerSet.size === 0) eventHandlers.delete(event);
+    subscriptionSet.delete(subscription);
+    if (subscriptionSet.size === 0) eventHandlers.delete(event);
     pluginSubscriptions.get(pluginId)?.delete(unsubscribe);
   };
 
@@ -242,7 +272,7 @@ function startPlugin(plugin: NyaaPlugin): void {
     if (typeof disposer === "function") disposers.set(pluginId, disposer);
     else disposers.delete(pluginId);
   } catch (err) {
-    console.error(`[plugins] 插件 "${pluginId}" 的 setup 抛错（其余插件不受影响）`, err);
+    recordPluginError(pluginId, "setup", "插件 setup 抛错（其余插件不受影响）", err);
   }
 }
 
@@ -256,7 +286,7 @@ function stopPlugin(pluginId: string): void {
       try {
         unsubscribe();
       } catch (err) {
-        console.error(`[plugins] 插件 "${pluginId}" 的事件退订抛错`, err);
+        recordPluginError(pluginId, "teardown.unsubscribe", "插件的事件退订抛错", err);
       }
     }
   }
@@ -267,7 +297,7 @@ function stopPlugin(pluginId: string): void {
   try {
     disposer();
   } catch (err) {
-    console.error(`[plugins] 插件 "${pluginId}" 的 disposer 抛错`, err);
+    recordPluginError(pluginId, "teardown.dispose", "插件的 disposer 抛错", err);
   }
 }
 

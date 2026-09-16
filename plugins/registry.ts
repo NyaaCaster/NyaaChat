@@ -14,14 +14,15 @@
  * 类型来自宿主侧契约 `src/plugins/types.ts`（type-only 导入，不产生运行时环）。
  */
 import type { NyaaPlugin } from "../src/plugins/types";
+import jsSlashRunner from "./js-slash-runner/plugin";
 import quoteTts from "./quote-tts/plugin";
 
-/** 已注册插件。首个（也是当前唯一）原生插件是 `quote-tts`（P5 落地）。
+/** 已注册插件：`quote-tts`（V1 首版）与 `js-slash-runner`（第二阶段 P3）。
  *
  *  ⚠️ 不要为了让 UI 显示出东西而在这里塞占位插件：列表只由本数组产生，
  *  塞进来的东西就是"真实存在的插件"。
  */
-const registered: NyaaPlugin[] = [quoteTts];
+const registered: NyaaPlugin[] = [quoteTts, jsSlashRunner];
 
 export const plugins: NyaaPlugin[] = registered.sort((a, b) => {
   const ao = typeof a.meta.order === "number" ? a.meta.order : 0;

@@ -5,7 +5,10 @@ import { fetchChatCompletion, type ApiMessage, type LlmTool, type ToolExecutor }
 import { generateImage } from "../lib/imageApi";
 import { generateComfyImage, type ComfyProgress } from "../lib/comfyuiApi";
 import { newId } from "../lib/id";
-import { saveSession } from "../lib/sessionStorage";
+import { saveSession, loadSessions } from "../lib/sessionStorage";
+import { setVariableAdapter } from "../lib/variables";
+import type { MessagePatch } from "../lib/variables";
+import { getScriptInitBusy } from "../plugins/scriptHost";
 import { getActiveImageProvider, getActiveLlmProvider, imageProviderToApiSettings, providerToApiSettings } from "../lib/providers";
 import { searchWeb, WebSearchError, WEB_SEARCH_FEATURE_ENABLED } from "../lib/searchApi";
 import { searchKb } from "../lib/knowledgeApi";
@@ -33,6 +36,7 @@ import {
   buildComfyPromptRequest,
   buildFixedComfyPromptRequest,
   buildFlagalacTraceDisplayScripts,
+  buildVariableUpdateHiddenDisplayScripts,
   buildImagePrompt,
   buildKbSearchContext,
   buildMessageContent,
@@ -206,6 +210,11 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
   // pipeline — to re-render. That is the input lag observed past ~100 floors.
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
+  // 变量写入的"本帧补丁覆盖层"（见下方变量层适配器）：React 的 setMessages 要到下一帧才
+  // 反映到 messagesRef，而 MVU 会在**同一个 tick** 里连写两次。每次渲染后 React 状态已经
+  // 包含此前排入的补丁，因此在这里清空（渲染一定在处理过这些更新之后）。
+  const varPatchOverlayRef = useRef<Map<string, MessagePatch>>(new Map());
+  varPatchOverlayRef.current.clear();
   const isLoadingRef = useRef(isLoading);
   isLoadingRef.current = isLoading;
   // Assigned right after sendChat is defined below; read (never captured) by the
@@ -213,6 +222,144 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
   const sendChatRef = useRef<
     ((content: string, atts: typeof attachments, baseMessages: Message[]) => Promise<void>) | null
   >(null);
+
+  // ─── 变量层宿主适配器（SSOT §2.2 / D3① / §2.5）───────────────────────────
+  //
+  // 变量层自己不做持久化：读会话、写回全部经这里交回宿主。
+  //
+  // ⚠️ **必须注册在 ChatInterface，而不是 App** —— 权威的 live `messages` 在这里。
+  // App 的 `currentSession.messages` 只是"上一次自动保存时的快照"，本组件只在
+  // `currentSession?.id` 变化时才从 prop 同步 messages（见本文件末尾的 effect）。
+  // 若拿 App 的快照去重建会话再写回，会把此刻刚生成的回复与楼层变量一起覆盖掉。
+  const currentSessionRef = useRef(currentSession);
+  currentSessionRef.current = currentSession;
+  // 「草稿会话」——见下方适配器注释：选了角色、还没发过消息时 App 的 currentSession 是
+  // null（只有开场白在 messages 里），而 MVU 的变量初始化**正发生在开场白楼层**。
+  // 这里保留一个本次挂载内稳定的假 id 与角色元信息，供变量层读/写（写入时就地落盘）。
+  const draftSessionIdRef = useRef<string | null>(null);
+  const materializedIdRef = useRef<string | null>(null);
+  const draftMetaRef = useRef<{ characterId: string; characterName: string }>({
+    characterId: "",
+    characterName: charName,
+  });
+  draftMetaRef.current = {
+    characterId: settings.currentCharacterId ?? "",
+    characterName: charName,
+  };
+  useEffect(() => {
+    const draftId = () => (draftSessionIdRef.current ??= `draft-${newId()}`);
+    // 把"意图补丁"应用到给定数组（不动补丁里没提到的字段）。
+    const applyPatchesTo = (base: Message[], patches: MessagePatch[]): Message[] => {
+        const byId = new Map(patches.map((p) => [p.id, p] as const));
+        let changed = false;
+        const merged = base.map((m) => {
+          const p = byId.get(m.id);
+          if (!p) return m;
+          let next = m;
+          if (p.content !== undefined && p.content !== m.content) next = { ...next, content: p.content };
+          if (p.variables !== undefined && p.variables !== m.variables) {
+            next = { ...next, variables: p.variables as Message["variables"] };
+          }
+          if (next !== m) changed = true;
+          return next;
+        });
+        return changed ? merged : base;
+      };
+      // 同步镜像：React 的 `setMessages` 要到下一帧才反映到 `messagesRef`，而 MVU 会在**同一个
+      // tick** 里连写两次（楼层变量 → chat 变量）。落盘若只读 `messagesRef` 就会丢掉前一次写入，
+      // 所以这里叠加一份"本帧已应用的补丁"再落盘。下一帧渲染时由 render body 清空。
+      const patchArrayOverlay = (base: Message[], overlay: Map<string, MessagePatch>): Message[] =>
+        overlay.size ? applyPatchesTo(base, [...overlay.values()]) : base;
+      // 会话级字段 + 显式落盘。不能只依赖本文件的自动保存 effect：它是 800ms 防抖**且没有
+      // 用户消息就跳过**，而 MVU 正是在开场白楼层写变量（M3 的经典失败形态）。
+      // ⚠️ 草稿态（还没发过消息、App 没有会话）必须**就地落盘成一个真会话**：否则开场白楼层
+      // 上的变量初始化会被整体丢弃（真机 v11-1542 实测）。草稿落盘只允许发生一次 —— 同一帧内
+      // 的多次写入必须落到同一个新会话 id 上，否则会各建一个会话。
+      const persistLive = (merged: Message[], variables?: Record<string, unknown>) => {
+        const live = currentSessionRef.current;
+        if (!live) materializedIdRef.current ??= newId();
+        const nextId = live?.id ?? materializedIdRef.current ?? newId();
+        const nextVars = variables !== undefined ? variables : live?.variables;
+        const next: ChatSession = {
+          id: nextId,
+          ...(opencodeSessionIdRef.current ? { opencodeSessionId: opencodeSessionIdRef.current } : {}),
+          characterId: live?.characterId || draftMetaRef.current.characterId || "",
+          characterName: live?.characterName || draftMetaRef.current.characterName || "",
+          messages: merged,
+          createdAt: live?.createdAt ?? Date.now(),
+          ...(nextVars !== undefined ? { variables: nextVars } : {}),
+        };
+        onSessionChange(next);
+        try {
+          const w = window as unknown as { __nyaVarTrace?: unknown[] };
+          w.__nyaVarTrace = (w.__nyaVarTrace || [])
+            .concat([{ t: Date.now(), k: "persist", from: live?.id ?? null, to: nextId, len: merged.length, vars0: Array.isArray(merged[0]?.variables) }])
+            .slice(-60);
+        } catch {
+          /* ignore */
+        }
+        void saveSession(next).catch((err) => {
+          console.error("变量写入后保存会话失败", err);
+        });
+      };
+
+    setVariableAdapter({
+      // ⚠️ 有开场白但还没有落盘会话时，**不能**返回 null：真机实测（v11-1542）该状态下
+      // MVU 的 initvar 读到空聊天直接退出，整个世界书的变量初始化都不会发生
+      // （日志原文：写入 chat 作用域失败：当前没有打开的会话）。
+      getCurrentSessionId: () =>
+        currentSessionRef.current?.id ?? (messagesRef.current.length > 0 ? draftId() : null),
+      getSession: (id) => {
+        const live = currentSessionRef.current;
+        if (live && live.id === id) return { ...live, messages: messagesRef.current };
+        if (draftSessionIdRef.current === id) {
+          return {
+            id,
+            characterId: draftMetaRef.current.characterId,
+            characterName: draftMetaRef.current.characterName,
+            messages: messagesRef.current,
+            createdAt: Date.now(),
+          };
+        }
+        return loadSessions().find((s) => s.id === id) ?? null;
+      },
+      // ── 意图补丁路径（首选，见 VariableAdapter.patchMessages 的注释）─────────────────
+      // 只应用补丁里**显式出现**的字段，且应用到 React 给的最新 `prev` 上，因此不会被
+      // "比 live state 旧的整会话快照"回滚（v12-1625 真机实证的变量丢失根因）。
+      patchMessages: (patches) => {
+        if (!patches.length) return;
+        for (const p of patches) {
+          varPatchOverlayRef.current.set(p.id, { ...(varPatchOverlayRef.current.get(p.id) ?? { id: p.id }), ...p });
+        }
+        setMessages((prev) => applyPatchesTo(prev, patches));
+        persistLive(patchArrayOverlay(messagesRef.current, varPatchOverlayRef.current));
+      },
+      patchSession: (fields) => {
+        if (fields.variables === undefined) return;
+        persistLive(patchArrayOverlay(messagesRef.current, varPatchOverlayRef.current), fields.variables);
+      },
+      // ── 兼容路径（旧契约：整份会话快照）────────────────────────────────────────────
+      // 只把**源里显式出现的字段**当意图：缺 `variables` 字段 ≠ 要清空变量。旧实现把
+      // `undefined` 也当权威，会抹掉刚落地的变量（真机 v12-1625 的根因）。
+      commitSession: (session) => {
+        const seen = new Set<string>();
+        const patches: MessagePatch[] = [];
+        for (const src of session.messages) {
+          if (seen.has(src.id)) continue;
+          seen.add(src.id);
+          const patch: MessagePatch = { id: src.id, content: src.content };
+          if (Object.prototype.hasOwnProperty.call(src, "variables")) patch.variables = src.variables;
+          patches.push(patch);
+        }
+        for (const p of patches) {
+          varPatchOverlayRef.current.set(p.id, { ...(varPatchOverlayRef.current.get(p.id) ?? { id: p.id }), ...p });
+        }
+        setMessages((prev) => applyPatchesTo(prev, patches));
+        persistLive(patchArrayOverlay(messagesRef.current, varPatchOverlayRef.current), session.variables);
+      },
+    });
+    return () => setVariableAdapter(null);
+  }, []);
 
   // Effective regex chain (global + this character), enabled-only. Held in state
   // so MessageItem's memo isn't busted by a fresh array identity every render:
@@ -228,6 +375,28 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
     recompute();
     return subscribeRegexScripts(recompute);
   }, [currentCharacter]);
+
+  // 临时诊断（真机排查"卡片正则被导入成什么样了"）：显示侧正则链每次重算时打一条清单，
+  // 含**替换串长度** —— `[美化]变量完成-三明月喵` 在卡片里是 3624 字符的 ```html 片段，
+  // 若这里显示 0，就是导入/存储链路丢了 replaceString。定位后删除。
+  useEffect(() => {
+    try {
+      const digest = regexScripts.map((s) => ({
+        n: s.scriptName,
+        md: s.markdownOnly,
+        po: s.promptOnly,
+        dis: s.disabled,
+        rep: typeof s.replaceString === "string" ? s.replaceString.length : -1,
+        find: typeof s.findRegex === "string" ? s.findRegex.slice(0, 80) : null,
+      }));
+      // 同时挂到 window 上：`console.info` 在**页面极早期**可能早于 dev console 收集器，
+      // 而 `__nyaScriptRunnerDiag()`（用户手动触发，通常晚得多）能稳定读到它。
+      (window as unknown as { __nyaRegexChain?: unknown }).__nyaRegexChain = digest;
+      console.info("[regex-chain] 显示侧正则链 " + JSON.stringify(digest));
+    } catch {
+      /* 诊断失败不影响渲染 */
+    }
+  }, [regexScripts]);
 
   // AnswererFlagalac traceCleanup (module SSOT §4.6) — display pipeline.
   //
@@ -250,12 +419,17 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
         : null,
     [settings.bypass?.answererFlagalac],
   );
+  // 内置显示规则（与 flagalac 无关，**始终**追加在最后）：兜底隐藏 MVU 的
+  // `<UpdateVariable>…</UpdateVariable>` 控制块。卡片自带美化正则时它先消费本规则无操作；
+  // 没带的卡片（真机实测「变装女友」）否则会把块内 `<Analysis>`/`<JSONPatch>` 文本漏在气泡里。
+  const mvuControlScripts = React.useMemo(() => buildVariableUpdateHiddenDisplayScripts(), []);
   const displayRegexScripts = React.useMemo(
-    () =>
-      flagalacTraceScripts && flagalacTraceScripts.length
-        ? [...regexScripts, ...flagalacTraceScripts]
-        : regexScripts,
-    [regexScripts, flagalacTraceScripts],
+    () => [
+      ...regexScripts,
+      ...(flagalacTraceScripts && flagalacTraceScripts.length ? flagalacTraceScripts : []),
+      ...mvuControlScripts,
+    ],
+    [regexScripts, flagalacTraceScripts, mvuControlScripts],
   );
 
   // AnswererFlagalac unicodeEncoding (D-28/D-27) — display-side gate (F-2).
@@ -1263,6 +1437,10 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
     sendUserMessage: (text: string) => {
       if (isLoadingRef.current) return;
       if (!text.trim()) return;
+      // 卡片脚本初始化窗口内不发送：避免"脚本写变量"与"用户追加消息"交错。
+      // （写回路径已改成只增不减、不会丢数据；这里只是把窗口期的不确定性再收窄，
+      //  上限 5s，到点自动放行——见 plugins/js-slash-runner 的 INIT_BUSY_MAX_MS。）
+      if (getScriptInitBusy()) return;
       void sendChatRef.current!(text, [], messagesRef.current);
     },
   }), []);
@@ -1284,6 +1462,10 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
         characterName: currentSession?.characterName ?? charName,
         messages,
         createdAt: currentSession?.createdAt ?? Date.now(),
+        // ⚠️ 这里是**逐字段重建**（不是 spread currentSession），因此任何新增的
+        // 会话级字段都必须显式带上，否则第一次自动保存就把它丢掉。
+        // `variables` = 变量层的 chat 作用域（SSOT §2.5 / D3①）。
+        ...(currentSession?.variables ? { variables: currentSession.variables } : {}),
       };
       try {
         await saveSession(session);
@@ -1827,6 +2009,24 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
   // Load session when selected from history
   useEffect(() => {
     if (currentSession) {
+      // 临时诊断：这次"从 prop 同步 messages"会不会把刚写入的楼层变量覆盖掉。
+      try {
+        const w = window as unknown as { __nyaVarTrace?: unknown[] };
+        w.__nyaVarTrace = (w.__nyaVarTrace || [])
+          .concat([
+            {
+              t: Date.now(),
+              k: "syncFromProp",
+              id: currentSession.id,
+              len: currentSession.messages.length,
+              vars0: Array.isArray(currentSession.messages[0]?.variables),
+              withVars: currentSession.messages.filter((m) => Array.isArray(m.variables) && m.variables[0] && Object.keys(m.variables[0]).length > 0).length,
+            },
+          ])
+          .slice(-60);
+      } catch {
+        /* ignore */
+      }
       setMessages(currentSession.messages);
     }
     // Depending on the id alone is intentional: when the same session object

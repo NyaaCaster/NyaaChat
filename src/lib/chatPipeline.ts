@@ -15,6 +15,7 @@ import {
   resolveFlagalacTarget,
 } from "./FlagalacTemplates";
 import { encodeFlagalacUnicodeEscapes } from "./flagalacUnicode";
+import { hasVariableMacro, substituteVariableMacros } from "./variables";
 
 // ---------------------------------------------------------------------------
 // Regex macro context (host side)
@@ -657,6 +658,40 @@ export function buildFlagalacTraceDisplayScripts(): readonly RegexScript[] {
 }
 
 /**
+ * 内置显示规则：隐藏 MVU 的变量更新控制块 `<UpdateVariable>…</UpdateVariable>`。
+ *
+ * 为什么必须有：这是**给脚本看的控制块**（`<Analysis>` / `<JSONPatch>` 是 MVU 要解析的
+ * 载荷），不该出现在气泡里。卡片自带美化正则（如 `[美化]变量完成-三明月喵`）时会先把它
+ * 换成自己的面板，本规则无操作；**没带的卡片**（真机实测的「变装女友」只带 4 条正则）
+ * 就会把块内文本以 markdown 形式漏在回复末尾。
+ *
+ * 排在用户/卡片正则**之后**：先让卡片的规则（若有）消费，再兜底清理。
+ * `markdownOnly` ⇒ 只影响显示通道；发给模型的文本与编辑框原文都不变。
+ */
+const VARIABLE_UPDATE_HIDDEN_DISPLAY_SCRIPTS: readonly RegexScript[] = Object.freeze([
+  Object.freeze({
+    id: "mvu-update-hidden",
+    scriptName: "mvu: hide variable update block",
+    findRegex:
+      "/<UpdateVariable(?:variable)?>[\\s\\S]*?<\\/UpdateVariable(?:variable)?>(?:[ \\t]*\\r?\\n)*/gi",
+    replaceString: "",
+    trimStrings: [],
+    placement: [regex_placement.AI_OUTPUT],
+    disabled: false,
+    markdownOnly: true,
+    promptOnly: false,
+    runOnEdit: false,
+    substituteRegex: 0,
+    minDepth: null,
+    maxDepth: null,
+  } as RegexScript),
+]);
+
+export function buildVariableUpdateHiddenDisplayScripts(): readonly RegexScript[] {
+  return VARIABLE_UPDATE_HIDDEN_DISPLAY_SCRIPTS;
+}
+
+/**
  * Compose the full request payload for one turn:
  *
  *   [static system prefix] [history] [new user turn (+volatile search part)]
@@ -787,12 +822,26 @@ export function buildRequestMessages(args: BuildRequestArgs): ApiMessage[] {
 
   // World info text: apply {{user}}/{{char}} plus the WORLD_INFO regex pass
   // (placement 5). No depth gating applies to world info.
-  const renderRule = (text: string) => {
+  //
+  // 🔺 变量宏（`{{get_/format_*_variable::}}`）**只在动态尾部**渲染（D6-①'）：
+  //    静态前缀必须逐轮字节一致才能命中 prompt 缓存，而变量状态块逐轮都在变。
+  //    含变量宏的"永久"条目因此被移到尾部渲染 —— 这也更贴近 ST 语义：样例卡里那条
+  //    `变量列表` 原本就是 `position=at_depth` / `depth=0`（贴在最新消息前的动态
+  //    注入），并不是真正的前缀常驻内容。
+  const renderRule = (text: string, allowVariableMacros = false) => {
     const named = text.replace(/\{\{user\}\}/g, userName).replace(/\{\{char\}\}/g, charName);
+    const macroed = allowVariableMacros ? substituteVariableMacros(named) : named;
     return promptRegex.length
-      ? getRegexedString(named, regex_placement.WORLD_INFO, promptRegex, { isPrompt: true })
-      : named;
+      ? getRegexedString(macroed, regex_placement.WORLD_INFO, promptRegex, { isPrompt: true })
+      : macroed;
   };
+
+  // 永久条目分流：不含变量宏的留在**静态前缀**（逐轮字节一致）；含变量宏的改由
+  // 动态尾部渲染（D6-①'）。两组的相对顺序都由 `filter` 保序 ⇒ 对不含变量宏的卡片
+  // 而言，前缀与改造前逐字节相同。
+  const permanentRules = activeRules.filter((r) => r.triggerType === "permanent");
+  const staticPermanentRules = permanentRules.filter((r) => !hasVariableMacro(r.content));
+  const dynamicPermanentRules = permanentRules.filter((r) => hasVariableMacro(r.content));
 
   // Static prefix: session-protocol anchor + persona + PERMANENT world info.
   // These stay byte-identical across turns so the cached prefix keeps
@@ -817,8 +866,7 @@ export function buildRequestMessages(args: BuildRequestArgs): ApiMessage[] {
       content: `[Assistant Persona: ${renderRule(currentCharacter.description)}]`,
     });
   }
-  for (const rule of activeRules) {
-    if (rule.triggerType !== "permanent") continue;
+  for (const rule of staticPermanentRules) {
     const tag = rule.position === "assistant" ? "Assistant Note" : "World Info";
     systemMessages.push({
       role: rule.position === "assistant" ? "assistant" : "system",
@@ -826,25 +874,29 @@ export function buildRequestMessages(args: BuildRequestArgs): ApiMessage[] {
     });
   }
 
-  // Dynamic tail: KEYWORD-triggered world info (hard/soft sectioned) + MCP
-  // rules, merged into ONE trailing system message wrapped in
-  // <session_rules>. Search context is NOT here — it's external text and
-  // rides the user turn instead (see above).
+  // Dynamic tail: KEYWORD-triggered world info (hard/soft sectioned) +
+  // variable-macro PERMANENT entries (D6-①') + MCP rules, merged into ONE trailing
+  // system message wrapped in <session_rules>. Search context is NOT here — it's
+  // external text and rides the user turn instead (see above).
   const keywordRules = activeRules.filter((r) => r.triggerType !== "permanent");
+  const renderTailEntry = (rule: WorldInfoRule) => {
+    const tag = rule.position === "assistant" ? "Assistant Note" : "World Info";
+    return `[${tag}] ${renderRule(rule.content, true)}`;
+  };
   const tailParts: string[] = [];
-  if (keywordRules.length > 0) {
+  if (keywordRules.length > 0 || dynamicPermanentRules.length > 0) {
     tailParts.push(RULES_MEDIATION_CLAUSE);
-    const renderEntry = (rule: (typeof keywordRules)[number]) => {
-      const tag = rule.position === "assistant" ? "Assistant Note" : "World Info";
-      return `[${tag}] ${renderRule(rule.content)}`;
-    };
     const hardRules = keywordRules.filter((r) => r.hard === true);
     const softRules = keywordRules.filter((r) => r.hard !== true);
     if (hardRules.length > 0) {
-      tailParts.push(`═ 硬约束 ═\n${hardRules.map(renderEntry).join("\n\n")}`);
+      tailParts.push(`═ 硬约束 ═\n${hardRules.map(renderTailEntry).join("\n\n")}`);
     }
     if (softRules.length > 0) {
-      tailParts.push(`═ 场景设定 ═\n${softRules.map(renderEntry).join("\n\n")}`);
+      tailParts.push(`═ 场景设定 ═\n${softRules.map(renderTailEntry).join("\n\n")}`);
+    }
+    // 变量状态块：含变量宏的永久条目，位置在关键词条目之后、MCP 之前。
+    if (dynamicPermanentRules.length > 0) {
+      tailParts.push(`═ 变量状态 ═\n${dynamicPermanentRules.map(renderTailEntry).join("\n\n")}`);
     }
   }
   // MCP tool data-usage guidelines go LAST within the tail — the closest

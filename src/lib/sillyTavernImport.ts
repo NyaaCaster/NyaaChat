@@ -1,5 +1,6 @@
 import { CharacterSettings, RegexScript, WorldInfoRule } from "../types";
 import { newId } from "./id";
+import { readNativeCardScripts, readSillyTavernScripts } from "./sillyTavernScripts";
 
 // Hard cap on imported card size. SillyTavern PNG cards in the wild rarely
 // exceed a few hundred KB; anything larger is almost certainly an attack on
@@ -66,29 +67,54 @@ export async function parseSillyTavernPng(file: File): Promise<CharacterSettings
 
 /** Convert a NyaaChat-native card JSON (the object embedded in our own PNG
  *  export, `format: "nyaachat-character"`) into CharacterSettings. Reads our own
- *  top-level fields directly — regex under `regexScripts`, plus the shared-system
- *  metadata groundwork. A legacy card that still carries `extensions` (the
- *  character-level blob of the removed extension compatibility layer) imports
- *  fine; that retired field is ignored, not copied.
+ *  top-level fields directly — regex under `regexScripts`, card JS scripts under
+ *  `scripts`, plus the shared-system metadata groundwork. A legacy card that
+ *  still carries `extensions` (the character-level blob of the removed extension
+ *  compatibility layer) imports fine; that retired field is ignored, not copied.
+ *  `name` must be a non-empty string; `description` may be empty (or absent ⇒ `""`)
+ *  — see the note in the body — because cards in the wild carry the persona in
+ *  their world book instead.
  */
 export function convertNativeCard(parsed: any): CharacterSettings {
   if (!parsed.name || typeof parsed.name !== "string") throw new Error('Missing or invalid "name"');
-  if (!parsed.description || typeof parsed.description !== "string") {
+  // `description` 允许为空串：**空 description 是合法卡型**（样例 MVU 卡即如此 ——
+  // persona 主要靠世界书承载），而我们自己的原生卡导出器
+  // （`sillyTavernScripts.toNativeCardJson`）对空 description 就写出 `""`。
+  // 若在此把"空"当缺失拒绝，"原生卡导出 → 再导入"这条往返路径对这类卡直接失败。
+  // 口径（t11）：字符串（含 `""`）直接用；`undefined` 视为 `""`（原生卡 JSON 由我们
+  // 自己的导出器写出，缺失等价于空）；其它类型（number/object/null）仍抛错 ——
+  // 保留对畸形文件的防御，不把校验削弱成"什么都收"。
+  if (parsed.description !== undefined && typeof parsed.description !== "string") {
     throw new Error('Missing or invalid "description"');
   }
+  const description: string = parsed.description ?? "";
+  // 卡片脚本（原生卡与 `CharacterSettings` 同名同形，直接读写 `scripts`）。
+  const scripts = readNativeCardScripts(parsed);
+  // t17：共享系统预留字段。**与导出侧 `toNativeCardJson` 一一对应**；这里的口径是
+  // "类型不符即忽略、绝不抛错" —— 它们是可选元数据，一个畸形值不该让整张卡导不进来。
+  // `tags` 与导出侧对称：过滤非字符串，过滤后为空则视为"没有标签"（≡ 不写出该键）。
+  const tags: string[] = Array.isArray(parsed.tags)
+    ? parsed.tags.filter((tag: unknown) => typeof tag === "string")
+    : [];
   return {
     id: newId(),
     name: parsed.name,
-    description: parsed.description,
+    description,
     firstMes: typeof parsed.firstMes === "string" && parsed.firstMes.trim() ? parsed.firstMes : undefined,
     worldInfo: Array.isArray(parsed.worldInfo) ? parsed.worldInfo : [],
     ...(Array.isArray(parsed.regexScripts) && parsed.regexScripts.length
       ? { regexScripts: parsed.regexScripts }
       : {}),
+    ...(scripts.length ? { scripts } : {}),
     ...(typeof parsed.version === "number" ? { version: parsed.version } : {}),
     ...(typeof parsed.author === "string" && parsed.author ? { author: parsed.author } : {}),
     ...(parsed.source === "original" || parsed.source === "reposted" ? { source: parsed.source } : {}),
     ...(typeof parsed.intro === "string" && parsed.intro ? { intro: parsed.intro } : {}),
+    ...(typeof parsed.globalId === "string" && parsed.globalId ? { globalId: parsed.globalId } : {}),
+    ...(typeof parsed.owner === "string" && parsed.owner ? { owner: parsed.owner } : {}),
+    // 显式 `false` 也读回（与导出侧 `typeof === "boolean"` 对称）。
+    ...(typeof parsed.shared === "boolean" ? { shared: parsed.shared } : {}),
+    ...(tags.length ? { tags } : {}),
   };
 }
 
@@ -196,6 +222,9 @@ export function convertSillyTavernCharacter(parsed: any): CharacterSettings {
     }));
 
   const regexScripts = convertRegexScripts(data);
+  // 卡片自带的 JS 脚本（ST: `data.extensions.tavern_helper.scripts`）。映射只在
+  // `sillyTavernScripts.ts` 里实现一次；这里不解释任何 ST 字段。
+  const scripts = readSillyTavernScripts(data);
 
   return {
     id: newId(),
@@ -204,6 +233,7 @@ export function convertSillyTavernCharacter(parsed: any): CharacterSettings {
     firstMes: data.first_mes || undefined,
     worldInfo,
     ...(regexScripts.length ? { regexScripts } : {}),
+    ...(scripts.length ? { scripts } : {}),
     ...(data.tags?.length ? { tags: data.tags as string[] } : {}),
   };
 }

@@ -6,6 +6,7 @@ import 'katex/dist/katex.min.css';
 import {migrateFromLocalStorage, isMigrationDone} from './lib/idbStorage';
 import {hydrateSessions} from './lib/sessionStorage';
 import {hydrateRegexScripts} from './lib/regex/store';
+import {hydrateVariables} from './lib/variables';
 import {
   MIGRATION_DIALOG_ENABLED,
   hasNyaaChatLocalStorageData,
@@ -44,6 +45,7 @@ import {
   // 2. Pre-fill in-memory caches from IndexedDB.
   await hydrateRegexScripts();        // global regex cache
   await hydrateSessions();            // sessions + lastSessionId caches
+  await hydrateVariables();           // global variable scope (nyaachat_vars_global)
 
   // 3. Mount React.
   createRoot(document.getElementById('root')!).render(

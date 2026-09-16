@@ -11,11 +11,14 @@
 // symmetric with the importer defaulting every imported rule to soft). Persona
 // stays in `description`; ST's personality/scenario/mes_example are left empty.
 // Character regex rides along in `data.extensions.regex_scripts` where ST keeps
-// it (a retained format-compatibility field). The former passthrough of the
-// character-level `extensions` blob is gone with the removed extension
-// compatibility layer.
+// it (a retained format-compatibility field). Character JS scripts ride along in
+// `data.extensions.tavern_helper.scripts` — the ST location the 酒馆助手 extension
+// reads — via `sillyTavernScripts.ts` (the single ST ⇄ ScriptRecord mapping). The
+// former passthrough of the character-level `extensions` blob is gone with the
+// removed extension compatibility layer.
 
 import type { CharacterSettings, WorldInfoRule } from "../types";
+import { withSillyTavernScripts } from "./sillyTavernScripts";
 
 // ST world_info_position: at-depth injection. The authoritative value lives in
 // `entry.extensions.position`; the V3 top-level string is lossy (ST itself writes
@@ -106,7 +109,8 @@ function toStEntry(rule: WorldInfoRule, index: number): Record<string, unknown> 
  * Build a SillyTavern chara_card_v3 object from a NyaaChat character. The shape
  * matches what `parseSillyTavernPng` / `convertSillyTavernCharacter` (and ST
  * itself) read: top-level legacy fields plus the authoritative `data.*` block,
- * including `character_book.entries` and `data.extensions.regex_scripts`.
+ * including `character_book.entries`, `data.extensions.regex_scripts`, and
+ * `data.extensions.tavern_helper.scripts`.
  */
 export function convertToSillyTavernCharacter(char: CharacterSettings): Record<string, unknown> {
   const name = char.name ?? "";
@@ -114,17 +118,29 @@ export function convertToSillyTavernCharacter(char: CharacterSettings): Record<s
   const firstMes = char.firstMes ?? "";
   const rules = char.worldInfo ?? [];
 
-  // ST keeps character regex under `data.extensions.regex_scripts`. Only that
-  // retained field is written: the old character-level `extensions` passthrough
+  // ST keeps character regex under `data.extensions.regex_scripts`, and character
+  // JS scripts under `data.extensions.tavern_helper.scripts`. Both are retained
+  // format-compatibility fields; the old character-level `extensions` passthrough
   // (the blob of the removed extension compatibility layer) is gone with that
   // layer, so a NyaaChat character can no longer smuggle it into an ST card.
-  const extensions: Record<string, unknown> = {};
+  let extensions: Record<string, unknown> = {};
   if (char.regexScripts && char.regexScripts.length) {
     extensions.regex_scripts = char.regexScripts;
   }
+  // 脚本的字段级映射（`exportWith` → `export_with` 等）只在 `sillyTavernScripts.ts`
+  // 里实现一次；这里只做一次调用 + 赋值。
+  extensions = withSillyTavernScripts(extensions, char.scripts);
 
   const entries = rules.map((r, i) => toStEntry(r, i));
   const createDate = new Date().toISOString();
+
+  // t18：标签（`CharacterSettings.tags` ↔ ST `data.tags`）。
+  //  · 非空时写出角色的标签（与原生卡导出的 `tags` 同口径：过滤掉非字符串）；
+  //  · 空/缺省时**保持既有的 `[]`**（不省略、不写 undefined）⇒ 无标签卡的 ST 导出
+  //    结果与改造前逐字节一致；老卡不会因此多出键、也不会少键。
+  const tags: string[] = Array.isArray(char.tags)
+    ? char.tags.filter((tag) => typeof tag === "string")
+    : [];
 
   const data = {
     name,
@@ -136,7 +152,7 @@ export function convertToSillyTavernCharacter(char: CharacterSettings): Record<s
     creator_notes: "",
     system_prompt: "",
     post_history_instructions: "",
-    tags: [] as string[],
+    tags,
     creator: "",
     character_version: "",
     alternate_greetings: [] as string[],
@@ -159,7 +175,8 @@ export function convertToSillyTavernCharacter(char: CharacterSettings): Record<s
     avatar: "none",
     talkativeness: "0.5",
     fav: false,
-    tags: [] as string[],
+    // 顶层 legacy `tags` 与 `data.tags` 是**同一份**（ST v3 读 data.*，v2 读顶层）。
+    tags,
     spec: "chara_card_v3",
     spec_version: "3.0",
     data,

@@ -1,0 +1,645 @@
+{
+  "generatedAt": "2026-09-16T03:45:37Z",
+  "generatedBy": "dev-server/tools/update-script-host-vendor.py",
+  "sitePrefix": "/vendor/script-host/",
+  "note": "上游远程说明符 → 同源自托管路径。importmap 直接由 kind=closure/top-level 的 entries 生成（key=url，value=path）；kind=global 的条目是 classic `<script>` 全局（如 Vue），只登记路径供 globals 装配使用，**不要**放进 importmap 的 imports。",
+  "entries": [
+    {
+      "url": "/npm/@anthropic-ai/sdk@0.123.0/+esm",
+      "path": "/vendor/script-host/closure/npm/@anthropic-ai/sdk@0.123.0/_esm.js",
+      "sha256": "767db64e9772a1c5c7e72665b343058b594f1d7e95e9080d4ba375025f8f999f",
+      "bytes": 176503,
+      "kind": "closure"
+    },
+    {
+      "url": "/npm/@anthropic-ai/sdk@0.123.0/internal/node.browser.mjs/+esm",
+      "path": "/vendor/script-host/closure/npm/@anthropic-ai/sdk@0.123.0/internal/node.browser.mjs/_esm.js",
+      "sha256": "f24e3ab98fd6d0ab0ade14c8f5e9d89401ead75b41a8348ac42f2ba4d4ea2aff",
+      "bytes": 752,
+      "kind": "closure"
+    },
+    {
+      "url": "/npm/@anthropic-ai/sdk@0.123.0/tools/agent-toolset/node.browser.mjs/+esm",
+      "path": "/vendor/script-host/closure/npm/@anthropic-ai/sdk@0.123.0/tools/agent-toolset/node.browser.mjs/_esm.js",
+      "sha256": "145a355d4c1a456097cf6b8c279e5a35e0a5d6ba8e1023d5dacece52558fa8d5",
+      "bytes": 2142,
+      "kind": "closure"
+    },
+    {
+      "url": "/npm/@babel/runtime@7.29.2/helpers/defineProperty/+esm",
+      "path": "/vendor/script-host/closure/npm/@babel/runtime@7.29.2/helpers/defineProperty/_esm.js",
+      "sha256": "e649731e0a92c66ba755fccfe9825af9209cbd06907e302a0d449433190f66b4",
+      "bytes": 1075,
+      "kind": "closure"
+    },
+    {
+      "url": "/npm/@babel/runtime@7.29.2/helpers/extends/+esm",
+      "path": "/vendor/script-host/closure/npm/@babel/runtime@7.29.2/helpers/extends/_esm.js",
+      "sha256": "ec0d3fce0e9fd17f25cea2126048308d34bc56cd8674f2d307cf2e59bb1cd303",
+      "bytes": 599,
+      "kind": "closure"
+    },
+    {
+      "url": "/npm/@earendil-works/pi-ai@0.85.1/dist/api/anthropic-messages.js/+esm",
+      "path": "/vendor/script-host/closure/npm/@earendil-works/pi-ai@0.85.1/dist_/api/anthropic-messages.js/_esm.js",
+      "sha256": "580f1ab83af23de57f4de6e8fdd06e0e963eb7d7b2bc8f8b15672102a101ba56",
+      "bytes": 33880,
+      "kind": "closure"
+    },
+    {
+      "url": "/npm/@earendil-works/pi-ai@0.85.1/dist/api/google-generative-ai.js/+esm",
+      "path": "/vendor/script-host/closure/npm/@earendil-works/pi-ai@0.85.1/dist_/api/google-generative-ai.js/_esm.js",
+      "sha256": "cf65953625483839ebb5a2be790a0ab5b03923f0bbcc14f75875d5943b99bda2",
+      "bytes": 25142,
+      "kind": "closure"
+    },
+    {
+      "url": "/npm/@earendil-works/pi-ai@0.85.1/dist/api/mistral-conversations.js/+esm",
+      "path": "/vendor/script-host/closure/npm/@earendil-works/pi-ai@0.85.1/dist_/api/mistral-conversations.js/_esm.js",
+      "sha256": "c2a399eb225db194929e4f8caba487080266af0795466675f5b9b8b77ecbc8de",
+      "bytes": 25296,
+      "kind": "closure"
+    },
+    {
+      "url": "/npm/@earendil-works/pi-ai@0.85.1/dist/api/openai-codex-responses.js/+esm",
+      "path": "/vendor/script-host/closure/npm/@earendil-works/pi-ai@0.85.1/dist_/api/openai-codex-responses.js/_esm.js",
+      "sha256": "3cfdf2e316d9647c040bf3d68e7263fec72d151f7aac42b8486c3169573a00b9",
+      "bytes": 52715,
+      "kind": "closure"
+    },
+    {
+      "url": "/npm/@earendil-works/pi-ai@0.85.1/dist/api/openai-completions.js/+esm",
+      "path": "/vendor/script-host/closure/npm/@earendil-works/pi-ai@0.85.1/dist_/api/openai-completions.js/_esm.js",
+      "sha256": "6e4cae888ae6876dc2c23ace8ff235ff7b2f6c65c8c42f9f3585116ff7811e3a",
+      "bytes": 41707,
+      "kind": "closure"
+    },
+    {
+      "url": "/npm/@earendil-works/pi-ai@0.85.1/dist/api/openai-responses.js/+esm",
+      "path": "/vendor/script-host/closure/npm/@earendil-works/pi-ai@0.85.1/dist_/api/openai-responses.js/_esm.js",
+      "sha256": "b069180fd90da30c57c45bb81e5922f876347495f6e6e1228c96b5e7cea581b0",
+      "bytes": 36621,
+      "kind": "closure"
+    },
+    {
+      "url": "/npm/@google/genai@1.52.0/+esm",
+      "path": "/vendor/script-host/closure/npm/@google/genai@1.52.0/_esm.js",
+      "sha256": "1b7465799d8af69154412e3f02b7e1167e8e71cb446ddd995cd757f9b2255bd7",
+      "bytes": 285123,
+      "kind": "closure"
+    },
+    {
+      "url": "/npm/@intlify/message-compiler@11.4.10/+esm",
+      "path": "/vendor/script-host/closure/npm/@intlify/message-compiler@11.4.10/_esm.js",
+      "sha256": "7b5d7f5622122ee861623a8a212101e70fe9c52323b7ce0a20050c7ff553df62",
+      "bytes": 18635,
+      "kind": "closure"
+    },
+    {
+      "url": "/npm/@intlify/shared@11.4.10/+esm",
+      "path": "/vendor/script-host/closure/npm/@intlify/shared@11.4.10/_esm.js",
+      "sha256": "b8f47f0e8f5595500aa98845f94b4f1081100b9f60e08a28f981434b3fce99de",
+      "bytes": 5255,
+      "kind": "closure"
+    },
+    {
+      "url": "/npm/@stablelib/base64@1.0.1/+esm",
+      "path": "/vendor/script-host/closure/npm/@stablelib/base64@1.0.1/_esm.js",
+      "sha256": "f73196ffc4a79754831b6f54d27f902257b2ac8eb280786bae6d8be6057e20dc",
+      "bytes": 4195,
+      "kind": "closure"
+    },
+    {
+      "url": "/npm/complex.js@2.4.3/+esm",
+      "path": "/vendor/script-host/closure/npm/complex.js@2.4.3/_esm.js",
+      "sha256": "b8ff2754901e80d9fed82fdbb2e880da45c8df96152f2ac1c976190f31a7b865",
+      "bytes": 9884,
+      "kind": "closure"
+    },
+    {
+      "url": "/npm/decimal.js@10.6.0/+esm",
+      "path": "/vendor/script-host/closure/npm/decimal.js@10.6.0/_esm.js",
+      "sha256": "a969cf2e76c317b9daf06d5277bdbb0bda6a3c81003665ce50ae2a93dfbbdfaa",
+      "bytes": 32753,
+      "kind": "closure"
+    },
+    {
+      "url": "/npm/escape-latex@1.2.0/+esm",
+      "path": "/vendor/script-host/closure/npm/escape-latex@1.2.0/_esm.js",
+      "sha256": "2f53a679867f4ab8eae49b93671bd7ef11e39027808a8ad4b2fea783d3064eda",
+      "bytes": 1298,
+      "kind": "closure"
+    },
+    {
+      "url": "/npm/fast-sha256@1.3.0/+esm",
+      "path": "/vendor/script-host/closure/npm/fast-sha256@1.3.0/_esm.js",
+      "sha256": "9433f59580a920b8b3ebd603b4f2c2b39fe132b0f9dbab89367c85c5f65db376",
+      "bytes": 6698,
+      "kind": "closure"
+    },
+    {
+      "url": "/npm/fraction.js@5.3.4/+esm",
+      "path": "/vendor/script-host/closure/npm/fraction.js@5.3.4/_esm.js",
+      "sha256": "8d8064193de7ee5c75b91a57f7afdecb3f14c2fd4d06f5381e865ef627dda9d8",
+      "bytes": 7185,
+      "kind": "closure"
+    },
+    {
+      "url": "/npm/javascript-natural-sort@0.7.1/+esm",
+      "path": "/vendor/script-host/closure/npm/javascript-natural-sort@0.7.1/_esm.js",
+      "sha256": "17563fe20a023dba96a92c40c757a1683ca18c4afe5b845d7eae77599bbb16e5",
+      "bytes": 1348,
+      "kind": "closure"
+    },
+    {
+      "url": "/npm/openai@6.40.0/+esm",
+      "path": "/vendor/script-host/closure/npm/openai@6.40.0/_esm.js",
+      "sha256": "e6f4ca808d3c1f015bdd3118dd91983abe6835c31b4683d1b43577da469d584d",
+      "bytes": 156099,
+      "kind": "closure"
+    },
+    {
+      "url": "/npm/p-retry@4.6.2/+esm",
+      "path": "/vendor/script-host/closure/npm/p-retry@4.6.2/_esm.js",
+      "sha256": "9164586d27d11bcd2328ad7303982fa9d621746599dcb8955c79cb32a9fea403",
+      "bytes": 1601,
+      "kind": "closure"
+    },
+    {
+      "url": "/npm/partial-json@0.1.7/+esm",
+      "path": "/vendor/script-host/closure/npm/partial-json@0.1.7/_esm.js",
+      "sha256": "f7d1dcbdc45780ff1c525bded427414e49604498ee9c509139e1fca873413aba",
+      "bytes": 4690,
+      "kind": "closure"
+    },
+    {
+      "url": "/npm/retry@0.13.1/+esm",
+      "path": "/vendor/script-host/closure/npm/retry@0.13.1/_esm.js",
+      "sha256": "c08b7e43af5736b2be45918f688966fa38362e21d04f2f59276cd5f9359d4542",
+      "bytes": 4064,
+      "kind": "closure"
+    },
+    {
+      "url": "/npm/seedrandom@3.0.5/+esm",
+      "path": "/vendor/script-host/closure/npm/seedrandom@3.0.5/_esm.js",
+      "sha256": "bff06d8dbe428efed7c3f061399890de74b6afddab70344e4b68a95055744d48",
+      "bytes": 8267,
+      "kind": "closure"
+    },
+    {
+      "url": "/npm/standardwebhooks@1.1.1/+esm",
+      "path": "/vendor/script-host/closure/npm/standardwebhooks@1.1.1/_esm.js",
+      "sha256": "8df7d63173e554a800b77fc99b9f6a11e1a82a7b35c58382367adeda1d084c25",
+      "bytes": 3167,
+      "kind": "closure"
+    },
+    {
+      "url": "/npm/tiny-emitter@2.1.0/+esm",
+      "path": "/vendor/script-host/closure/npm/tiny-emitter@2.1.0/_esm.js",
+      "sha256": "0a23e30943430ad037b6b144f01d6fcb6fb38c8eff8610dcfa1354e274f0c9ae",
+      "bytes": 1115,
+      "kind": "closure"
+    },
+    {
+      "url": "/npm/typebox@1.3.7/+esm",
+      "path": "/vendor/script-host/closure/npm/typebox@1.3.7/_esm.js",
+      "sha256": "68477e358c5dfe0279a8d160297259976715038bb65e66ada8dcb5328d0320aa",
+      "bytes": 76581,
+      "kind": "closure"
+    },
+    {
+      "url": "/npm/typebox@1.3.7/compile/+esm",
+      "path": "/vendor/script-host/closure/npm/typebox@1.3.7/compile/_esm.js",
+      "sha256": "5466fd8853f6ff3bba904124011b743230ac841b7ce5af8e243eebfa0573bb0b",
+      "bytes": 116260,
+      "kind": "closure"
+    },
+    {
+      "url": "/npm/typebox@1.3.7/value/+esm",
+      "path": "/vendor/script-host/closure/npm/typebox@1.3.7/value/_esm.js",
+      "sha256": "8ec08c78bd8af06e882ac1b2f2b5016b9633c8b9761fd6b0ce8f8df3e22f4db5",
+      "bytes": 105760,
+      "kind": "closure"
+    },
+    {
+      "url": "/npm/typed-function@4.2.2/+esm",
+      "path": "/vendor/script-host/closure/npm/typed-function@4.2.2/_esm.js",
+      "sha256": "905f3c6ff45d4afe2ac5fa070f154de730f43bace994219624e167eab4030498",
+      "bytes": 17775,
+      "kind": "closure"
+    },
+    {
+      "url": "https://cdn.jsdelivr.net/npm/vue@3.5.42/dist/vue.global.prod.js",
+      "path": "/vendor/script-host/vue.global.js",
+      "sha256": "aae6339a0e744cc3503f2a3ae63f5ee0d99ce39f45517e7a51fcb9ecc290ca2c",
+      "bytes": 167536,
+      "kind": "global"
+    },
+    {
+      "url": "https://testingcf.jsdelivr.net/gh/MagicalAstrogy/MagVarUpdate/artifact/bundle.js",
+      "path": "/vendor/script-host/mvu/bundle.js",
+      "sha256": "b0f30a7d269ed5afa8455478c50a64e38c158311872f8c9aa2066b720d68cd2d",
+      "bytes": 573165,
+      "kind": "top-level"
+    },
+    {
+      "url": "https://testingcf.jsdelivr.net/gh/StageDog/tavern_resource/dist/util/mvu_zod.js",
+      "path": "/vendor/script-host/mvu/mvu_zod.js",
+      "sha256": "78c40f52d81022d9d769a923a49e673b8babb562656051a7d0410b6b19f45184",
+      "bytes": 4705,
+      "kind": "top-level"
+    },
+    {
+      "url": "https://testingcf.jsdelivr.net/npm/@earendil-works/pi-ai@0.85.1/+esm",
+      "path": "/vendor/script-host/closure/npm/@earendil-works/pi-ai@0.85.1/_esm.js",
+      "sha256": "aaf106c29929927a9dcf8b05b5f5710d88d65c8af9c4b1d1e40f95189869605b",
+      "bytes": 48945,
+      "kind": "closure"
+    },
+    {
+      "url": "https://testingcf.jsdelivr.net/npm/@earendil-works/pi-ai@0.85.1/api/anthropic-messages.lazy/+esm",
+      "path": "/vendor/script-host/closure/npm/@earendil-works/pi-ai@0.85.1/api/anthropic-messages.lazy/_esm.js",
+      "sha256": "aafd5cea67ca69c2182089e53a62b7cded36eee3799ed59008de8703da9a739d",
+      "bytes": 2233,
+      "kind": "closure"
+    },
+    {
+      "url": "https://testingcf.jsdelivr.net/npm/@earendil-works/pi-ai@0.85.1/api/google-generative-ai.lazy/+esm",
+      "path": "/vendor/script-host/closure/npm/@earendil-works/pi-ai@0.85.1/api/google-generative-ai.lazy/_esm.js",
+      "sha256": "29d14c89b19822db1a122709baa26ead0f143b20c3f602d463db702567c108bc",
+      "bytes": 2238,
+      "kind": "closure"
+    },
+    {
+      "url": "https://testingcf.jsdelivr.net/npm/@earendil-works/pi-ai@0.85.1/api/google-shared/+esm",
+      "path": "/vendor/script-host/closure/npm/@earendil-works/pi-ai@0.85.1/api/google-shared/_esm.js",
+      "sha256": "2949043669d824a62bb2cf6b85ae2c0d188a8c756f60a3e3805f91f1b8b1fcf4",
+      "bytes": 10846,
+      "kind": "closure"
+    },
+    {
+      "url": "https://testingcf.jsdelivr.net/npm/@earendil-works/pi-ai@0.85.1/api/mistral-conversations.lazy/+esm",
+      "path": "/vendor/script-host/closure/npm/@earendil-works/pi-ai@0.85.1/api/mistral-conversations.lazy/_esm.js",
+      "sha256": "39179f1220ead9bc70df60dfab9f8151639663281e0e37925ac8f7af89ae6851",
+      "bytes": 2242,
+      "kind": "closure"
+    },
+    {
+      "url": "https://testingcf.jsdelivr.net/npm/@earendil-works/pi-ai@0.85.1/api/openai-codex-responses.lazy/+esm",
+      "path": "/vendor/script-host/closure/npm/@earendil-works/pi-ai@0.85.1/api/openai-codex-responses.lazy/_esm.js",
+      "sha256": "40325df653471306a3ecb8c765717be1166986a598fb345dbc0e8a17e43535d2",
+      "bytes": 2244,
+      "kind": "closure"
+    },
+    {
+      "url": "https://testingcf.jsdelivr.net/npm/@earendil-works/pi-ai@0.85.1/api/openai-completions.lazy/+esm",
+      "path": "/vendor/script-host/closure/npm/@earendil-works/pi-ai@0.85.1/api/openai-completions.lazy/_esm.js",
+      "sha256": "95e22a162c9ebb53d76c824274724fea877ca1b63477f15095e7e127562bfb48",
+      "bytes": 2233,
+      "kind": "closure"
+    },
+    {
+      "url": "https://testingcf.jsdelivr.net/npm/@earendil-works/pi-ai@0.85.1/api/openai-responses.lazy/+esm",
+      "path": "/vendor/script-host/closure/npm/@earendil-works/pi-ai@0.85.1/api/openai-responses.lazy/_esm.js",
+      "sha256": "762cba6d7bdbd1b66a76a379fd3a837ceca9b0dd7093418559b5931dcc1a915f",
+      "bytes": 2227,
+      "kind": "closure"
+    },
+    {
+      "url": "https://testingcf.jsdelivr.net/npm/@earendil-works/pi-ai@0.85.1/api/simple-options/+esm",
+      "path": "/vendor/script-host/closure/npm/@earendil-works/pi-ai@0.85.1/api/simple-options/_esm.js",
+      "sha256": "032b14ee605ca3f4a0892fd0486f2a0161e0ab5e5326c81e07280a6250eb3063",
+      "bytes": 3510,
+      "kind": "closure"
+    },
+    {
+      "url": "https://testingcf.jsdelivr.net/npm/@earendil-works/pi-ai@0.85.1/providers/ant-ling.models/+esm",
+      "path": "/vendor/script-host/closure/npm/@earendil-works/pi-ai@0.85.1/providers/ant-ling.models/_esm.js",
+      "sha256": "85f9bd749253eb26b546bc3127c0c6c44c31af5729e14863329ea9e3b8fb404b",
+      "bytes": 1867,
+      "kind": "closure"
+    },
+    {
+      "url": "https://testingcf.jsdelivr.net/npm/@earendil-works/pi-ai@0.85.1/providers/anthropic.models/+esm",
+      "path": "/vendor/script-host/closure/npm/@earendil-works/pi-ai@0.85.1/providers/anthropic.models/_esm.js",
+      "sha256": "a2e14751f67703f04abe9ac4ad233e16797503251b723bce2e8beb4882352fc9",
+      "bytes": 5736,
+      "kind": "closure"
+    },
+    {
+      "url": "https://testingcf.jsdelivr.net/npm/@earendil-works/pi-ai@0.85.1/providers/baseten.models/+esm",
+      "path": "/vendor/script-host/closure/npm/@earendil-works/pi-ai@0.85.1/providers/baseten.models/_esm.js",
+      "sha256": "37408d9116ff6379244728191bc844a0b531bae65602e77c1de2b867a4f1128b",
+      "bytes": 13011,
+      "kind": "closure"
+    },
+    {
+      "url": "https://testingcf.jsdelivr.net/npm/@earendil-works/pi-ai@0.85.1/providers/cerebras.models/+esm",
+      "path": "/vendor/script-host/closure/npm/@earendil-works/pi-ai@0.85.1/providers/cerebras.models/_esm.js",
+      "sha256": "27b4058b1313ec7cf975d9ded1d0d5c5e067654f4f236be918c3d3d4544fd0ba",
+      "bytes": 1346,
+      "kind": "closure"
+    },
+    {
+      "url": "https://testingcf.jsdelivr.net/npm/@earendil-works/pi-ai@0.85.1/providers/deepseek.models/+esm",
+      "path": "/vendor/script-host/closure/npm/@earendil-works/pi-ai@0.85.1/providers/deepseek.models/_esm.js",
+      "sha256": "33308c4ef75345d6f2807ff797fa718e6e2b31e7d729382d46844eacdeebc59e",
+      "bytes": 2053,
+      "kind": "closure"
+    },
+    {
+      "url": "https://testingcf.jsdelivr.net/npm/@earendil-works/pi-ai@0.85.1/providers/fireworks.models/+esm",
+      "path": "/vendor/script-host/closure/npm/@earendil-works/pi-ai@0.85.1/providers/fireworks.models/_esm.js",
+      "sha256": "30c39de53b2ab1b43c28bbffe62eb928c884fbda816e4cd1e1ec274996f4be62",
+      "bytes": 10488,
+      "kind": "closure"
+    },
+    {
+      "url": "https://testingcf.jsdelivr.net/npm/@earendil-works/pi-ai@0.85.1/providers/github-copilot.models/+esm",
+      "path": "/vendor/script-host/closure/npm/@earendil-works/pi-ai@0.85.1/providers/github-copilot.models/_esm.js",
+      "sha256": "111b239658a681ec7d80c03bfd4a41825af69acdbded9c2b3fc93798a19e64b5",
+      "bytes": 16815,
+      "kind": "closure"
+    },
+    {
+      "url": "https://testingcf.jsdelivr.net/npm/@earendil-works/pi-ai@0.85.1/providers/google.models/+esm",
+      "path": "/vendor/script-host/closure/npm/@earendil-works/pi-ai@0.85.1/providers/google.models/_esm.js",
+      "sha256": "64a30b32c1b22e861cb6e41637a9a5012398f1120cfe828b0e02462056080153",
+      "bytes": 8157,
+      "kind": "closure"
+    },
+    {
+      "url": "https://testingcf.jsdelivr.net/npm/@earendil-works/pi-ai@0.85.1/providers/groq.models/+esm",
+      "path": "/vendor/script-host/closure/npm/@earendil-works/pi-ai@0.85.1/providers/groq.models/_esm.js",
+      "sha256": "d28a3e140d28e9ca3c9a377198d31991a9d260e5e4eb0ee59ec77e8c1d93ef23",
+      "bytes": 2929,
+      "kind": "closure"
+    },
+    {
+      "url": "https://testingcf.jsdelivr.net/npm/@earendil-works/pi-ai@0.85.1/providers/huggingface.models/+esm",
+      "path": "/vendor/script-host/closure/npm/@earendil-works/pi-ai@0.85.1/providers/huggingface.models/_esm.js",
+      "sha256": "8547bd86bf6db674a6d2374a49d408495c343298d3f55f3289ff7b5af6512d18",
+      "bytes": 25417,
+      "kind": "closure"
+    },
+    {
+      "url": "https://testingcf.jsdelivr.net/npm/@earendil-works/pi-ai@0.85.1/providers/kimi-coding.models/+esm",
+      "path": "/vendor/script-host/closure/npm/@earendil-works/pi-ai@0.85.1/providers/kimi-coding.models/_esm.js",
+      "sha256": "ca8cc53e57cad0d758f6567245b38c4cbf6df55e5e6cf4f54329f1081e0e3824",
+      "bytes": 1983,
+      "kind": "closure"
+    },
+    {
+      "url": "https://testingcf.jsdelivr.net/npm/@earendil-works/pi-ai@0.85.1/providers/minimax-cn.models/+esm",
+      "path": "/vendor/script-host/closure/npm/@earendil-works/pi-ai@0.85.1/providers/minimax-cn.models/_esm.js",
+      "sha256": "d38417a974d6437f024842354712774c7fe238e0b033f701559c09255dd16ba5",
+      "bytes": 1370,
+      "kind": "closure"
+    },
+    {
+      "url": "https://testingcf.jsdelivr.net/npm/@earendil-works/pi-ai@0.85.1/providers/minimax.models/+esm",
+      "path": "/vendor/script-host/closure/npm/@earendil-works/pi-ai@0.85.1/providers/minimax.models/_esm.js",
+      "sha256": "b0fbfa819b7042ece7a87bbd0fb8147bc25040df1d39f1631f15e2576b0c738e",
+      "bytes": 1346,
+      "kind": "closure"
+    },
+    {
+      "url": "https://testingcf.jsdelivr.net/npm/@earendil-works/pi-ai@0.85.1/providers/mistral.models/+esm",
+      "path": "/vendor/script-host/closure/npm/@earendil-works/pi-ai@0.85.1/providers/mistral.models/_esm.js",
+      "sha256": "859f8ef86ffda353308951c8cdf7f38250b70549225f56fd6a4145bf3d555b31",
+      "bytes": 9232,
+      "kind": "closure"
+    },
+    {
+      "url": "https://testingcf.jsdelivr.net/npm/@earendil-works/pi-ai@0.85.1/providers/moonshotai-cn.models/+esm",
+      "path": "/vendor/script-host/closure/npm/@earendil-works/pi-ai@0.85.1/providers/moonshotai-cn.models/_esm.js",
+      "sha256": "6e767a53a5d94f6b59dd7d35a4782b205f654ccc4e0ff792f6e73ebd2ff9bc17",
+      "bytes": 5054,
+      "kind": "closure"
+    },
+    {
+      "url": "https://testingcf.jsdelivr.net/npm/@earendil-works/pi-ai@0.85.1/providers/moonshotai.models/+esm",
+      "path": "/vendor/script-host/closure/npm/@earendil-works/pi-ai@0.85.1/providers/moonshotai.models/_esm.js",
+      "sha256": "de448381afd928beb8bd39cc2a2f202f93cd7ce6dc8d87101dc75ec07177ad2b",
+      "bytes": 5015,
+      "kind": "closure"
+    },
+    {
+      "url": "https://testingcf.jsdelivr.net/npm/@earendil-works/pi-ai@0.85.1/providers/nvidia.models/+esm",
+      "path": "/vendor/script-host/closure/npm/@earendil-works/pi-ai@0.85.1/providers/nvidia.models/_esm.js",
+      "sha256": "583e1946cebec0b212b5da2b2b0a04382d9c4b00702f67b7310ff2401ed50375",
+      "bytes": 10767,
+      "kind": "closure"
+    },
+    {
+      "url": "https://testingcf.jsdelivr.net/npm/@earendil-works/pi-ai@0.85.1/providers/openai-codex.models/+esm",
+      "path": "/vendor/script-host/closure/npm/@earendil-works/pi-ai@0.85.1/providers/openai-codex.models/_esm.js",
+      "sha256": "d86c3b16ec21896b459a145dfbbf2d5d717b46796092fecc29fd1454d46bc83d",
+      "bytes": 4240,
+      "kind": "closure"
+    },
+    {
+      "url": "https://testingcf.jsdelivr.net/npm/@earendil-works/pi-ai@0.85.1/providers/openai.models/+esm",
+      "path": "/vendor/script-host/closure/npm/@earendil-works/pi-ai@0.85.1/providers/openai.models/_esm.js",
+      "sha256": "8eacfd16faac329c100e0876eb59f0e8d20314b3d8f048bf79d4359f3d9f5f9d",
+      "bytes": 16192,
+      "kind": "closure"
+    },
+    {
+      "url": "https://testingcf.jsdelivr.net/npm/@earendil-works/pi-ai@0.85.1/providers/opencode-go.models/+esm",
+      "path": "/vendor/script-host/closure/npm/@earendil-works/pi-ai@0.85.1/providers/opencode-go.models/_esm.js",
+      "sha256": "b31ec28bd63a96db13b75ba38871f8551f97d80de3953ec231d6a6fabe4456be",
+      "bytes": 11455,
+      "kind": "closure"
+    },
+    {
+      "url": "https://testingcf.jsdelivr.net/npm/@earendil-works/pi-ai@0.85.1/providers/opencode.models/+esm",
+      "path": "/vendor/script-host/closure/npm/@earendil-works/pi-ai@0.85.1/providers/opencode.models/_esm.js",
+      "sha256": "b4467f94b5964ba32301d4bba544828fa5518b6978c951aaafdfafe6e48be3ae",
+      "bytes": 26795,
+      "kind": "closure"
+    },
+    {
+      "url": "https://testingcf.jsdelivr.net/npm/@earendil-works/pi-ai@0.85.1/providers/openrouter.models/+esm",
+      "path": "/vendor/script-host/closure/npm/@earendil-works/pi-ai@0.85.1/providers/openrouter.models/_esm.js",
+      "sha256": "cf79274dff5481a59ab2c484a5869f6f2513f0809c273decda8a1da2758213d1",
+      "bytes": 147332,
+      "kind": "closure"
+    },
+    {
+      "url": "https://testingcf.jsdelivr.net/npm/@earendil-works/pi-ai@0.85.1/providers/qwen-token-plan-cn.models/+esm",
+      "path": "/vendor/script-host/closure/npm/@earendil-works/pi-ai@0.85.1/providers/qwen-token-plan-cn.models/_esm.js",
+      "sha256": "7bc43d045d9f6f46909309fc24831fc1d1d2779ffae5709961a5f274fac8d574",
+      "bytes": 8675,
+      "kind": "closure"
+    },
+    {
+      "url": "https://testingcf.jsdelivr.net/npm/@earendil-works/pi-ai@0.85.1/providers/qwen-token-plan-individual.models/+esm",
+      "path": "/vendor/script-host/closure/npm/@earendil-works/pi-ai@0.85.1/providers/qwen-token-plan-individual.models/_esm.js",
+      "sha256": "4cfa7e9e5917388f01e1dc1513c29e7d908787d4c44beff139f2353b3e3e5145",
+      "bytes": 4933,
+      "kind": "closure"
+    },
+    {
+      "url": "https://testingcf.jsdelivr.net/npm/@earendil-works/pi-ai@0.85.1/providers/qwen-token-plan.models/+esm",
+      "path": "/vendor/script-host/closure/npm/@earendil-works/pi-ai@0.85.1/providers/qwen-token-plan.models/_esm.js",
+      "sha256": "aa8accab18586d6d2ad8a54f27edafc4af05f1a59e8386c871c937d1432633ea",
+      "bytes": 8684,
+      "kind": "closure"
+    },
+    {
+      "url": "https://testingcf.jsdelivr.net/npm/@earendil-works/pi-ai@0.85.1/providers/together.models/+esm",
+      "path": "/vendor/script-host/closure/npm/@earendil-works/pi-ai@0.85.1/providers/together.models/_esm.js",
+      "sha256": "de7902074f624a66ab53a729811da18b1ca8c6400d8599612e64a5e4a8f9471f",
+      "bytes": 11349,
+      "kind": "closure"
+    },
+    {
+      "url": "https://testingcf.jsdelivr.net/npm/@earendil-works/pi-ai@0.85.1/providers/vercel-ai-gateway.models/+esm",
+      "path": "/vendor/script-host/closure/npm/@earendil-works/pi-ai@0.85.1/providers/vercel-ai-gateway.models/_esm.js",
+      "sha256": "c18922df4d018923db455213a12616799722767c05e6956b154f42e649b98a6a",
+      "bytes": 71857,
+      "kind": "closure"
+    },
+    {
+      "url": "https://testingcf.jsdelivr.net/npm/@earendil-works/pi-ai@0.85.1/providers/xai.models/+esm",
+      "path": "/vendor/script-host/closure/npm/@earendil-works/pi-ai@0.85.1/providers/xai.models/_esm.js",
+      "sha256": "9c140362d812492e5116c5addc65358029cb87dbfa8e6995d6f153261407d8bf",
+      "bytes": 1619,
+      "kind": "closure"
+    },
+    {
+      "url": "https://testingcf.jsdelivr.net/npm/@earendil-works/pi-ai@0.85.1/providers/xiaomi-token-plan-ams.models/+esm",
+      "path": "/vendor/script-host/closure/npm/@earendil-works/pi-ai@0.85.1/providers/xiaomi-token-plan-ams.models/_esm.js",
+      "sha256": "b2b80b8b91c383ea4ce28978c75aea6a271343223f85f9b8520580e2becbb464",
+      "bytes": 1290,
+      "kind": "closure"
+    },
+    {
+      "url": "https://testingcf.jsdelivr.net/npm/@earendil-works/pi-ai@0.85.1/providers/xiaomi-token-plan-cn.models/+esm",
+      "path": "/vendor/script-host/closure/npm/@earendil-works/pi-ai@0.85.1/providers/xiaomi-token-plan-cn.models/_esm.js",
+      "sha256": "e139f8f4e3ed62dc4cc89e37381a229efe38f601f0f4b333e71d79d1eef3ad40",
+      "bytes": 1283,
+      "kind": "closure"
+    },
+    {
+      "url": "https://testingcf.jsdelivr.net/npm/@earendil-works/pi-ai@0.85.1/providers/xiaomi-token-plan-sgp.models/+esm",
+      "path": "/vendor/script-host/closure/npm/@earendil-works/pi-ai@0.85.1/providers/xiaomi-token-plan-sgp.models/_esm.js",
+      "sha256": "d74b21cac1346e4e136e0847dc944ad77cb59809e559413a38f6f112827d18ee",
+      "bytes": 1290,
+      "kind": "closure"
+    },
+    {
+      "url": "https://testingcf.jsdelivr.net/npm/@earendil-works/pi-ai@0.85.1/providers/xiaomi.models/+esm",
+      "path": "/vendor/script-host/closure/npm/@earendil-works/pi-ai@0.85.1/providers/xiaomi.models/_esm.js",
+      "sha256": "c96030047c7d949893a5cd48c618ad9a2b2e3ccfeaca7e8899ee4ad9a4a1d33f",
+      "bytes": 1593,
+      "kind": "closure"
+    },
+    {
+      "url": "https://testingcf.jsdelivr.net/npm/@earendil-works/pi-ai@0.85.1/providers/zai-coding-cn.models/+esm",
+      "path": "/vendor/script-host/closure/npm/@earendil-works/pi-ai@0.85.1/providers/zai-coding-cn.models/_esm.js",
+      "sha256": "79c860adedbd5a843bf558023bdfee2547d2729037a162367f72f8fee4521b4a",
+      "bytes": 5199,
+      "kind": "closure"
+    },
+    {
+      "url": "https://testingcf.jsdelivr.net/npm/@earendil-works/pi-ai@0.85.1/providers/zai.models/+esm",
+      "path": "/vendor/script-host/closure/npm/@earendil-works/pi-ai@0.85.1/providers/zai.models/_esm.js",
+      "sha256": "0fbc01b6f1762577742bb178191ec28a2188e82f917f270d51ac81c103a93540",
+      "bytes": 3796,
+      "kind": "closure"
+    },
+    {
+      "url": "https://testingcf.jsdelivr.net/npm/@google/genai@2.21.0/+esm",
+      "path": "/vendor/script-host/closure/npm/@google/genai@2.21.0/_esm.js",
+      "sha256": "4e391d23f2cacac47835ccc47758cb0ef63c9da7904d51ff12a6d21e626e54ef",
+      "bytes": 372930,
+      "kind": "closure"
+    },
+    {
+      "url": "https://testingcf.jsdelivr.net/npm/@intlify/core-base/+esm",
+      "path": "/vendor/script-host/closure/npm/@intlify/core-base/_esm.js",
+      "sha256": "64d4e61c376d056ccf1e9983498cb6be923ac77aefa059c20acda3c5dddb53d4",
+      "bytes": 19028,
+      "kind": "closure"
+    },
+    {
+      "url": "https://testingcf.jsdelivr.net/npm/@intlify/shared/+esm",
+      "path": "/vendor/script-host/closure/npm/@intlify/shared/_esm.js",
+      "sha256": "b8f47f0e8f5595500aa98845f94b4f1081100b9f60e08a28f981434b3fce99de",
+      "bytes": 5255,
+      "kind": "closure"
+    },
+    {
+      "url": "https://testingcf.jsdelivr.net/npm/compare-versions/+esm",
+      "path": "/vendor/script-host/closure/npm/compare-versions/_esm.js",
+      "sha256": "72aca95e36fb70155e5f43546fe668c010fe82fd13e5a45d39427b26fed0a6f6",
+      "bytes": 2470,
+      "kind": "closure"
+    },
+    {
+      "url": "https://testingcf.jsdelivr.net/npm/compare-versions@6.1.1/+esm",
+      "path": "/vendor/script-host/closure/npm/compare-versions@6.1.1/_esm.js",
+      "sha256": "72aca95e36fb70155e5f43546fe668c010fe82fd13e5a45d39427b26fed0a6f6",
+      "bytes": 2470,
+      "kind": "closure"
+    },
+    {
+      "url": "https://testingcf.jsdelivr.net/npm/json5/+esm",
+      "path": "/vendor/script-host/closure/npm/json5/_esm.js",
+      "sha256": "39805a3d9701b8ed20e892ccf86223f928382aa17edfc2361e6c5c76a473d3b2",
+      "bytes": 27420,
+      "kind": "closure"
+    },
+    {
+      "url": "https://testingcf.jsdelivr.net/npm/json5@2.2.3/+esm",
+      "path": "/vendor/script-host/closure/npm/json5@2.2.3/_esm.js",
+      "sha256": "39805a3d9701b8ed20e892ccf86223f928382aa17edfc2361e6c5c76a473d3b2",
+      "bytes": 27420,
+      "kind": "closure"
+    },
+    {
+      "url": "https://testingcf.jsdelivr.net/npm/jsonrepair/+esm",
+      "path": "/vendor/script-host/closure/npm/jsonrepair/_esm.js",
+      "sha256": "d74e6d2d78d2b12a8b32482657f5efa7691d09534551eb700a32ee741ffba362",
+      "bytes": 8324,
+      "kind": "closure"
+    },
+    {
+      "url": "https://testingcf.jsdelivr.net/npm/jsonrepair@3.15.0/+esm",
+      "path": "/vendor/script-host/closure/npm/jsonrepair@3.15.0/_esm.js",
+      "sha256": "d74e6d2d78d2b12a8b32482657f5efa7691d09534551eb700a32ee741ffba362",
+      "bytes": 8324,
+      "kind": "closure"
+    },
+    {
+      "url": "https://testingcf.jsdelivr.net/npm/klona/+esm",
+      "path": "/vendor/script-host/closure/npm/klona/_esm.js",
+      "sha256": "e6bb95d703905b5d1eed18561ba26568159f383f4b1f7a351de864c26ce8366b",
+      "bytes": 1246,
+      "kind": "closure"
+    },
+    {
+      "url": "https://testingcf.jsdelivr.net/npm/klona@2.0.6/+esm",
+      "path": "/vendor/script-host/closure/npm/klona@2.0.6/_esm.js",
+      "sha256": "e6bb95d703905b5d1eed18561ba26568159f383f4b1f7a351de864c26ce8366b",
+      "bytes": 1246,
+      "kind": "closure"
+    },
+    {
+      "url": "https://testingcf.jsdelivr.net/npm/mathjs/+esm",
+      "path": "/vendor/script-host/closure/npm/mathjs/_esm.js",
+      "sha256": "e4f96c41f285c679208828138f3d19a5a0bc364dac729078516029aa998c7dd7",
+      "bytes": 666500,
+      "kind": "closure"
+    },
+    {
+      "url": "https://testingcf.jsdelivr.net/npm/zod/v4/core/+esm",
+      "path": "/vendor/script-host/closure/npm/zod/v4/core/_esm.js",
+      "sha256": "1bd3b454a789837ccbb8c37700042e466d3cb12dfa7549bfcc93b10f021519b9",
+      "bytes": 409468,
+      "kind": "closure"
+    }
+  ]
+}

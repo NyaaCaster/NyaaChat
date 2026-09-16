@@ -31,6 +31,7 @@ import {
   extractCharaJson,
 } from "../lib/sillyTavernImport";
 import { exportCharacterPng, imageBlobToCoverWebp } from "../lib/pngCard";
+import { toNativeCardJson } from "../lib/sillyTavernScripts";
 import { loadCover, saveCover, deleteCover, COVER_MARKER } from "../lib/coverStorage";
 import { BaseModal } from "./BaseModal";
 import { DeleteConfirmDialog } from "./DeleteConfirmDialog";
@@ -198,25 +199,32 @@ export function CharacterEditModal({
       ...(coverImage ? { coverImage } : {}),
       // Preserve card data this modal has no editor for, so editing+saving a
       // character never silently strips its character-scoped regex (managed in
-      // the 正则 panel) or the shared-system metadata groundwork. The retired
-      // ST-compat `extensions` field is deliberately NOT carried over — it went
-      // away with the extension compatibility system.
+      // the 正则 panel), its card JS scripts (managed in the 脚本库 panel), or the
+      // shared-system metadata groundwork. The retired ST-compat `extensions`
+      // field is deliberately NOT carried over — it went away with the extension
+      // compatibility system.
       ...(initialCharacter?.regexScripts ? { regexScripts: initialCharacter.regexScripts } : {}),
+      ...(initialCharacter?.scripts ? { scripts: initialCharacter.scripts } : {}),
       ...(initialCharacter?.version !== undefined ? { version: initialCharacter.version } : {}),
       ...(initialCharacter?.globalId ? { globalId: initialCharacter.globalId } : {}),
       ...(initialCharacter?.author ? { author: initialCharacter.author } : {}),
       ...(initialCharacter?.source ? { source: initialCharacter.source } : {}),
       ...(initialCharacter?.intro ? { intro: initialCharacter.intro } : {}),
-      ...(initialCharacter?.shared ? { shared: initialCharacter.shared } : {}),
+      // `shared` 用 `!== undefined` 而不是真值判定：显式 `false`（"本地卡"）也是一个
+      // 真实状态，不能被保存流程悄悄抹成 undefined（t17 与原生卡导出侧同口径）。
+      ...(initialCharacter?.shared !== undefined ? { shared: initialCharacter.shared } : {}),
       ...(initialCharacter?.owner ? { owner: initialCharacter.owner } : {}),
+      // t17：标签。此前这里**漏了** `tags` —— 导入的卡一旦在编辑弹窗里保存，
+      // 标签就被静默抹掉（与 t9 修掉的 scripts 丢字段是同一类缺口）。空数组视同没有。
+      ...(initialCharacter?.tags?.length ? { tags: initialCharacter.tags } : {}),
     });
 
     onClose();
   };
 
   // Assemble the character from the current (possibly edited) modal state, plus
-  // the card data this modal has no editor for (regex / shared metadata) carried
-  // from initialCharacter. Shared by both export formats.
+  // the card data this modal has no editor for (regex / card JS scripts / shared
+  // metadata) carried from initialCharacter. Shared by both export formats.
   const buildCurrentCharacter = useCallback((): CharacterSettings => ({
     id: initialCharacter?.id || cardIdRef.current,
     name: name.trim(),
@@ -227,13 +235,16 @@ export function CharacterEditModal({
       ? { coverImage: COVER_MARKER }
       : {}),
     ...(initialCharacter?.regexScripts ? { regexScripts: initialCharacter.regexScripts } : {}),
+    ...(initialCharacter?.scripts ? { scripts: initialCharacter.scripts } : {}),
     ...(initialCharacter?.version !== undefined ? { version: initialCharacter.version } : {}),
     ...(initialCharacter?.globalId ? { globalId: initialCharacter.globalId } : {}),
     ...(initialCharacter?.author ? { author: initialCharacter.author } : {}),
     ...(initialCharacter?.source ? { source: initialCharacter.source } : {}),
     ...(initialCharacter?.intro ? { intro: initialCharacter.intro } : {}),
-    ...(initialCharacter?.shared ? { shared: initialCharacter.shared } : {}),
+    // 与 handleSave 同一口径：`shared` 保留显式 `false`，`tags` 非空才带（t17）。
+    ...(initialCharacter?.shared !== undefined ? { shared: initialCharacter.shared } : {}),
     ...(initialCharacter?.owner ? { owner: initialCharacter.owner } : {}),
+    ...(initialCharacter?.tags?.length ? { tags: initialCharacter.tags } : {}),
   }), [initialCharacter, name, description, firstMes, worldInfo, coverRemoved]);
 
   /** Resolve the cover blob to use as the export PNG's pixel carrier: the
@@ -262,6 +273,9 @@ export function CharacterEditModal({
   // (same parsing as the selection modal's import), so the author can swap in a
   // revised card before publishing. The shared metadata + id are preserved (we
   // only pull name/description/firstMes/worldInfo + cover from the import).
+  // NOTE: the incoming card's regexScripts/scripts are deliberately NOT adopted —
+  // this modal has no editor for either, and on save the character keeps its own
+  // (see buildCurrentCharacter / handleSave). Symmetric for both fields.
   const importInputRef = React.useRef<HTMLInputElement>(null);
   const [importError, setImportError] = useState<string | null>(null);
 
@@ -315,21 +329,13 @@ export function CharacterEditModal({
   const exportNyaaChat = async () => {
     // NyaaChat-native character card embedded in a PNG (tEXt `chara`). The JSON
     // is a lossless round-trip of CharacterSettings, deliberately NOT shaped
-    // like a SillyTavern card: regex stays under our own top-level
-    // `regexScripts`. The retired ST-compat `extensions` blob is not emitted.
+    // like a SillyTavern card: regex stays under our own top-level `regexScripts`
+    // and card JS scripts under `scripts`. The retired ST-compat `extensions`
+    // blob is not emitted. The shape itself lives in `sillyTavernScripts.ts`
+    // (`toNativeCardJson`) so it can be asserted in node — this modal must not
+    // hand-assemble the card JSON (that is how `scripts` got dropped once).
     const c = buildCurrentCharacter();
-    const data = {
-      format: "nyaachat-character",
-      version: 1,
-      name: c.name,
-      description: c.description,
-      ...(c.firstMes ? { firstMes: c.firstMes } : {}),
-      worldInfo: c.worldInfo ?? [],
-      ...(c.regexScripts && c.regexScripts.length ? { regexScripts: c.regexScripts } : {}),
-      ...(c.author ? { author: c.author } : {}),
-      ...(c.source ? { source: c.source } : {}),
-      ...(c.intro ? { intro: c.intro } : {}),
-    };
+    const data = toNativeCardJson(c);
     const cover = await resolveCoverBlob(c.id);
     const png = await exportCharacterPng(data, cover);
     downloadPng(png, "NyaaChatChar");

@@ -1,5 +1,6 @@
 import React, {
   useCallback,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -52,6 +53,13 @@ import {
   subscribePluginRuntime,
   updatePluginConfig,
 } from "../plugins";
+import {
+  clearPluginErrors,
+  getPluginErrorCounts,
+  getPluginErrors,
+  subscribePluginErrors,
+  type PluginLogRecord,
+} from "../plugins/pluginLog";
 import { useAppSettings } from "../lib/settingsContext";
 import { BaseModal } from "./BaseModal";
 import { ToggleSwitch } from "./SettingsFormBits";
@@ -148,6 +156,14 @@ export function ExtensionsModal({ isOpen, onClose }: ExtensionsModalProps) {
   const runtimeSnapshot: PluginStateMap = useSyncExternalStore(
     subscribePluginRuntime,
     getPluginRuntimeSnapshot,
+  );
+
+  // P6 观测层：**错误计数**快照（引用稳定，仅在记录变更时替换）—— 列表行角标用。
+  // 详情页的「运行日志」区在 `PluginDetail` 内单独订阅同一个 store（按 pluginId 取记录），
+  // 这样"某个插件新报一条错"只重渲染它的详情页，而不是整张列表。
+  const errorCounts: Record<string, number> = useSyncExternalStore(
+    subscribePluginErrors,
+    getPluginErrorCounts,
   );
 
   // 启用/停用必须写进 `AppState.plugins[id].enabled`（运行时快照只是只读视图，
@@ -338,6 +354,7 @@ export function ExtensionsModal({ isOpen, onClose }: ExtensionsModalProps) {
                     plugin={plugin}
                     enabled={stateOf(plugin).enabled}
                     isActive={selected?.meta.id === plugin.meta.id}
+                    errorCount={errorCounts[plugin.meta.id] ?? 0}
                     onSelect={() => handleSelect(plugin.meta.id)}
                   />
                 ))}
@@ -423,11 +440,16 @@ export function ExtensionsModal({ isOpen, onClose }: ExtensionsModalProps) {
  * 行内**没有启用开关**（用户 2026-09-15 要求）：启用状态用右侧绿点表示、与供应商
  * 列表一致，开关只放在详情页 —— 这样"点一下选中"与"拖一下排序"都不会误触启用。
  * 行内容也**不显示版本号**（版本与 id 在详情页头部）。
+ *
+ * P6 增补：该插件有 **error 级**日志时，绿点左侧再显示一个红色小圆点 + 条数
+ * （与绿点刻意区分：绿=启用，红=有错误），让"某个插件在静默报错"在列表层就可见。
  */
 interface SortablePluginRowProps {
   plugin: NyaaPlugin;
   enabled: boolean;
   isActive: boolean;
+  /** 该插件的 error 级日志条数（0 ⇒ 不显示角标）。 */
+  errorCount: number;
   onSelect: () => void;
 }
 
@@ -435,6 +457,7 @@ function SortablePluginRow({
   plugin,
   enabled,
   isActive,
+  errorCount,
   onSelect,
 }: SortablePluginRowProps) {
   const {
@@ -499,6 +522,19 @@ function SortablePluginRow({
           >
             {plugin.meta.name}
           </span>
+          {errorCount > 0 && (
+            <span
+              className="inline-flex items-center gap-1 flex-shrink-0"
+              title={`${errorCount} 条错误日志`}
+              aria-label={`${errorCount} 条错误日志`}
+              role="img"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
+              <span className="text-[10px] leading-none tabular-nums text-red-500 dark:text-red-400">
+                {errorCount}
+              </span>
+            </span>
+          )}
           {enabled && (
             <span
               className="w-1.5 h-1.5 rounded-full bg-green-500 flex-shrink-0"
@@ -613,6 +649,200 @@ function PluginDetail({
           </div>
         )}
       </div>
+
+      {/* P6 F3：运行日志 —— 插件侧与框架侧（setup / 事件处理器 / 后端调用 …）的报错都汇到
+          这里，普通用户无需开 DevTools 就能看到"哪个插件出错了"。 */}
+      <PluginRunLog pluginId={meta.id} />
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// P6 F3：插件运行日志区
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** 剪贴板写入失败的兜底文案停留时长。 */
+const COPY_FEEDBACK_MS = 2000;
+
+/** 单条日志里的"首行消息"（完整消息在展开区/复制内容里）。 */
+function firstLineOf(message: string): string {
+  const line = message.split("\n")[0] ?? "";
+  return line.trim() || "(空消息)";
+}
+
+function logTimeOf(at: number): string {
+  try {
+    return new Date(at).toLocaleTimeString();
+  } catch {
+    return "";
+  }
+}
+
+/** 复制到剪贴板的文本（时间 + 级别 + 作用域 + 完整消息 + 栈），供贴进 issue / 日志。 */
+function formatLogRecordForCopy(record: PluginLogRecord): string {
+  const head =
+    `[${new Date(record.at).toLocaleString()}] ` +
+    `${record.level === "error" ? "错误" : "警告"} ` +
+    `${record.scope} — ${record.message}` +
+    (record.count > 1 ? `（×${record.count}）` : "");
+  return record.stack ? `${head}\n${record.stack}` : head;
+}
+
+/**
+ * 写剪贴板：优先 async Clipboard API，失败/不可用（非安全上下文、旧浏览器）时退回
+ * 临时 `<textarea>` + `execCommand("copy")`。返回是否成功，供按钮给出"已复制/复制失败"。
+ */
+async function copyTextToClipboard(text: string): Promise<boolean> {
+  try {
+    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    /* 落到下面的兜底 */
+  }
+  try {
+    const area = document.createElement("textarea");
+    area.value = text;
+    area.setAttribute("readonly", "");
+    area.style.position = "fixed";
+    area.style.top = "0";
+    area.style.left = "0";
+    area.style.opacity = "0";
+    document.body.appendChild(area);
+    area.select();
+    const ok = document.execCommand("copy");
+    document.body.removeChild(area);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 插件的「运行日志」区（P6 F3）。
+ *
+ * 订阅 `src/plugins/pluginLog` 的 store（`useSyncExternalStore`，与运行时快照同一范式），
+ * 展示该插件的最近 ≤20 条 `error` / `warn` 记录：时间 + 级别 + 作用域 + 首行消息，
+ * 有栈的可展开看完整 stack；另有「复制」「清空」。
+ *
+ * ⚠️ 版式约束（详情面板曾出现横向滚动条）：本区沿用外层 `min-w-0` / `break-all` /
+ * `whitespace-pre-wrap`，长栈与长作用域只在自己内部换行或滚动，不撑宽弹窗。
+ */
+function PluginRunLog({ pluginId }: { pluginId: string }) {
+  // getSnapshot 必须返回**缓存引用**：pluginLog 内部保证没变更时同一引用，
+  // 因此这里用内联箭头即可（不会触发 "getSnapshot should be cached" 警告）。
+  const records = useSyncExternalStore(subscribePluginErrors, () => getPluginErrors(pluginId));
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(
+    () => () => {
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    },
+    [],
+  );
+
+  const errorCount = records.reduce((n, record) => (record.level === "error" ? n + 1 : n), 0);
+
+  const handleCopy = useCallback(async () => {
+    const ok = await copyTextToClipboard(records.map(formatLogRecordForCopy).join("\n\n"));
+    setCopyState(ok ? "copied" : "failed");
+    if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    copyTimerRef.current = setTimeout(() => setCopyState("idle"), COPY_FEEDBACK_MS);
+  }, [records]);
+
+  const handleClear = useCallback(() => {
+    clearPluginErrors(pluginId);
+    setExpandedId(null);
+  }, [pluginId]);
+
+  return (
+    <div className="space-y-2 min-w-0">
+      <div className="flex items-center justify-between gap-2 min-h-[1.25rem]">
+        <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+          运行日志
+          {errorCount > 0 && (
+            <span className="normal-case text-red-500 dark:text-red-400">{errorCount} 条错误</span>
+          )}
+        </span>
+        {records.length > 0 && (
+          <div className="flex items-center gap-1 flex-shrink-0">
+            <button
+              type="button"
+              onClick={() => void handleCopy()}
+              className="px-2 py-1 text-[11px] font-medium rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/10 transition-colors"
+            >
+              {copyState === "copied" ? "已复制" : copyState === "failed" ? "复制失败" : "复制"}
+            </button>
+            <button
+              type="button"
+              onClick={handleClear}
+              className="px-2 py-1 text-[11px] font-medium rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/10 transition-colors"
+            >
+              清空
+            </button>
+          </div>
+        )}
+      </div>
+
+      {records.length === 0 ? (
+        <p className="text-[11px] text-gray-500 dark:text-gray-400">
+          暂无运行日志。插件报错（含 setup、事件处理器、后端调用）会记录在这里，保留最近 20 条。
+        </p>
+      ) : (
+        <ul className="space-y-2 list-none min-w-0">
+          {records.map((record) => (
+            <li
+              key={record.id}
+              className="rounded-xl border border-gray-200 dark:border-white/10 p-2.5 min-w-0"
+            >
+              <div className="flex items-start gap-2 min-w-0">
+                <span
+                  className={`mt-0.5 flex-shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-medium ${
+                    record.level === "error"
+                      ? "bg-red-500/10 text-red-600 dark:text-red-400"
+                      : "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                  }`}
+                >
+                  {record.level === "error" ? "错误" : "警告"}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-gray-500 dark:text-gray-400">
+                    <span className="tabular-nums">{logTimeOf(record.at)}</span>
+                    <span className="font-mono break-all">{record.scope}</span>
+                    {record.count > 1 && (
+                      <span className="tabular-nums" title="连续重复次数">
+                        ×{record.count}
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-0.5 text-xs text-gray-700 dark:text-gray-300 break-words">
+                    {firstLineOf(record.message)}
+                  </p>
+                  {record.stack && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setExpandedId(expandedId === record.id ? null : record.id)}
+                        className="mt-1 text-[11px] text-blue-600 dark:text-blue-400 hover:underline"
+                      >
+                        {expandedId === record.id ? "收起堆栈" : "展开堆栈"}
+                      </button>
+                      {expandedId === record.id && (
+                        <pre className="mt-1 max-h-40 overflow-auto rounded-lg bg-gray-100/70 dark:bg-black/30 p-2 text-[10px] leading-relaxed font-mono whitespace-pre-wrap break-all text-gray-600 dark:text-gray-400">
+                          {record.stack}
+                        </pre>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

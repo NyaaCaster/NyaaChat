@@ -33,6 +33,16 @@ export interface Message {
   /** Snapshot of the prompt at generation time so 重新生成 stays stable even
    *  if the source bubble was edited or deleted afterwards. */
   imagePrompt?: string;
+  /** 楼层变量（MVU 的 Model）。**按 swipe 索引**——对齐酒馆助手的
+   *  `chat[i].variables[swipe_id]` 形状；NyaaChat 没有 swipe/楼层分支概念，
+   *  因此恒为**单元素数组**（读写 `variables[0]`，等价 `swipe_id ≡ 0`）。
+   *  见 SSOT §2.5（D4）与「MVU 最低要求清单」M1。
+   *
+   *  ⚠️ 本字段曾被"退休守门"（`src/lib/sessionStorage.ts` 的
+   *  `RETIRED_MESSAGE_KEYS`）在**每次写会话时剥离**；2026-09-16 本阶段按 D3①
+   *  只撤销 **message 级**守门，session 级 `metadata` 仍被剥离。改动该守门时
+   *  务必同时确认本注释与 SSOT §3 的表述。 */
+  variables?: Array<Record<string, unknown>>;
 }
 
 export type ApiFormat = "openai" | "anthropic";
@@ -180,6 +190,10 @@ export interface CharacterSettings {
   /** Character-scoped regex scripts (ST: `data.extensions.regex_scripts`).
    *  Run after global scripts in the combined chain. */
   regexScripts?: RegexScript[];
+  /** 角色卡附带的 JS 脚本（ST: `data.extensions.tavern_helper.scripts`）。
+   *  与 `regexScripts` 对称：随角色卡导入/导出，切卡即切换。
+   *  执行器见 `plugins/js-slash-runner/`（SSOT §2.4 / §2.5）。 */
+  scripts?: ScriptRecord[];
   /** Reference-style cover-image marker (512×768). The actual pixels live as a
    *  WebP Blob in IndexedDB keyed by the character `id` (see lib/coverStorage),
    *  NOT inline here — base64 in the settings blob would blow the localStorage
@@ -248,6 +262,23 @@ export interface RegexScript {
   /** Depth-range gating (0 = last message, counting backwards). null = open. */
   minDepth: number | null;
   maxDepth: number | null;
+}
+
+export interface ScriptRecord {
+  id: string;
+  name: string;
+  /** 脚本体（JS 源码；可能是 `import '…'` 形式的 loader）。 */
+  content: string;
+  enabled: boolean;
+  /** —— 以下为 SillyTavern 互操作**保真字段**，NyaaChat 不解释其含义，
+   *  仅在导入/导出时原样往返（见 `src/lib/sillyTavernScripts.ts`）。—— */
+  /** ST: `type`（样例卡为 `"script"`）。 */
+  type?: string;
+  info?: string;
+  button?: unknown;
+  data?: unknown;
+  /** ST: `export_with`（`{ data?: boolean; button?: boolean }`）。 */
+  exportWith?: { data?: boolean; button?: boolean };
 }
 
 /** 单用户维度的插件持久化状态（`AppState.plugins` 的值类型）。
@@ -412,6 +443,13 @@ export interface ChatSession {
   characterName: string;
   messages: Message[];
   createdAt: number;
+  /** 会话级变量（MVU 的"更新到聊天变量"开关写入的 `stat_data` 等）。
+   *  ⚠️ 刻意**不**沿用 ST 的 `chat_metadata` 命名（D3①：那是被摘除的扩展
+   *  兼容面名称，`settingsBackup.ts` 仍在剥离它）。
+   *  ⚠️ 新增会话级字段时**必须**同步 `ChatInterface.tsx` 的自动保存重建处
+   *  （那里是逐字段重建 session 对象，不 spread `currentSession`，
+   *  漏改会让该字段在第一次自动保存时静默丢失）。 */
+  variables?: Record<string, unknown>;
 }
 
 export interface LogEntry {

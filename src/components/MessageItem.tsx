@@ -460,8 +460,46 @@ export const MessageItem = React.memo(function MessageItem({
   // candidates — user input and the edit textarea always stay plain. Image
   // bubbles are never cards.
   const frontendParts = React.useMemo(() => {
+    // 入口诊断（临时，定位"卡片没渲染/未走到切卡"）：无条件记录 + warn + 全局数组，
+    // 保证在应用内日志面板与 devtools 都能看到；并记下早退原因。
+    try {
+      const diag = {
+        enabled: frontendRenderingEnabled,
+        role: message.role,
+        imageUrl: !!message.imageUrl,
+        hasFence: typeof regexedContent === "string" && regexedContent.indexOf("```") >= 0,
+        hasUpdateVariable: typeof regexedContent === "string" && regexedContent.indexOf("<UpdateVariable") >= 0,
+        hasPlaceholder: typeof regexedContent === "string" && regexedContent.indexOf("StatusPlaceHolderImpl") >= 0,
+        scripts: Array.isArray(regexScripts) ? regexScripts.length : -1,
+        at: new Date().toISOString(),
+      };
+      const w = window as unknown as { __nyaFrontendCardDiag?: unknown[] };
+      w.__nyaFrontendCardDiag = (w.__nyaFrontendCardDiag || []).concat([diag]).slice(-20);
+      console.warn("[frontend-card] 入口诊断", diag);
+    } catch (e) { /* 诊断失败不影响渲染 */ }
     if (!frontendRenderingEnabled || message.imageUrl || message.role === "user") return null;
-    return splitFrontendContent(regexedContent);
+    const parts = splitFrontendContent(regexedContent);
+    // 临时诊断（定位"卡片没被切出来"）：正文含围栏或占位符时打一条。
+    try {
+      if (
+        regexedContent &&
+        (regexedContent.indexOf("```") >= 0 ||
+          regexedContent.indexOf("StatusPlaceHolderImpl") >= 0 ||
+          regexedContent.indexOf("<UpdateVariable") >= 0)
+      ) {
+        console.info("[frontend-card] 切分结果", {
+          types: parts ? parts.map((p) => p.type) : null,
+          hasFence: regexedContent.indexOf("```") >= 0,
+          fenceLangs: (regexedContent.match(/```[a-zA-Z0-9_-]*/g) || []).slice(0, 4),
+          hasPlaceholder: regexedContent.indexOf("StatusPlaceHolderImpl") >= 0,
+          hasUpdateVariable: regexedContent.indexOf("<UpdateVariable") >= 0,
+          // 临时诊断（真机排查"气泡里到底显示了什么"）：渲染链路（正则之后）的正文首尾。
+          head: regexedContent.slice(0, 200),
+          tail: regexedContent.slice(-160),
+        });
+      }
+    } catch (e) { /* 诊断失败不影响渲染 */ }
+    return parts;
   }, [frontendRenderingEnabled, regexedContent, message.imageUrl, message.role]);
 
   // Markdown view (when not a card). Placeholders then normalize.
