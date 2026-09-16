@@ -1000,17 +1000,25 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
       // ⚠️ 放在**组装之后、发送之前**：放在组装之前的话，脚本侧读到的仍是上一轮状态。
       emitPluginEvent("generation:started", { messageId: botMessageId });
 
-      // SSOT §2.7：best-effort，`completion:settings-ready`（脚本侧
-      // CHAT_COMPLETION_SETTINGS_READY）。MVU 的 `eventMakeLast` 用它抓"生成结束"时机。
-      // ⚠️ 载荷口径：只给宿主**真正持有**的那部分（`ApiSettings` 只有 baseUrl/apiKey/model/
-      // isStreaming/apiFormat —— 采样参数在提供者配置侧，不在这里）。**刻意不编**
-      // temperature/max_tokens 之类"看起来该有"的字段：脚本侧缺什么会自行兜底，
-      // 而编出来的值会让脚本以为拿到了真实设置。紧随 generation:started 发射。
-      emitPluginEvent("completion:settings-ready", {
-        model: activeApi.model,
-        api_format: activeApi.apiFormat,
-        stream: activeApi.isStreaming === true,
-      });
+      // SSOT §2.7：`completion:settings-ready` **刻意不派发**（这里留注释而非代码）。
+      //
+      // 起因（真机报错，2026-09-16）：我曾按 §2.7 在此处发 `completion:settings-ready`
+      // 并带 `{model, api_format, stream}`，结果 MVU 侧抛出
+      //   `TypeError: Cannot read properties of undefined (reading 'filter')`
+      //   at dr (bundle.js) ← 其 `chat_completion_settings_ready` 处理器。
+      //
+      // 结论（两条独立证据）：
+      //  ① MVU 的 `__nyaShellProbe.events` 显示它**从未注册** `chat_completion_settings_ready`
+      //     的处理器（11 个已注册事件里没有它），却仍在被派发时进入分支并崩溃 —— 因为该分支读
+      //     的是酒馆式 `chat_completion_settings` / `chat` 结构，而宿主只持有 `ApiSettings`
+      //     （baseUrl/apiKey/model/isStreaming/apiFormat，**没有**采样参数、也没有该结构）。
+      //  ② 它真正需要的语义是"生成结束"（MVU 用 `eventMakeLast(CHAT_COMPLETION_SETTINGS_READY, …)`
+      //     抓包），而那条路径只在 MVU 的"额外模型解析"（`generate`/`generateRaw`）里用得上 ——
+      //     本阶段 NG4 明确不实现那两个 API，故 MVU 侧不会走到那里。
+      //
+      // 因此：**载荷契约不满足时宁可不派发**（派一个"看着像、其实缺字段"的载荷只会让脚本侧崩溃，
+      // 与 D9「未实现即显式报错、不静默糊弄」同一条纪律）。矩阵断言据此把该事件标为
+      // "因载荷契约不满足而不派发"，不计作已接线。
 
       // Request-side entry: url / model / advertised tools only. The rendered
       // prompt ("renderedMessages" — system / bypass / world-info / history) is
