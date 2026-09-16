@@ -616,19 +616,27 @@ srcdoc = `<script type="importmap">${JSON.stringify({ imports })}</script>` + �
 环境：`NyaaChat/dev-server/`，`python tools/rebuild-dev.py --up`（~95 s），URL `http://127.0.0.1:4095/`（**无鉴权**），容器 `nyaachat-dev-dev-app-1` / `-ext-host-1` / `-devlog-1`。
 纪律：**重建前确认源码稳定**（门禁全绿 + mtime 静止），重建后用**打包内字面量**证明生效（`docker image inspect` 的 `Created` 是 UTC）。
 
-`dev-server/tools/verify-js-slash-runner.py`（新增）断言清单：
+`dev-server/tools/verify-js-slash-runner.py`（新增）断言清单。**2026-09-16 晚已落地并跑通**（`python dev-server/tools/verify-js-slash-runner.py`，支持 `--only V5` / `--list`）；实现口径与「未覆盖」项见本节末尾的**执行说明**。
 
-| # | 断言 | 证据 |
-|---|---|---|
-| V1 | 镜像内产物含新代码 | `dev-app` 容器内 `index-*.js` 的**新字面量**（如 `js-slash-runner`、`nyaachat_vars_global`）出现次数 ≥1 |
-| V2 | 新代码进入产物 | 打包产物内出现 `js-slash-runner` 与 `nyaachat_vars_global` 字面量（各 ≥1 次） |
-| V2b | 撤销守门生效 | **行为断言**（P1 验收 4/5）：写入 `Message.variables` → 重载 → 仍在；`metadata` → 重载 → 仍被剥离。⚠️ **不得**用"常量名字面量消失"证明 —— 压缩产物里常量名会被改名（本项目既有教训） |
-| V3 | vendor 同源可达 | `GET /vendor/script-host/mvu/bundle.js` → 200 且响应体 sha256 == `PROVENANCE.md` 记录值 |
-| V4 | 导入样例卡得到 2 个脚本 | 端到端脚本（Playwright/CDP）导入 PNG → 断言 localStorage/IDB 中 `character.scripts.length == 2` |
-| V5 | 插件启用后脚本执行 | 断言 `Message.variables[0].stat_data` 存在且含 `世界`/`舍友列表` 键 |
-| V6 | 变量宏进 prompt | 经 `devlog` 取到本轮请求体，断言含 `<status_current_variables>` 与 `stat_data` 的 YAML，且**位于尾部 system 消息** |
-| V7 | 静态前缀未被污染 | 对比启用/停用插件两轮的静态前缀片段**逐字节一致** |
-| V8 | 前端卡 dashboard 渲染 | 断言楼层内 iframe 出现且 `getAllVariables()` 返回非空（通过 CDP 在 iframe 内求值） |
+| # | 断言 | 证据 | 实测结果 |
+|---|---|---|---|
+| V1 | 镜像内产物含新代码 | `dev-app` 容器内 `index-*.js` 的**新字面量**（如 `js-slash-runner`、`nyaachat_vars_global`）出现次数 ≥1 | ✅ 容器内 `index-Co_OvTuh.js` 三个字面量齐全 |
+| V2 | 新代码进入产物 | 打包产物内出现 `js-slash-runner` 与 `nyaachat_vars_global` 字面量（各 ≥1 次） | – 本地 `dist/` 是过期快照（实测旧 666 分钟）⇒ 记 **SKIP+原因**，不拿过期产物判失败；该断言已由 V1 用容器内产物覆盖 |
+| V2b | 撤销守门生效 | **行为断言**（P1 验收 4/5）：写入 `Message.variables` → 重载 → 仍在；`metadata` → 重载 → 仍被剥离。⚠️ **不得**用"常量名字面量消失"证明 —— 压缩产物里常量名会被改名（本项目既有教训） | ✅ 真实保存后 `variables` 保留、`metadata` 剥离 |
+| V3 | vendor 同源可达 | `GET /vendor/script-host/mvu/bundle.js` → 200 且响应体 sha256 == `PROVENANCE.md` 记录值 | ✅ `b0f30a7d…` 与 PROVENANCE 一致 |
+| V4 | 导入样例卡得到 2 个脚本 | 端到端脚本（Playwright/CDP）导入 PNG → 断言 localStorage/IDB 中 `character.scripts.length == 2` | ✅ `MVU` + `mvu_zod` |
+| V5 | 插件启用后脚本执行 | 断言 `Message.variables[0].stat_data` 存在且含 `世界`/`舍友列表` 键 | ✅ starter 楼层含两键 |
+| V6 | 变量宏进 prompt | 经 `devlog` 取到本轮请求体，断言含 `<status_current_variables>` 与 `stat_data` 的 YAML，且**位于尾部 system 消息** | ✅ 双证据：离线 `pipeline` 断言"动态落位 + 宏渲染为非空 YAML"；真实 devlog 里有**非空 YAML 块**（`世界: 当前时间 "07:30" …`）——P2 缺的实例证据就此补齐 |
+| V7 | 静态前缀未被污染 | 对比启用/停用插件两轮的静态前缀片段**逐字节一致** | ✅ 前缀 843 B；同变量重复一致、**跨变量变化仍逐字节一致**；对照（不含宏条目仍留前缀）成立 |
+| V8 | 前端卡 dashboard 渲染 | 断言楼层内 iframe 出现且 `getAllVariables()` 返回非空（通过 CDP 在 iframe 内求值） | ✅ 卡片 iframe 的 `getAllVariables().stat_data` 非空 |
+
+**执行说明（为什么这么实现，接手者必读）**
+
+1. **零新依赖的 CDP**：宿主只装了 `requests`，没有 `websocket-client`。脚本用 `socket + struct + base64` 手写了一个最小 RFC6455 客户端（文本帧 / 分片 / ping-pong / 掩码），因此 `verify-js-slash-runner.py` **只需标准库 + requests** 即可驱使无头 Chrome。
+2. **V6/V7 交给 Node 侧助手** `verify-js-slash-runner-helpers.ts`（Python 侧用 `npx tsx` 调用、只读它 stdout 的一行 JSON）。原因：这两项要跑真实的 `chatPipeline.buildRequestMessages` 并**逐字节**比较 prompt 前缀，而 devlog 里的 `renderedMessages` 是 **JS 对象字面量**（不是 JSON），Python 无法可靠解析。
+3. **V2b 必须触发一次真实写入**：`hydrateSessions()` 只把 `metadata` 从**内存缓存**剥掉，**不写回 IDB**；真正落盘的剥离在 `saveSession()`。所以"播种 → 重载 → 读 IDB"会**假失败**。脚本改为用 UI 驱动一次真实发送（应用自己的保存链路），再断言改后的数据。
+4. **V7 的切点不能写成 `content.includes("<session_rules>")`**：协议锚（第 0 条 system）的**说明文字本身**就含有该字样，会把它当成尾部、让"静态前缀"变成空串 ⇒ 字节比对退化成"空 == 空"的假通过。实现改为"**从第 1 条起、且以 `<session_rules>` 开头**的那条消息"作切点，并额外断言"前缀非空 + 含常驻条目"作为前置守卫。
+5. **仍未覆盖**：`§9 V6` 里"**位于尾部 system 消息**"这一条由离线 `pipeline` 模式断言（真实请求体因日志截断无法可靠判定位置）；V2 需要**新鲜 `dist/`**（跑 `npm run build`）才会真正执行。
 
 > V4–V8 需要登录 + 可用 LLM；若 dev LLM 不可用，则 V6 用"构造消息 + 直接调用 pipeline"的离线单测代替，并在交接文档如实标注**未做真实端到端**（沿用本项目"宁可标未验证，不写假通过"的纪律）。
 
@@ -664,8 +672,9 @@ osniff 下发 ⇒ 动态 import 被拒 ⇒ 库加载整轮中止、mvu/bundle.js
 | 2026-09-16 | **t1 实测修正 §5.3（重要）**：MVU 产物**不自包含** —— `mvu/bundle.js` 有 51 个、`mvu_zod.js` 有 5 个静态远程 ESM import（全部指向 `testingcf.jsdelivr.net/npm/…`）。故原"只映射 2 个 URL"的方案不足：那 56 个依赖会直接走公网 CDN（当前无 CSP 才"看起来能用"），网络不可达或真下发 `script-src 'self'` 时 MVU 整链失败。已新增 **t14**：用同一张 ASSETS 表把**传递闭包**自托管（闭合约 0.42 MB），并让更新脚本生成 **`manifest.json`**（`url → path + sha256`），P3 的 importmap 改为**由清单生成**而非手写。另记：`yaml`/`zod` 官方无 UMD ⇒ 用生成的最小 ESM 包装、**必须以 `<script type="module">` 加载**；zod 必须 v4（`.prefault` 已实测可用）。 |
 | 2026-09-16 | **新增 P6「插件观测层」（用户拍板）**：统一日志叶子 `src/plugins/pluginLog.ts` + 事件处理器归属修复 + 扩展面板运行日志区 + 全局错误兜底（F4，由 t6 在 App.tsx 接线）+ backend 失败记录（F6）。**F5（iframe 卡片脚本错误捕获）仍在 P3/t6。** 同时把 §2.1 的模块规则由"只允许两个模块"改写成**真实不变量（不得通向 `plugins/registry`）+ UI 原语登记式白名单**，使既有 `quote-tts → SettingsFormBits` 用法合规，并禁止插件复制 UI 原语。 |
 | 2026-09-16 | **深夜真机验收轮（v12-2043 → v12-2230，4 次修复）**。`3e255c5` 之后，前端卡状态栏在真机上"能渲染但读不到变量"，逐条定位并修复，均已提交（`9ca5caf` / `0acb763` / `bf2639e`）。**逐条如实登记**：<br>① **`getAllVariables()` 形状错误（`9ca5caf`）**：卡片 predefine 原先返回 `{global, chat, message}` 嵌套壳，而 ST 的 `getAllVariables()` 顶层就是合并后的变量表（卡片直接读 `vars.stat_data`）⇒ `stat_data` 永远 `undefined` ⇒ 状态栏每个字段落回**卡片里写死的字面兜底值**（真机：JSONPatch 已把 `世界.当前时间` 改成 07:05，面板仍显示 07:00）。改为返回 `message` 作用域的扁平快照。<br>② **提示词侧 `eventEmit` 丢参数（同 `9ca5caf`）**：`predefine` 的 `eventEmit(name, payload)` 只转发第一个参数，而 MVU 用 `eventEmit(VARIABLE_INITIALIZED, a, o)` 发两个 ⇒ zod 侧处理器拿到 `undefined`（真机 v12-1753 报 `Cannot read properties of undefined (reading 'forEach')`）。改为 `eventEmit(event, ...args)` 逐参转发，`srcdocHost.emit` 同步放宽为 `(name, ...args)`。<br>③ **围栏配对错误（同 `9ca5caf`，`detect.ts`）**：模型会在同一条消息里先给**裸 ``` 围栏**（"[美化]变量完成"正则产出的 CSS 片段）再给卡片围栏；"惰性正则配对"会拿裸围栏去配 ` ```html `，把真正的卡片开围栏当成 CSS 代码块的收尾 ⇒ 整条消息 `types: null`，正文 + CSS + 卡片 HTML 一起漏成气泡纯文本。改为**按行扫描**（`FENCE_LINE`，对齐 GFM"收尾围栏不得带 info string"），未闭合的**卡片**围栏按"到消息末尾"处理，未闭合的**普通**代码块不切。**该修复经 14 个构造形态 + 2 个真实序列（真卡文本回放）验证。**<br>④ **卡片 API 注入整体竞态（`0acb763`）**：`buildCardPredefineScript()` 第一行 `if (!bridge) return;` —— 卡片 iframe 可能早于插件 mount 完成就渲染（打开已有会话 / 楼层重渲染 / 宿主重挂载），那一刻 `window.parent.__nyaScriptHostBridge` 不存在 ⇒ **该 iframe 什么都不装** ⇒ 卡片的 `$(errorCatched(init))` 直接 `ReferenceError`，init 根本没跑。用户可见症状 = **"无法连接变量系统，当前仅显示静态卡面。"**（变装女友卡），非 MVU 卡则是状态栏整块不渲染。改为：不依赖桥的（`errorCatched` / `tavern_events` / 事件总线 / `__nyaCardDispatch` / `Mvu` getter）**无条件先装**；依赖桥的改**动态 getter**（每次调用现取桥，宿主重挂载后自动跟上）；另补上缺失的 `waitGlobalInitialized`，并广播一次 `__nyaCardReady` 供卡片重画。<br>⑤ **未闭合卡片围栏被切两遍（同 `0acb763`，`detect.ts`）**：未闭合分支原来 `continue`，后面再出现一行 ` ``` ` 会被当成新的开围栏，把同一张卡再切一遍 ⇒ `types: [card, markdown, card]`（真机 G·RPG 那次），卡片 HTML 源码夹在中间漏成正文。改为处理完**结束扫描**。<br>**验证方式（新增工具，已入 dev-server 仓 `a4acd75`）**：`dev-server/tools/verify-card-status.ts` —— 每张卡一个独立 Chrome profile，用仓库自己的 `convertSillyTavernCharacter` 导入卡片、向 IDB 播种"插件启用 + 该卡为当前角色 + 开场白"，reload 后采集宿主 iframe 诊断、每个卡片 iframe 的 `getAllVariables()` 形状与渲染文本、切分结果与未捕获错误。**修复前后各跑一遍**：修复前 苏婷卡报 `ReferenceError: errorCatched is not defined`、状态栏退化为 `--:-- 加载中...`；修复后 苏婷 / 变装女友 两张卡**零未捕获错误**且状态栏为真实变量（变装女友：好感度 85 / 羞耻度 70 / 勇气 25 / 顺从度 85 / 性欲 20、時刻 上午、場所 同居公寓·客厅）。 |
-| 2026-09-16 | **P2 待复核（如实登记）**：`substituteVariableMacros` 与永久条目分流（`chatPipeline.ts:831-844`）已落地，且真机日志里 `<status_current_variables>` **确实出现在组装后的 `session_rules` 中**（证明宏参与了渲染），但**尚未抓到"非空 `stat_data` 时输出合法 YAML 块"的实例**，`§8 P2 验收 1–5` 亦未写成可复跑断言。⇒ 在补出断言前，P2 **只记"代码已落地 + 宏有被展开的日志证据"**，不记"验收通过"。 |
-| 2026-09-16 | **待复核项汇总（接手者请优先结账）**：① §9 的 `verify-js-slash-runner.py` **未创建**（P2/P3/P4/P5 的验收断言因此都没有可复跑载体）；② P1 的四作用域真机往返（§8 P1 验收 4/5）需在 dev 上复跑；③ S-b/S-c/S-d（§2.4 的 spike 结论）仍未逐条复核；④ 本轮的卡片级验证（`verify-card-status.ts`）覆盖的是"宿主 iframe 起得来 + 变量写进楼层 + 卡片读到真实变量"，**未覆盖** §9 的 V6（变量宏进 prompt 的位置）与 V7（静态前缀逐字节一致）。 |
+| 2026-09-16 | **P2 复核结果（原「待复核」条，已更新）**：`substituteVariableMacros` 与永久条目分流（`chatPipeline.ts:831-844`）已落地，且真机日志里 `<status_current_variables>` **确实出现在组装后的 `session_rules` 中**（证明宏参与了渲染），但**尚未抓到"非空 `stat_data` 时输出合法 YAML 块"的实例**，`§8 P2 验收 1–5` 亦未写成可复跑断言。⇒ 该缺口已由下面的 §9 验收清单补齐（真实 devlog 里取到非空 YAML 块 + 离线逐字节断言）。**P2 现记"验收通过"**。 |
+| 2026-09-16 | **待复核项汇总（结账后状态）**：① ✅ §9 的 `verify-js-slash-runner.py` **已创建并跑通 V1–V8**（本条下一行）；② ⬜ P1 的四作用域真机往返（§8 P1 验收 4/5）仍未在 dev 上复跑；③ ⬜ S-b/S-c/S-d（§2.4 的 spike 结论）仍未逐条复核；④ ✅ 变量宏的非空 YAML 实例证据与静态前缀字节一致**已补**（V6/V7）；⑤ ⬜ §9 的 V6"位于尾部 system 消息"目前只由离线 `pipeline` 模式断言（真实请求体被日志截断，无法可靠判定位置）。 |
+| 2026-09-16 | **§9 验收清单落地并跑通（`verify-js-slash-runner.py`）**：V1–V8 全部通过（V2 记 SKIP+原因，见下表）。新增两个文件：`dev-server/tools/verify-js-slash-runner.py`（Python 主脚本，**手写最小 RFC6455/CDP 客户端** ⇒ 零新依赖）与 `dev-server/tools/verify-js-slash-runner-helpers.ts`（Node 侧助手，提供 V6/V7 需要的真实 `chatPipeline` 逐字节比较与 devlog 解析）。**连带补齐两项此前的缺口**：① **P2 的实例证据**——真实 devlog 里取到非空 YAML 块（`世界: 当前时间 "07:30" …`），"非空 `stat_data` → 合法 YAML"不再只有代码依据；② **V2b 的守门行为断言**（此前只有"设计上会剥离"的推断）。**三个实现陷阱已写入 §9 的执行说明**（V2b 必须触发真实写入、V7 的切点不能用 `includes("<session_rules>")`、V2 需新鲜 dist）。 |
 
 > 实施期间发现的偏离、spike 结论、未接线事件、未验证项，**必须追加到本表**，不得静默。
 

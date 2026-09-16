@@ -114,19 +114,25 @@ MVU 状态栏占位符的**宿主侧兜底**：当显示正则链里存在以 `<
 
 | 工具 | 用途 |
 |---|---|
-| `dev-server/tools/verify-card-status.ts` | **本轮的主力验证器**。每张卡一个独立 Chrome profile：用仓库自己的 `convertSillyTavernCharacter` 导入卡片 → 向 IDB 播种"插件启用 + 该卡为当前角色 + 开场白" → reload → 采集宿主 iframe 诊断（`__nyaScriptRunnerDiag()`）、**每个卡片 iframe** 的 `getAllVariables()` 形状与渲染文本、切分结果、未捕获错误 |
+| `dev-server/tools/verify-js-slash-runner.py` | **§9 验收清单 V1–V8 的可复跑载体**（`--only V5` 单跑 / `--list` 看清单）。手写了最小 RFC6455/CDP 客户端 ⇒ 零新依赖；V4/V5/V8 用无头 Chrome 播种 IDB 驱动，V2b 用 UI 触发一次真实保存 |
+| `dev-server/tools/verify-js-slash-runner-helpers.ts` | 上面那个脚本的 Node 侧助手：`pipeline` 模式离线跑真实 `buildRequestMessages`（V6 落位 + V7 逐字节比较），`devlog` 模式从落盘日志抽真实请求体（V6 实例证据）。**必须与 .py 一起改**：Python 侧只读它 stdout 的**一行 JSON** |
+| `dev-server/tools/verify-card-status.ts` | **逐卡验证器**。每张卡一个独立 Chrome profile：用仓库自己的 `convertSillyTavernCharacter` 导入卡片 → 向 IDB 播种"插件启用 + 该卡为当前角色 + 开场白" → reload → 采集宿主 iframe 诊断、**每个卡片 iframe** 的 `getAllVariables()` 形状与渲染文本、切分结果、未捕获错误 |
 | `dev-server/tools/diag-card-structure.ts` | 打印一张卡的脚本清单 / 世界书 `[initvar]` / 正则清单 / **状态栏 HTML 的 API 使用统计与读取相关行** |
 | `dev-server/tools/diag-regex-replacement.ts` | 打印某条正则的替换文本、**围栏行普查**（哪一行是"整行只有围栏"），排查状态栏不渲染 |
 
 用法：
 
 ```bash
+python dev-server/tools/verify-js-slash-runner.py                 # §9 V1–V8 全套
+python dev-server/tools/verify-js-slash-runner.py --only V5 --list
 npx tsx dev-server/tools/verify-card-status.ts "<卡1.png>" "<卡2.png>"
 npx tsx dev-server/tools/diag-card-structure.ts "<卡.png>"
 npx tsx dev-server/tools/diag-regex-replacement.ts "<卡.png>"
 ```
 
-**这套工具的价值在于"不需要用户截图"**：它是本轮 5 个缺陷里 4 个的定位手段（唯一例外是缺陷 4 的竞态，靠用户截图里的文案 + 代码阅读定位）。
+**这两层是互补的**：`verify-js-slash-runner.py` 断的是**样例卡 + 框架行为**（V1–V8 的固定清单）；
+`verify-card-status.ts` 断的是**任意一张卡的端到端**（用来复现"某张卡状态栏不对"）。本轮 5 个缺陷里，
+4 个由后者定位，V2b/V6/V7 这三项此前根本没有载体、由前者补上。
 
 ---
 
@@ -166,21 +172,50 @@ npx tsx dev-server/tools/diag-regex-replacement.ts "<卡.png>"
 - `python dev-server/tools/rebuild-dev.py --up` → 成功，`GET /` 200，`/__dev__/health` ok
 - **产物核对**（不靠时间戳）：容器内 bundle 含 `v12-2230` 字面量、且**不含**旧的 `getVariables("global"),` 嵌套形状
 
+### 4.4 §9 验收清单 V1–V8（`verify-js-slash-runner.py`，最终一跑）
+
+`python dev-server/tools/verify-js-slash-runner.py` → **通过 8 / 失败 0 / 跳过 1**：
+
+| # | 结果 | 关键证据 |
+|---|---|---|
+| V1 | ✅ | 容器内 `index-Co_OvTuh.js` 含 `js-slash-runner` / `nyaachat_vars_global` / `nyaCardDispatch` |
+| V2 | – SKIP | 本地 `dist/` 比源码旧 666 分钟 ⇒ **不拿过期产物判失败**（该断言已由 V1 用容器内产物覆盖） |
+| V2b | ✅ | 真实保存后 `Message.variables` 保留、`session.metadata` 被剥离 |
+| V3 | ✅ | `/vendor/script-host/mvu/bundle.js` 的 sha256 = `b0f30a7d269ed5af…`，与 `PROVENANCE.md` 一致 |
+| V4 | ✅ | 导入样例卡得 `MVU` + `mvu_zod` 两个脚本 |
+| V5 | ✅ | starter 楼层 `stat_data` 含 `世界`/`舍友列表` |
+| V6 | ✅ | 双证据：离线断言"动态落位 + 非空 YAML"；真实 devlog 里有非空 YAML 块（`世界: 当前时间 "07:30" …`） |
+| V7 | ✅ | 静态前缀 843 B；同变量重复一致、**跨变量变化仍逐字节一致**；对照（不含宏条目仍留前缀）成立 |
+| V8 | ✅ | 卡片 iframe 的 `getAllVariables().stat_data` 非空 |
+
+**实现要点（三个坑，详见 SSOT §9 执行说明）**：
+
+1. **零新依赖的 CDP**：宿主没有 `websocket-client`，脚本用 `socket + struct + base64` **手写了最小 RFC6455 客户端**，因此只需标准库 + `requests` 即可驱动无头 Chrome。
+2. **V2b 必须触发一次真实写入**：`hydrateSessions()` 只把 `metadata` 从**内存**剥掉、**不写回 IDB**；落盘的剥离在 `saveSession()`。只播种+重载会**假失败**。脚本改为 UI 驱动一次真实发送（应用自己的保存链路）。
+3. **V7 的切点不能用 `content.includes("<session_rules>")`**：协议锚的**说明文字本身**含该字样，会把"静态前缀"变成空串 ⇒ 字节比对退化成"空 == 空"的假通过。改为"**从第 1 条起、以 `<session_rules>` 开头**的那条消息"作切点，并加"前缀非空 + 含常驻条目"作前置守卫。
+
 ---
 
 ## 5. 仍需继续验证 / 已知问题（**接手者请优先结账**）
 
 ### 5.1 未复核项（SSOT §11 同步登记）
 
-1. **§9 的 `dev-server/tools/verify-js-slash-runner.py` 从未创建**。⇒ P2/P3/P4/P5 的验收断言（V1–V8）**都没有可复跑载体**。本轮的 `verify-card-status.ts` 覆盖了"宿主 iframe 起得来 + 变量写进楼层 + 卡片读到真实变量 + 切分正确"，但**未覆盖**：
-   - V6：变量宏进 prompt 的**位置**（须在尾部 system 消息）
-   - V7：静态前缀**逐字节一致**
-   - V2b：撤销守门的行为断言（写 `Message.variables` → 重载仍在；`metadata` → 仍被剥离）
-   - V4：导入样例卡 → `character.scripts.length == 2`
-2. **P2 的"非空 `stat_data` → 合法 YAML 块"没有实例证据**。已完成的部分：`substituteVariableMacros` + 永久条目分流（`chatPipeline.ts:831-844`）落地；真机日志里 `<status_current_variables>` **确实出现在组装后的 `session_rules` 中**（证明宏参与了渲染）。缺的是"非空值时的输出是否正确"。
-3. **P1 的四作用域真机往返**（§8 P1 验收 4/5）未在 dev 上复跑。
-4. **S-b / S-c / S-d**（§2.4 的 spike 结论）仍未逐条复核。
-5. **K1（CSP 未下发）** 依旧未修：修完后**必须**同步迁移脚本载体（`ScriptHost` 换实现）+ 前端卡载体（`__nyaCardDispatch` 是私有约定，见 SSOT §12 K6）。
+1. ✅ **已结账**：§9 的 `dev-server/tools/verify-js-slash-runner.py` **已创建并跑通 V1–V8**
+   （`python dev-server/tools/verify-js-slash-runner.py`；`--only V5` 单跑、`--list` 看清单）。
+   连同 Node 侧助手 `verify-js-slash-runner-helpers.ts` 一起，§9 的验收断言现已**全部有可复跑载体**。
+   本轮顺带补齐了两项旧缺口：**P2 的"非空 `stat_data` → 合法 YAML"实例证据**（真实 devlog 里
+   取到 `<status_current_variables>` 内为非空 YAML），以及 **V2b 的守门行为断言**。
+   详见 §4.4 与 SSOT §9 的执行说明。
+2. ⬜ **P1 的四作用域真机往返**（§8 P1 验收 4/5）：V2b 已覆盖 `message` 作用域"写入→真实保存→
+   重载仍在"，但 `chat` / `global` 两个作用域的真机往返仍未复跑。
+3. ⬜ **S-b / S-c / S-d**（§2.4 的 spike 结论）仍未逐条复核。
+4. ⬜ **§9 V6 的"位于尾部 system 消息"** 目前只由离线 `pipeline` 模式断言：真实请求体在
+   devlog 里被截断（`…`），无法可靠判定位置；离线断言用的是 `buildRequestMessages` 的真实
+   输出，因此结论可信，但"真实请求体上的位置"这一形态**没有直接证据**。
+5. ⬜ **§9 V2 需要新鲜 `dist/`** 才会真正执行（当前记 SKIP：本地 dist 比源码旧 666 分钟）。
+   要让它转绿需跑一次 `npm run build`；V1 已用**容器内产物**覆盖"新代码进产物"这一断言。
+6. ⬜ **K1（CSP 未下发）** 依旧未修：修完后**必须**同步迁移脚本载体（`ScriptHost` 换实现）
+   + 前端卡载体（`__nyaCardDispatch` 是私有约定，见 SSOT §12 K6）。
 
 ### 5.2 已知问题（不修，登记）
 
@@ -212,6 +247,8 @@ npx tsx dev-server/tools/diag-regex-replacement.ts "<卡.png>"
 >
 > 当前状态：脚本执行层 / 变量层 / 卡片脚本 IO / 脚本库 UI / 前端卡状态栏注入**都已落地并在真机跑通**（收尾基线 `bf2639e`，dev 构建 `v12-2230`）。本轮修掉 5 个真机缺陷（`getAllVariables` 形状、多参数事件、围栏配对、卡片 API 注入竞态、未闭合围栏被切两遍），详见 SSOT §11 最后一条。
 >
-> 下一件事（按优先级）：① **补 `dev-server/tools/verify-js-slash-runner.py`**，把 §9 的 V1–V8 写成可复跑断言（现有 `verify-card-status.ts` 可直接复用其 CDP/seeding 骨架）；② 补齐 P2 的"非空 `stat_data` → 合法 YAML"实例证据与 P1 的四作用域真机往返；③ 复核 §2.4 的 S-b/S-c/S-d。
+> **§9 的验收清单已落地并跑通**：`python dev-server/tools/verify-js-slash-runner.py` → V1–V8 通过 8 / 失败 0 / 跳过 1（V2 因本地 `dist/` 过期而记 SKIP+原因）。P2 的"非空 `stat_data` → 合法 YAML"实例证据、V2b 的守门行为断言**都已补齐**。
 >
-> **关键约束**：改 `plugins/js-slash-runner/executor/{predefine,srcdocHost}.ts` 前**必跑** `npx tsx dev-server/tools/check-script-host.ts`；不要用 PowerShell 重写源文件（改行尾会破坏 dev patch）；未经明确要求**不** commit/push；`dev-server/` 是**独立仓库**（`NyaaChat-dev.git`，分支 `main`），与主仓分开提交。
+> 下一件事（按优先级）：① 跑一次 `npm run build` 让 **§9 V2** 真正执行（当前 SKIP）；② 复跑 **P1 的四作用域真机往返**（`chat` / `global` 两作用域仍无真机断言）；③ 逐条复核 **S-b/S-c/S-d**（§2.4 spike 结论）；④ 若要让 V6 的"尾部 system 消息"有真实请求体证据，需要给 devlog 的请求体日志**关掉截断**（现在 `renderedMessages` 被 `…` 截断，只能离线断言）。
+>
+> **关键约束**：改 `plugins/js-slash-runner/executor/{predefine,srcdocHost}.ts` 前**必跑** `npx tsx dev-server/tools/check-script-host.ts`；不要用 PowerShell 重写源文件（改行尾会破坏 dev patch）；`.docs/` 下的文档是**纯 LF**（改动前先确认行尾，别整文件改 CRLF）；未经明确要求**不** commit/push；`dev-server/` 是**独立仓库**（`NyaaChat-dev.git`，分支 `main`），与主仓分开提交。
