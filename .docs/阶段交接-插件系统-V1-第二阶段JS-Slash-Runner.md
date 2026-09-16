@@ -81,6 +81,28 @@ MVU 要拉 56 个 closure，串行应答慢到让脚本宿主的 15s 超时先�
 
 ---
 
+### 1.6 第四轮：K1（安全头）修复 —— 含一处必须迁移载体才能补的部分
+
+**K1 的真身不是"没写"，而是"写了被吃掉"**：`nginx.conf` 的 server 级早就写了 5 个安全头，但
+`location = /index.html` 自带 `add_header`（Cache-Control/Pragma/Expires），按 nginx 的覆盖规则
+把父级那组**整组吃掉**；而 SPA 回退最终正命中该 location ⇒ 文档响应**一个安全头都没有**。
+
+| 项 | 结果 |
+|---|---|
+| 安全头真正下发 | ✅ 修前 `GET /` **0/5** → 修后 **5/5**（`/index.html`、任意 SPA 路由同）；`dev-server` 模板同源缺陷一并修（dev 现 6/6，并补上它此前漏的 `Permissions-Policy`） |
+| 值只定义一次 | ✅ `set $nyaHeader*` + 两处 `add_header $var`（避免"改一处漏一处"） |
+| 子资源 | ✅ `/assets/` 与 `/api/image-proxy/` 各补 `nosniff`（它们也自带 `add_header`）；CSP/XFO 对子资源无意义 |
+| **CSP 收紧到 `script-src 'self'`** | ❌ **本次未做，且不能做** —— 见下 |
+| 防漂移断言 | ✅ `verify-prod-artifacts.py --only K1`（凡自带 `add_header` 的 location 都必须带齐安全头） |
+
+**为什么 CSP 不能直接收紧（S-a4 沙箱实验的硬结论）**：给静态服务器下发与 nginx 一致的 CSP 后，
+宿主 iframe 的 `console` **连「宿主脚本构建」那行都没有** ⇒ srcdoc 的**内联**装配脚本被
+`script-src 'self'` 拒绝执行 ⇒ MVU 永不就绪、变量全空（卡片 iframe 的 `statKeys` 为空）。
+因此下发的版本**必须**保留 `'unsafe-inline'`；要收紧到 `'self'` 需先按 D13② 把内联脚本**外置成同源文件**，
+那是独立改动。**CSP 下发后已实测端到端 V4/V5/V8 仍全绿** ⇒ 当前这版不破坏 srcdoc 与前端卡。
+
+---
+
 ## 2. 本轮已修复 / 已实现（按文件）
 
 ### 2.1 `plugins/js-slash-runner/executor/predefine.ts`
@@ -300,8 +322,11 @@ npx tsx dev-server/tools/diag-regex-replacement.ts "<卡.png>"
    `worldinfo:updated` / `completion:settings-ready`。它们映射到脚本侧 BEST-EFFORT 档，
    本轮真实卡片（苏婷 / 变装女友）的状态栏与变量链均已跑通 ⇒ 补它们属于"扩大改动面"而非
    "修复已知缺陷"。**矩阵会持续把它们标成 SKIP，不会被误读成已接线。**
-2. ⬜ **K1（CSP 未下发）** 依旧未修：修完后**必须**同步迁移脚本载体（`ScriptHost` 换实现）
-   + 前端卡载体（`__nyaCardDispatch` 是私有约定，见 SSOT §12 K6）。
+2. 🟡 **K1 已部分修复**：安全头（含 CSP 的 `frame-ancestors`/`base-uri`/`form-action`/`default-src` 等
+   结构性限制）**已真正下发**，dev 与生产两侧都修好并有防漂移断言。
+   **仍未做的是"收紧 `script-src` 到 `'self'`"** —— S-a4 实验已判定它**必须先迁移脚本载体**
+   （把 srcdoc 的内联装配脚本外置成同源文件，靠 `import()` 加载），属独立改动；
+   当前 CSP 保留 `'unsafe-inline'`，是**登记在案**的收窄缺口（SSOT §12 K1）。
 
 > 已结账的（三轮累计）：§9 V1–V8 9/9；§8 P1 三作用域真机往返；§2.4 S-a/S-b/S-c/S-d 全部；
 > §8 P4 断言（早就有，本轮更正登记 + 收紧一处）；§2.7「必须」级 6/6。
