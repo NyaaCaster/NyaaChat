@@ -962,18 +962,28 @@ export default function App() {
         });
       },
     });
-    const api = createScriptHostApi({ character, identity: { user: "", char: "" } });
-    // 身份用 getter 提供活值（脚本宿主每次装配时读一次即可）。
+    // ⚠️ 必须传**活对象**（getter），不能传空快照 —— 这是真机"MVU 变量永不更新"的根因：
+    //    `scriptHostImpl` 内部 `const { character, identity } = args` 之后，`macros.substitute`
+    //    闭包捕获的是**这个对象**，并在**每次调用**时读 `identity.user` 来替换 `{{user}}` 宏。
+    //    传快照（`{user:"",char:""}`）⇒ `{{user}}` 被替换成**空字符串** ⇒ initvar 里的
+    //    `'{{user}}':` 键在 stat_data 里变成 `""` ⇒ 而 mvu_zod 的 schema 用**活值**
+    //    `getCurrentPersonaName()` 得到真实用户名 ⇒ 键缺失 ⇒ `safeParse` 永久失败 ⇒
+    //    **每条变量更新命令都被静默丢弃**（症状：状态栏数值永不变化、console 无警告）。
+    const liveIdentity = {
+      get user() {
+        const cur = settingsRef.current;
+        return cur.userRoles?.find((r) => r.id === cur.currentUserRoleId)?.name || "user";
+      },
+      get char() {
+        const cur = settingsRef.current;
+        return cur.characters?.find((c) => c.id === cur.currentCharacterId)?.name || "AI助手";
+      },
+    };
+    const api = createScriptHostApi({ character, identity: liveIdentity });
+    // 身份同样以 getter 暴露给脚本层（`getCurrentPersonaName()` / `SillyTavern.name1` 读它）。
     Object.defineProperty(api, "identity", {
       configurable: true,
-      get: () => {
-        const cur = settingsRef.current;
-        return {
-          user: cur.userRoles?.find((r) => r.id === cur.currentUserRoleId)?.name || "user",
-          char:
-            cur.characters?.find((c) => c.id === cur.currentCharacterId)?.name || "AI助手",
-        };
-      },
+      get: () => ({ user: liveIdentity.user, char: liveIdentity.char }),
     });
     setScriptHostApi(api);
     installPluginErrorSafetyNet();

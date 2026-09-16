@@ -24,6 +24,7 @@ export {
   flushGlobalVariables,
   hydrateVariables,
   isGlobalHydrated,
+  notifyVariablesChanged,
   readGlobalData,
   resetVariablesForTests,
   writeGlobalData,

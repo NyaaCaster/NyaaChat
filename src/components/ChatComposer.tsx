@@ -40,6 +40,18 @@ interface ChatComposerProps {
   isLoading: boolean;
   /** True while memory extraction is in progress — input is disabled. */
   extractionActive?: boolean;
+  /**
+   * True while the JS-Slash-Runner script host（MVU 变量系统）还没完成初始化。
+   *
+   * ⚠️ 这个窗口**必须**真的挡住输入，不能只给一行浮动提示：MVU 的变量初始化是
+   * 「读当前聊天 → 写回楼层变量」的一次性动作，且**失败后不重试**（它会把
+   * `initialized_lorebooks` 记下来，之后永远跳过 initvar）。用户抢在初始化前发送
+   * 消息，会让 MVU 在"聊天里还没有可用的变量楼层"时完成初始化，此后整个会话的
+   * 变量都是空的、状态栏永远只有兜底值（真机实证：日志里 MVU 打出
+   * 「不存在任何一条消息，退出」）。所以这里禁用输入 + 发送按钮，直到宿主侧
+   * 判定"已到达不会造成初始化失败的状态"（见 plugins/js-slash-runner/plugin.tsx）。
+   */
+  scriptInitBusy?: boolean;
   settings: AppState;
   onSettingsChange: (next: AppState) => void;
 }
@@ -64,6 +76,7 @@ export function ChatComposer({
   onStop,
   isLoading,
   extractionActive = false,
+  scriptInitBusy = false,
   settings,
   onSettingsChange,
 }: ChatComposerProps) {
@@ -468,6 +481,8 @@ export function ChatComposer({
         <form
           onSubmit={(e) => {
             e.preventDefault();
+            // 初始化窗口内不发送（见 props 上 scriptInitBusy 的说明）。
+            if (scriptInitBusy) return;
             if (isLoading) onStop();
             else onSubmit();
           }}
@@ -476,6 +491,7 @@ export function ChatComposer({
           <textarea
             ref={textareaRef}
             value={input}
+            disabled={scriptInitBusy}
             onChange={(e) => onInputChange(e.target.value)}
             onPaste={handlePaste}
             onKeyDown={(e) => {
@@ -484,6 +500,7 @@ export function ChatComposer({
               const mod = e.ctrlKey || e.metaKey;
               const submit = () => {
                 e.preventDefault();
+                if (scriptInitBusy) return;
                 if (isLoading) onStop();
                 else onSubmit();
               };
@@ -512,11 +529,13 @@ export function ChatComposer({
               }
             }}
             placeholder={
-              settings.sendMode === "enter"
-                ? "发送消息... (Enter 发送)"
-                : "发送消息... (Ctrl + Enter 发送)"
+              scriptInitBusy
+                ? "正在初始化角色脚本…（完成前无法发送）"
+                : settings.sendMode === "enter"
+                  ? "发送消息... (Enter 发送)"
+                  : "发送消息... (Ctrl + Enter 发送)"
             }
-            className="flex-1 py-3 pl-4 pr-12 bg-transparent outline-none resize-none text-sm leading-6 placeholder-gray-400 dark:placeholder-gray-600 focus:placeholder-transparent transition-all"
+            className="flex-1 py-3 pl-4 pr-12 bg-transparent outline-none resize-none text-sm leading-6 placeholder-gray-400 dark:placeholder-gray-600 focus:placeholder-transparent transition-all disabled:cursor-not-allowed disabled:opacity-60"
             rows={1}
           />
           <button
@@ -527,7 +546,7 @@ export function ChatComposer({
               }
             }}
             type={isLoading ? "button" : "submit"}
-            disabled={extractionActive || (!input.trim() && attachments.length === 0 && !isLoading)}
+            disabled={scriptInitBusy || extractionActive || (!input.trim() && attachments.length === 0 && !isLoading)}
             className={`absolute right-2 bottom-2 p-2 rounded-lg text-white disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300 flex items-center justify-center overflow-hidden ${
               isLoading
                 ? "bg-red-500 hover:bg-red-600 shadow-glow shadow-red-500/50"
@@ -544,6 +563,12 @@ export function ChatComposer({
             )}
           </button>
         </form>
+        {scriptInitBusy && (
+          <div className="mt-2 flex items-center justify-center gap-2 text-[11px] font-medium text-amber-600 dark:text-amber-400">
+            <span className="inline-block h-3 w-3 rounded-full border-2 border-current border-t-transparent animate-spin" />
+            正在初始化角色脚本（变量系统就绪后自动恢复输入）
+          </div>
+        )}
         <div className="text-center mt-3">
           <p className="text-[11px] text-gray-400 dark:text-gray-500 font-medium tracking-wide">
             内容由 LLM 服务提供。生成内容仅供参考。

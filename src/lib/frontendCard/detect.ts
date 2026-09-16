@@ -83,50 +83,71 @@ export function splitFrontendContent(content: string): FrontendContentPart[] | n
   const parts: FrontendContentPart[] = [];
   let cardIndex = 0;
   let markdownFrom = 0;
-  let open: { start: number; isCard: boolean; body: string } | null = null;
+
+  /** 围栏行的语言标签（`""` = 不带 info string 的裸围栏）；不是纯围栏行时返回 `null`。 */
+  const langOf = (line: string): string | null => {
+    const m = FENCE_LINE.exec(line);
+    return m ? (m[1] ?? "").toLowerCase() : null;
+  };
 
   for (let i = 0; i < lines.length; i++) {
-    if (open) {
-      if (!FENCE_LINE.test(lines[i])) continue;
-      if (open.isCard) {
-        if (open.start > markdownFrom) {
-          parts.push({ type: "markdown", content: content.slice(markdownFrom, open.start) });
+    const lang = langOf(lines[i]);
+    if (lang === null) continue;
+
+    // 找这个开围栏的**收尾**：GFM 规定「收尾围栏不得带 info string」。这一条是必须的，
+    // 不是学究 —— 真机 v12-2400 的失败形态正是「正文里一个**未闭合的裸 ```**，后面紧跟
+    // 应用自己插入的 ```html 状态栏围栏」：旧实现让**任何**围栏行都能收尾，于是那个
+    // ```html 被当成裸块的收尾吃掉 ⇒ 整条消息一张卡都切不出来（`types: null`，正文与
+    // 状态栏 HTML 一起漏成气泡里的纯文本；日志表现为 fenceLangs ["```","```html","```"]）。
+    let close = i + 1;
+    while (close < lines.length && langOf(lines[close]) !== "") close++;
+    const terminated = close < lines.length;
+
+    // 裸围栏，且它到收尾之间还夹着**带标签**的围栏行 ⇒ 这个裸 ``` 是一个被美化正则留下的
+    // 未闭合代码块（它的"收尾"其实属于内部那张卡片）。跳过它，让扫描器走到那个 ```html 上
+    // 正常开卡片 —— 这正是上面那个失败形态的正确解。
+    if (lang === "" && terminated) {
+      let taggedInside = false;
+      for (let k = i + 1; k < close; k++) {
+        const inner = langOf(lines[k]);
+        if (inner !== null && inner !== "") {
+          taggedInside = true;
+          break;
         }
-        parts.push({ type: "card", html: open.body, index: cardIndex++ });
-        markdownFrom = Math.min(fenceEnd(i), content.length);
       }
-      open = null;
-      continue;
+      if (taggedInside) continue;
     }
 
-    const opening = FENCE_LINE.exec(lines[i]);
-    if (!opening) continue;
-
-    // 先找收尾围栏，才知道 body 长什么样（决定裸围栏算不算卡片）。
-    let close = i + 1;
-    while (close < lines.length && !FENCE_LINE.test(lines[close])) close++;
-    const terminated = close < lines.length;
     const bodyStart = lineStarts[i] + lines[i].length + 1;
     const bodyEnd = terminated ? lineStarts[close] : content.length;
     const body = content.slice(bodyStart, Math.max(bodyStart, bodyEnd));
-    const lang = (opening[1] ?? "").toLowerCase();
     const isCard = lang === "html" || lang === "htm" || isFrontendHtml(body);
 
+    if (!isCard) {
+      // 普通代码块：整块跳过（内容仍留在 markdown 段里，由结尾那次 slice 兜住）；
+      // 未闭合的普通代码块**不切**，等价于旧行为。
+      if (terminated) i = close;
+      continue;
+    }
+
+    if (lineStarts[i] > markdownFrom) {
+      // 只推非空的 markdown 段：两张卡片紧邻时，两段之间只隔一个换行，推出去会变成
+      // 一个空白段（`[card, markdown, card]`），让 UI 多渲染一个空的 Markdown 块。
+      const between = content.slice(markdownFrom, lineStarts[i]);
+      if (between.trim()) parts.push({ type: "markdown", content: between });
+    }
+    parts.push({ type: "card", html: body, index: cardIndex++ });
+
     if (!terminated) {
-      // 未闭合：只有卡片围栏才按"到末尾"处理；未闭合的普通代码块保持原样（不切）。
-      // ⚠️ 处理完必须**结束整个扫描**（不能只 continue）：否则后面再出现的 ``` 行会被当成
-      //    新的开围栏，把同一张卡片又切一遍 —— 真机 v12-2135 实测的 `[card, markdown, card]`
-      //    （同一张卡出现两次、卡片 HTML 源码夹在中间漏成正文）。
-      if (!isCard) continue;
-      if (lineStarts[i] > markdownFrom) {
-        parts.push({ type: "markdown", content: content.slice(markdownFrom, lineStarts[i]) });
-      }
-      parts.push({ type: "card", html: body, index: cardIndex++ });
+      // 未闭合的**卡片**围栏：按"一直到消息末尾"处理（对应"整段无围栏就当卡片"的兜底），
+      // 否则模型漏掉收尾围栏那一下，状态栏就会整块漏成正文。处理完必须**结束整个扫描**，
+      // 不能只 continue：否则后面再出现的 ``` 会被当成新的开围栏，把同一张卡又切一遍
+      // （真机 v12-2135 的 `[card, markdown, card]`）。
       markdownFrom = content.length;
       break;
     }
-
-    open = { start: lineStarts[i], isCard, body };
+    markdownFrom = Math.min(fenceEnd(close), content.length);
+    i = close;
   }
 
   if (parts.length === 0) return null;

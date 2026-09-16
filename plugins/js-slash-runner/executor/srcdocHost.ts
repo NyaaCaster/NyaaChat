@@ -102,7 +102,7 @@ function buildBootstrapScript(bridge: ScriptHostBridge, importMap: Record<string
   async function main() {
     // probe 先装、库后载：这样库加载期的 console 也被记进环形缓冲（用户只需一条命令看全貌）。
     try { if (window.__nyaInstallProbes) window.__nyaInstallProbes(); } catch (e) {}
-    try { console.info('[js-slash-runner] 宿主脚本构建 v12-2300'); } catch (e) {}
+    try { console.info('[js-slash-runner] 宿主脚本构建 v12-2800'); } catch (e) {}
     // F3（t7 实测）：逐库容错 —— 五个库原先共用一个 try，任一个失败（典型：
     // 后缀为 mjs 的库被 nosniff 以 application/octet-stream 拒掉）就会整轮中止、
     // 所有脚本都不跑。改为单库失败只记一条并继续；全部结束后若有失败库，汇总一条

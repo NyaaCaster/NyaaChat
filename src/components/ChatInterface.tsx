@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from "react";
+import React, { useState, useRef, useEffect, useCallback, forwardRef, useImperativeHandle, useSyncExternalStore } from "react";
 import { Loader2, Sparkles } from "lucide-react";
 import { ApiSettings, Message, AppState, LogEntry, ChatSession } from "../types";
 import { fetchChatCompletion, type ApiMessage, type LlmTool, type ToolExecutor } from "../lib/api";
@@ -6,9 +6,9 @@ import { generateImage } from "../lib/imageApi";
 import { generateComfyImage, type ComfyProgress } from "../lib/comfyuiApi";
 import { newId } from "../lib/id";
 import { saveSession, loadSessions } from "../lib/sessionStorage";
-import { setVariableAdapter } from "../lib/variables";
+import { notifyVariablesChanged, setVariableAdapter } from "../lib/variables";
 import type { MessagePatch } from "../lib/variables";
-import { getScriptInitBusy } from "../plugins/scriptHost";
+import { getScriptInitBusy, subscribeScriptInitBusy } from "../plugins/scriptHost";
 import { getActiveImageProvider, getActiveLlmProvider, imageProviderToApiSettings, providerToApiSettings } from "../lib/providers";
 import { searchWeb, WebSearchError, WEB_SEARCH_FEATURE_ENABLED } from "../lib/searchApi";
 import { searchKb } from "../lib/knowledgeApi";
@@ -139,6 +139,12 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  // 脚本宿主（JS-Slash-Runner / MVU 变量系统）是否还在初始化。为 true 时**必须**
+  // 禁用输入与发送：抢在初始化前发送会让 MVU 在"聊天里还没有可用变量楼层"时完成
+  // 一次性、且不可重试的变量初始化，此后整个会话的变量都是空的（真机实证）。
+  // 状态由插件侧 setScriptInitBusy 推送，解除条件也由插件侧判定（见
+  // plugins/js-slash-runner/plugin.tsx 的 beginBusy / settleInitBusy）。
+  const scriptInitBusy = useSyncExternalStore(subscribeScriptInitBusy, getScriptInitBusy);
   const [imageGeneratingId, setImageGeneratingId] = useState<string | null>(null);
   // Transient ComfyUI progress for the bubble currently rendering (queue +
   // step %). Keyed by the generating message id; cleared when it finishes.
@@ -217,7 +223,14 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
   // 反映到 messagesRef，而 MVU 会在**同一个 tick** 里连写两次。每次渲染后 React 状态已经
   // 包含此前排入的补丁，因此在这里清空（渲染一定在处理过这些更新之后）。
   const varPatchOverlayRef = useRef<Map<string, MessagePatch>>(new Map());
-  varPatchOverlayRef.current.clear();
+  // ⚠️ 只在 **commit 之后**（effect）清空，绝不能在 render body 里清（原先就是那样写的）：
+  // React 的并发渲染 / StrictMode 可能**丢弃**一次渲染，那一刻 overlay 已被清空、而 state
+  // 并没有提交 ⇒ 读路径（`getSession` → 变量层与脚本侧的 `getChatMessages`）就看不到刚落地
+  // 的补丁，脚本会把**旧正文**当成当前内容再写回去，把新正文覆盖掉（真机 v12-2400 报的
+  // 「点重新生成后状态栏渲染出来、正文不再出现」的候选根因）。
+  useEffect(() => {
+    varPatchOverlayRef.current.clear();
+  });
   const isLoadingRef = useRef(isLoading);
   isLoadingRef.current = isLoading;
   // Assigned right after sendChat is defined below; read (never captured) by the
@@ -314,13 +327,20 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
         currentSessionRef.current?.id ?? (messagesRef.current.length > 0 ? draftId() : null),
       getSession: (id) => {
         const live = currentSessionRef.current;
-        if (live && live.id === id) return { ...live, messages: messagesRef.current };
+        // ⚠️ **读路径也必须叠加"本帧补丁覆盖层"**（与落盘路径 `persistLive` 同源）。
+        // 写路径经 `setMessages` 落地，React 要到下一帧才把它反映到 `messagesRef`；而
+        // 变量层的 `notifyVariableListeners()` 是**同步**触发的。若这里返回裸的
+        // `messagesRef.current`，订阅者（前端卡重绘、脚本的事件处理器）读到的就是**写入前**
+        // 的快照 —— 状态栏永远落后一拍（真机 v12-2300 实证：变量里 `世界.当前场所` 已写成
+        // `MARKER_PLACE`，卡片 render 读到的仍是上一次的 `P0`；再手动派发一次事件才追上）。
+        const liveMessages = patchArrayOverlay(messagesRef.current, varPatchOverlayRef.current);
+        if (live && live.id === id) return { ...live, messages: liveMessages };
         if (draftSessionIdRef.current === id) {
           return {
             id,
             characterId: draftMetaRef.current.characterId,
             characterName: draftMetaRef.current.characterName,
-            messages: messagesRef.current,
+            messages: liveMessages,
             createdAt: Date.now(),
           };
         }
@@ -336,10 +356,18 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
         }
         setMessages((prev) => applyPatchesTo(prev, patches));
         persistLive(patchArrayOverlay(messagesRef.current, varPatchOverlayRef.current));
+        // ⚠️ 补丁里带了 `variables` ⇒ **必须**同时广播一次变量变更。脚本侧（MVU）大量用
+        //    `setChatMessages([{message_id, swipes_data}])` 写楼层变量（这才是 MVU 的变量
+        //    权威形态），那条路径不经过变量层的 `writeScopeData`，若不在这里补一次通知，
+        //    前端卡（状态栏）就永远收不到重绘信号 —— 用户症状："对话让 MVU 变量更新了，
+        //    但更新的数值未进入状态栏"。变量层自己的写入会因此多收一次通知（幂等，无害）。
+        if (patches.some((p) => p.variables !== undefined)) notifyVariablesChanged();
       },
       patchSession: (fields) => {
         if (fields.variables === undefined) return;
         persistLive(patchArrayOverlay(messagesRef.current, varPatchOverlayRef.current), fields.variables);
+        // 同上：chat 作用域的变量也可能由脚本经 `setChatVariables` 一般路径写入。
+        notifyVariablesChanged();
       },
       // ── 兼容路径（旧契约：整份会话快照）────────────────────────────────────────────
       // 只把**源里显式出现的字段**当意图：缺 `variables` 字段 ≠ 要清空变量。旧实现把
@@ -359,6 +387,10 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
         }
         setMessages((prev) => applyPatchesTo(prev, patches));
         persistLive(patchArrayOverlay(messagesRef.current, varPatchOverlayRef.current), session.variables);
+        // 兼容路径同样可能承载脚本侧的变量写入（整份快照），一并发一次通知。
+        if (patches.some((p) => p.variables !== undefined) || session.variables !== undefined) {
+          notifyVariablesChanged();
+        }
       },
     });
     return () => setVariableAdapter(null);
@@ -1128,6 +1160,8 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
     }
     // Block send while extraction is active.
     if (extractionRef.current.phase.phase !== "idle") return;
+    // 脚本宿主初始化窗口内不发送（输入框此时也是 disabled，这里是二道闸）。
+    if (getScriptInitBusy()) return;
     if (!input.trim() && attachments.length === 0) return;
     const content = input;
     const atts = attachments;
@@ -2303,6 +2337,7 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
         onSubmit={handleSubmit}
         onStop={handleStop}
         isLoading={isLoading}
+        scriptInitBusy={scriptInitBusy}
         extractionActive={extractionState.phase.phase !== "idle" && extractionState.phase.phase !== "failed"}
         settings={settings}
         onSettingsChange={onSettingsChange}

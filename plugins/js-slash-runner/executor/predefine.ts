@@ -168,17 +168,22 @@ export function buildPredefineScript(): string {
     return api.variables.hasVariable(path, t.scope, t.option);
   }
   function getAllVariables() {
-    return {
-      global: api.variables.getVariables('global'),
-      chat: api.variables.getVariables('chat'),
-      message: api.variables.getVariables('message', { messageId: 'latest' }),
-    };
+    // ⚠️ 形状必须与 ST 一致：**顶层就是合并后的变量表**（脚本与卡片都直接读 vars.stat_data），
+    //    而不是 {global,chat,message} 的嵌套壳。卡片侧（buildCardPredefineScript）早已按扁平
+    //    修正，宿主侧这里是**同一处缺陷的残留**（真机 v12-2700：状态栏读不到更新值）。
+    return api.variables.getVariables('message', { messageId: 'latest' }) || {};
   }
 
   // ── 消息 API（M3/M4/M5）────────────────────────────────────────────────
   function normalizeRange(range) {
     var last = api.messages.getLastId();
     if (range === undefined || range === null) return [last];
+    // ⚠️ number = **只取这一条**（不要在"从 n 到最新"上重犯错误）。
+    //    2026-09-17 曾按"ST 语义应为从 n 到最新"改过一次，结果：MVU 的 Yt(e) 用
+    //    getChatMessages(e).at(-1) 永远拿到**最新消息**，却 setChatMessages([{message_id:e}])
+    //    写回**楼层 e** ⇒ 每个楼层的事件都会拿最新消息的正文重写自己那一层：首条消息正文丢失、
+    //    状态栏错位、重新生成为空（真机截图实证）。**已回滚**。
+    //    （注意：本文件整体处于模板字符串内部，注释里绝不能出现反引号。）
     if (typeof range === 'number') return [range < 0 ? last + 1 + range : range];
     if (range === 'latest') return [last];
     if (Array.isArray(range)) {
@@ -550,14 +555,36 @@ export function buildPredefineScript(): string {
     // ⚠️ chat 必须是 **live getter**（每次读现取），且元素形如
     // { variables: [...], swipe_id } —— MVU 用 _.get(e, ['variables', e.swipe_id ?? 0])
     // 读楼层变量；做成一次性快照会让它读到过期楼层。
+    // ⚠️ chat 必须**引用稳定**（真机 v12-2800 的根因）：MVU 的 jo 守卫里有
+    //    （MVU 源码）const s = SillyTavern.chat[e]; ... SillyTavern.chat[e] === s ... 这种
+    //    **引用相等**判断。原实现每次读 chat 都 map 出新数组与新元素 ⇒ 该判断恒为 false ⇒
+    //    变量更新被**静默放弃**（症状：MVU 变量更新了、状态栏数值永不变化，且 console 里
+    //    **一条警告都没有**）。这里按内容指纹缓存：内容（含各楼层变量）没变就返回同一个数组引用。
+    var chatCache = null;
+    var chatCacheFp = '';
+    function tavernChat() {
+      var msgs = a.messages.getAll();
+      var fp = String(currentChatId() || '') + '|' + msgs.length + '|';
+      for (var i = 0; i < msgs.length; i++) {
+        var mv = msgs[i].variables && msgs[i].variables[0] ? JSON.stringify(msgs[i].variables[0]) : '';
+        var hash = 0;
+        for (var k = 0; k < mv.length; k++) hash = (hash * 31 + mv.charCodeAt(k)) | 0;
+        fp += (typeof msgs[i].content === 'string' ? msgs[i].content.length : 0) + ':' + hash + ':';
+      }
+      if (chatCache && chatCacheFp === fp) return chatCache;
+      var list = msgs.map(function (m) {
+        var swipes = Array.isArray(m.variables) ? m.variables : [];
+        return { variables: swipes.length ? swipes : [{}], swipe_id: 0, mes: m.content, is_user: m.role === 'user', name: m.role === 'user' ? a.identity.user : a.identity.char };
+      });
+      chatCache = list;
+      chatCacheFp = fp;
+      return list;
+    }
     Object.defineProperty(shell, 'chat', {
       enumerable: true,
       get: function () {
         try {
-          var list = a.messages.getAll().map(function (m) {
-            var swipes = Array.isArray(m.variables) ? m.variables : [];
-            return { variables: swipes.length ? swipes : [{}], swipe_id: 0, mes: m.content, is_user: m.role === 'user', name: m.role === 'user' ? a.identity.user : a.identity.char };
-          });
+          var list = tavernChat();
           // 探针：记录"什么时候被读、读到几层"。MVU initvar 判空就是读这里。
           try {
             var probe = window.__nyaShellProbe;
@@ -842,7 +869,10 @@ export function buildCardPredefineScript(): string {
     var last = api.messages.getLastId();
     var idx = [];
     if (range === undefined || range === null || range === 'latest') idx = [last];
-    else if (typeof range === 'number') idx = [range < 0 ? last + 1 + range : range];
+    else if (typeof range === 'number') {
+      // ⚠️ 同样**只取这一条**（理由见宿主侧 normalizeRange 上方的回滚说明）。
+      idx = [range < 0 ? last + 1 + range : range];
+    }
     else if (Array.isArray(range)) idx = range.map(function (r) { return typeof r === 'number' && r < 0 ? last + 1 + r : r; });
     else if (typeof range === 'object') {
       var s = range.start !== undefined ? range.start : 0;

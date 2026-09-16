@@ -22,10 +22,27 @@ import ScriptRunnerSettings, { type ScriptRunError } from "./ScriptRunnerSetting
 import { nextScriptId, parseScriptsFile } from "./scripts/store";
 
 export const JS_SLASH_RUNNER_PLUGIN_ID = "js-slash-runner";
-/** 初始化忙碌窗口上限：≤5s（脚本自身超时是 30s，绝不能让"脚本可能挂住"变成"用户被锁住"）。 */
-const INIT_BUSY_MAX_MS = 20000;
+/**
+ * 初始化忙碌窗口的**硬上限**（兜底放行）。窗口正常结束时走 `settleInitBusy()` 的
+ * 就绪判据，而不是靠这个闹钟。
+ *
+ * ⚠️ 这个窗口现在会**真的挡住用户输入**（宿主 UI 见 ChatComposer 的 `scriptInitBusy`），
+ * 所以上限必须给得足够宽：MVU 的脚本求值实测要到 ~14s（`global_Mvu_initialized`），
+ * 世界书多的卡（道渊 307 条）更慢。旧值 5s/20s 都会在变量初始化落地前放行，
+ * 那正是"用户抢跑 → MVU 在空聊天上完成不可重试的初始化"的窗口。
+ */
+const INIT_BUSY_MAX_MS = 60000;
+/**
+ * 「核心就绪」（会话就绪 + 宿主装配 + `window.Mvu` 就位）之后，再等多久才算变量初始化落地。
+ *
+ * ⚠️ 真机教训：`window.Mvu` 只说明 MVU 求值完了，它的 initvar 还要异步遍历世界书、解析楼层
+ * 里的 `<UpdateVariable>`。旧实现（只判 `window.Mvu`）实测窗口只有 ~1s —— 用户既看不到提示，
+ * 也照样能在变量落地前抢跑（"输入框变灰"完全没出现）。这里改为：核心就绪后再等**一次楼层变量
+ * 写入**（一有写入立刻放行）或等满本静默期。
+ */
+const SETTLE_QUIET_MS = 5000;
 /** 构建标记：在主页面控制台输入 __nyaScriptRunnerBuild 即可确认当前跑的是哪个构建。 */
-const BUILD_MARKER = 'v12-2300';
+const BUILD_MARKER = 'v12-2800';
 const log = pluginLogger(JS_SLASH_RUNNER_PLUGIN_ID);
 
 // ─── 模块级状态（面板与 setup 共享；插件是单例）─────────────────────────────
@@ -186,12 +203,14 @@ const plugin: NyaaPlugin = {
     let mounting = false;
     /** `message:rendered` 是否已为当前载体的脚本处理器补发过（见 mount 末尾）。 */
     let backfilled = false;
-    // 初始化忙碌窗口：起点 = 开始装配；终点 = 第一个脚本给出结果 / 5s 上限 / 停用。
-    // ⚠️ 上限刻意只有 5s（脚本本身的超时是 30s）：绝不能让"脚本可能挂住"变成
-    // "用户被锁 30 秒"。到点就放行，失败信息仍留在运行日志里。
-    // 非模态提示（一行、固定底部居中）：不拦点击、不遮内容，只告知"脚本正在初始化"。
-    // 刻意用命令式 DOM 而不是改聊天输入区的 JSX —— 既不动别人的组件结构，也不会
-    // 因为渲染时机错过这段窗口。
+    // 初始化忙碌窗口：起点 = 打开卡片/会话（早于"等聊天就绪"）；终点 = 就绪判据
+    // （见 settleInitBusy）/ 硬上限 / 停用。
+    // ⚠️ 这一窗口现在**真的阻塞输入**（宿主 UI 的 ChatComposer 读 setScriptInitBusy），
+    // 因此"什么时候结束"直接决定用户会不会抢跑。半导体提示（pointer-events:none 的
+    // 浮动文字）曾经只是告知，用户仍能发送 —— 结果就是 MVU 在空聊天上完成一次性、
+    // 不可重试的变量初始化（真机日志原文：「不存在任何一条消息，退出」，此后
+    // `initialized_lorebooks` 已记名，initvar 永远不再执行，整个会话变量为空、
+    // 状态栏只剩兜底值）。
     const notice = document.createElement("div");
     notice.textContent = "正在初始化角色脚本…";
     notice.style.cssText =
@@ -203,24 +222,83 @@ const plugin: NyaaPlugin = {
       notice.style.opacity = on ? "1" : "0";
     };
 
+    let busyActive = false;
     let busyTimer: ReturnType<typeof setTimeout> | null = null;
-    const endBusy = () => {
+    const endBusy = (reason?: string) => {
       if (busyTimer) {
         clearTimeout(busyTimer);
         busyTimer = null;
+      }
+      if (!busyActive) return;
+      busyActive = false;
+      if (reason) {
+        log.info("host", `脚本初始化窗口结束（${reason}）`);
+        // 同时落盘一行：dev 的 console 收集器**只收 warn/error**（info 不进 devlog），
+        // 而"窗口到底持续了多久"是判定"用户有没有机会看到阻塞"的唯一客观证据。
+        // 定位稳定后可降级（真机 v12-2400 首版就是因为窗口只有 ~1s 而用户完全看不到）。
+        try {
+          console.warn(`[js-slash-runner] 初始化窗口结束（${reason}）`);
+        } catch {
+          /* console 被劫持也不影响主流程 */
+        }
       }
       setScriptInitBusy(false);
       setNotice(false);
     };
     const beginBusy = () => {
+      busyActive = true;
       setScriptInitBusy(true);
       setNotice(true);
       if (busyTimer) clearTimeout(busyTimer);
       busyTimer = setTimeout(() => {
         busyTimer = null;
-        setScriptInitBusy(false);
-        setNotice(false);
+        endBusy("timeout");
       }, INIT_BUSY_MAX_MS);
+    };
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    /**
+     * 就绪判据 —— 「已经到达不会造成初始化失败的状态」：
+     *   ① 会话就绪（`chatReady()`：会话已解析**且**已有楼层）。缺它 MVU 会走
+     *      「不存在任何一条消息，退出」，且不重试 —— 这是**不可逆**的损伤。
+     *   ② 宿主 iframe 已装配（脚本真的跑起来了）。
+     *   ③ 这张卡**有 MVU 脚本**时，再等 `window.Mvu` 在宿主 iframe 里就位
+     *      （= MVU 已完成求值、事件总线与变量 API 都已注册）。
+     *   ④ ⚠️ **`window.Mvu` 就位 ≠ 变量初始化完成**（真机教训）：MVU 的 initvar 要
+     *      遍历世界书条目、解析楼层里的 `<UpdateVariable>`，全是异步的，可能要数秒。
+     *      只等 ③ 的话窗口只有 ~1s，用户既看不到任何提示，也照样能在变量落地前抢跑。
+     *      所以 ③ 之后再等**一次楼层变量写入**（指纹变化 ⇒ MVU 已经在写变量，立即放行），
+     *      或等满 `SETTLE_QUIET_MS` 静默期。
+     */
+    const settleInitBusy = async (opts: { hasMvu: boolean }) => {
+      const startedAt = Date.now();
+      let coreReadyAt = 0;
+      let lastFingerprint = "";
+      for (let i = 0; i < 300 && !disposed; i++) {
+        if (disposed) return;
+        const frame = container.querySelector<HTMLIFrameElement>(
+          "iframe[data-js-slash-runner-host]",
+        );
+        const win = frame?.contentWindow as unknown as Record<string, unknown> | null | undefined;
+        const coreReady = api.messages.chatReady() && !!frame && (!opts.hasMvu || !!(win && win.Mvu));
+        if (coreReady) {
+          if (!coreReadyAt) coreReadyAt = Date.now();
+          const fingerprint = JSON.stringify(
+            api.variables.getVariables("message", { messageId: "latest" }) ?? {},
+          );
+          if (!lastFingerprint) {
+            lastFingerprint = fingerprint;
+          } else if (fingerprint !== lastFingerprint) {
+            endBusy(`variables-written ${Date.now() - startedAt}ms`);
+            return;
+          }
+          if (Date.now() - coreReadyAt >= SETTLE_QUIET_MS) {
+            endBusy(`settle-quiet ${Date.now() - startedAt}ms`);
+            return;
+          }
+        }
+        await sleep(250);
+      }
+      endBusy("settle-aborted");
     };
 
     const mount = async () => {
@@ -232,6 +310,9 @@ const plugin: NyaaPlugin = {
       // `message:rendered` 的补发只做一次（见 mount 末尾）。每次重挂载重置：新载体的脚本
       // 处理器是全新的，需要重新补一遍已渲染楼层。
       backfilled = false;
+      // 忙碌窗口从"打开卡片"就开始：等待 + 装配 + 变量落地整段都要挡住输入。
+      let runOnLoad = ctx.getConfig().runOnLoad !== false;
+      let scripts = api.character.getScripts().filter((s) => s.enabled);
       try {
         // ⚠️ 等宿主聊天状态就绪再装配：MVU 的 initvar（bundle 内 `Zt`）只有两个**静默**退出点，
         // 且都只打同一句 runtime.initvar.noMessagesLog（真机原文「不存在任何一条消息，退出」），
@@ -242,29 +323,50 @@ const plugin: NyaaPlugin = {
         // 只看"适配器已注册"会在应用启动期立刻放行——那一刻 currentSessionId 可能还是 null，
         // getAll() 返回 []，MVU 就会读到空聊天（v10-1600 仍报 noMessagesLog 的**头号候选**根因；
         // 本次同时把两个分支的可观测证据交给 __nyaScriptRunnerDiag()，不再靠推断）。
-        for (let i = 0; i < 40 && !disposed && !api.messages.chatReady(); i++) {
-          await new Promise((r) => setTimeout(r, 150));
+        //
+        // ⚠️ 超时后**不再放行装配**（旧行为：打一行 warn 照装）。空聊天上的 MVU 初始化是
+        // **不可逆**的：它会写下 `initialized_lorebooks`（记名），此后 initvar 永远跳过，
+        // 整个会话的变量都是空的。这里直接放弃本次装配并放行输入 —— 用户发出第一条消息后
+        // 会话落地，`session:changed` 会再触发一次 mount，那时的 chatReady 才是真的。
+        if (scripts.length > 0 && runOnLoad) beginBusy();
+        for (let i = 0; i < 120 && !disposed && !api.messages.chatReady(); i++) {
+          await sleep(150);
         }
         if (disposed) return;
         if (!api.messages.chatReady()) {
           const snap = snapshot();
-          log.warn("host", "等待聊天就绪超时（6s），仍按当前状态装配；MVU 若读到空聊天会退出变量初始化", snap);
-          dumpProbe("等待聊天就绪超时（6s）", snap);
+          log.warn(
+            "host",
+            "等待聊天就绪超时（18s），本次不装配脚本宿主（避免 MVU 在空聊天上完成不可重试的变量初始化）；等会话落地后由 session:changed 重试",
+            snap,
+          );
+          dumpProbe("等待聊天就绪超时（18s）", snap);
+          endBusy("chat-not-ready");
+          return;
+        }
+        // 会话可能在这一窗口里换过角色/脚本，重新取一次权威值。
+        runOnLoad = ctx.getConfig().runOnLoad !== false;
+        scripts = api.character.getScripts().filter((s) => s.enabled);
+        if (scripts.length > 0 && runOnLoad) {
+          if (!busyActive) beginBusy();
+          // 这张卡是否真的会加载 MVU（脚本名/id 含 mvu）——决定要不要多等一步
+          // `window.Mvu` 就位。有 MVU 的卡若不等，用户就可能在 MVU 完成求值前发送。
+          const hasMvu = scripts.some((s) => /mvu/i.test(`${s.name ?? ""} ${s.id ?? ""}`));
+          void settleInitBusy({ hasMvu });
+        } else {
+          // 没有启用的脚本（或 runOnLoad 关闭）⇒ 根本不存在"变量初始化窗口"，立即放行。
+          endBusy("no-scripts");
         }
         handle?.dispose();
         handle = null;
-        const runOnLoad = ctx.getConfig().runOnLoad !== false;
-        const scripts = api.character.getScripts().filter((s) => s.enabled);
-        // 没有启用的脚本 ⇒ 根本不需要初始化窗口（大多数用户看不到任何变化）。
-        if (scripts.length > 0 && runOnLoad) beginBusy();
         handle = await createScriptHost().mount({
           container,
           scripts,
           api,
           runOnLoad,
           onScriptResult: (scriptId, ok, error) => {
-            // 第一个脚本落地即解除忙碌窗口（成功或失败都解除：失败信息在运行日志里）。
-            endBusy();
+            // ⚠️ 这里**不再**解除忙碌窗口：第一个脚本返回 ≠ 变量初始化落地。解除由
+            // settleInitBusy 的就绪判据负责（旧行为会让用户在 MVU 写变量之前就能发送）。
             if (ok) return;
             const script = scripts.find((s) => s.id === scriptId);
             setLastError({
@@ -337,7 +439,21 @@ const plugin: NyaaPlugin = {
       })();
       return {
         shell: w.__nyaShellProbe ?? null,
-        console: tail("__nyaScriptConsole", 12),
+        // 60 条（原先只取 12）：MVU 的"变量更新失败/SCHEMA 违规"这类警告很容易被
+        // 之后的常规日志冲掉，抓不全就只剩猜。
+        console: tail("__nyaScriptConsole", 60),
+        // 另外单独抽一份"变量相关"的日志（不受上面那 60 条窗口限制）。
+        varLogs: (() => {
+          const arr = w.__nyaScriptConsole;
+          if (!Array.isArray(arr)) return [];
+          return arr
+            .filter((c) =>
+              /变量|SCHEMA|schema|更新|失败|错误|delta|path|UpdateVariable/i.test(
+                String((c as { m?: unknown })?.m ?? ""),
+              ),
+            )
+            .slice(-30);
+        })(),
         toastr: tail("__nyaToastrCalls", 8),
         apiCalls: tail("__nyaApiCalls", 12),
         varCalls,
@@ -371,8 +487,7 @@ const plugin: NyaaPlugin = {
       }
     };
 
-    // 主页面可直接打印的诊断：控制台输入 __nyaScriptRunnerDiag()
-    // ⚠️ 同时打一行 **JSON 字符串**：dev 的 console 收集器会把嵌套对象截断成 {…}
+    // 主页面可直接打印的诊断：控制台输入 __nyaScriptRunnerDiag()    // ⚠️ 同时打一行 **JSON 字符串**：dev 的 console 收集器会把嵌套对象截断成 {…}
     //（真机贴回来的日志里 `iframes: 1, …` 就是被截断的），JSON 一行才能完整回贴。
     const dumpProbe = (label: string, s: unknown) => {
       console.warn(`[js-slash-runner] ${label}`, s);
@@ -382,9 +497,187 @@ const plugin: NyaaPlugin = {
         console.warn(`[js-slash-runner] ${label}JSON (序列化失败)`);
       }
     };
+    /**
+     * 让 MVU 自己解析一遍**最新消息**（`Mvu.parseMessage` 就是它内部 `Yt` 用的同一个 `$t`）。
+     * 返回：命令块原文、解析前后的 `stat_data` 摘要、是否发生变化。
+     * 这条证据是"变量更新了但没进状态栏"类问题的分水岭：命令没解析出来 / 解析出来了没被应用。
+     */
+    const mvuParseProbe = async () => {
+      try {
+        const frame = document.querySelector<HTMLIFrameElement>("iframe[data-js-slash-runner-host]");
+        const w = frame?.contentWindow as unknown as {
+          Mvu?: {
+            parseMessage?: (m: string, d: unknown) => Promise<unknown>;
+            getMvuData?: (o: unknown) => unknown;
+          };
+        } | null;
+        const Mvu = w?.Mvu;
+        if (!Mvu?.parseMessage || !Mvu.getMvuData) return "NO_PARSE_API";
+        const lastId = api.messages.getLastId();
+        const msg = api.messages.getAll()[lastId];
+        const text = typeof msg?.content === "string" ? msg.content : "";
+        const data = Mvu.getMvuData({ type: "message", message_id: lastId });
+        const head = (v: unknown) =>
+          JSON.stringify((v as { stat_data?: unknown })?.stat_data ?? null).slice(0, 240);
+        const before = head(data);
+        const parsed = await Mvu.parseMessage(text, data);
+        const after = head(parsed);
+        const patch = text.match(/<(json_?patch)>([\s\S]*?)<\/\1>/i);
+        // ── 变体二分：MVU 的解析器 Ft 拿的是「整段正文」，所以只测原文无法区分
+        //    "块本身有问题" 与 "正文里别的东西干扰了正则"。这里再用**从原文里抠出来的
+        //    patch 内容**重新拼一个最小块，单独解析一次。
+        let patchOnlyChanged: boolean | string = "SKIP";
+        let patchOnlyNote = "";
+        if (patch) {
+          const minimal = `<UpdateVariable>\n<JSONPatch>\n${patch[2]}\n</JSONPatch>\n</UpdateVariable>`;
+          const d2 = Mvu.getMvuData({ type: "message", message_id: lastId });
+          const b2 = head(d2);
+          try {
+            const r2 = await Mvu.parseMessage(minimal, d2);
+            patchOnlyChanged = head(r2) !== b2;
+          } catch (err) {
+            patchOnlyChanged = "ERR";
+            patchOnlyNote = String(err);
+          }
+        }
+        const blockStart = text.indexOf("<UpdateVariable");
+        // ── 模拟 MVU 的 Ct(e)/At(e)：Ct 是在 SillyTavern.chat 的 **slice(0, e)** 上从后往前找
+        //    「同时含 stat_data 与 schema」的楼层。它决定了 Yt(e) 到底拿哪一层的变量去应用。
+        const ctProbe = (() => {
+          try {
+            const frame = document.querySelector<HTMLIFrameElement>(
+              "iframe[data-js-slash-runner-host]",
+            );
+            const w = frame?.contentWindow as unknown as
+              | { SillyTavern?: { chat?: unknown } }
+              | null;
+            const chat = w?.SillyTavern?.chat;
+            if (!Array.isArray(chat)) return "NO_CHAT";
+            const e = api.messages.getLastId();
+            const slice = chat.slice(0, e) as Array<{ variables?: unknown[]; swipe_id?: number }>;
+            let found = -1;
+            for (let i = slice.length - 1; i >= 0; i--) {
+              const slot = slice[i] || {};
+              const v = ((slot.variables || [])[slot.swipe_id ?? 0] || {}) as {
+                stat_data?: unknown;
+                schema?: unknown;
+              };
+              if (v.stat_data !== undefined && v.schema !== undefined) {
+                found = i;
+                break;
+              }
+            }
+            return { e, chatLen: chat.length, sliceLen: slice.length, atIndex: found };
+          } catch (err) {
+            return "ERR " + String(err);
+          }
+        })();
+        // 去 schema 的最小块：判定"严格 schema 是否在拒绝写入"
+        let noSchemaChanged: boolean | string = "SKIP";
+        let replaceOnlyChanged: boolean | string = "SKIP";
+        if (patch) {
+          const d3 = Mvu.getMvuData({ type: "message", message_id: lastId }) as Record<string, unknown>;
+          delete d3.schema;
+          const b3 = head(d3);
+          try {
+            const r3 = await Mvu.parseMessage(
+              `<UpdateVariable>\n<JSONPatch>\n${patch[2]}\n</JSONPatch>\n</UpdateVariable>`,
+              d3,
+            );
+            noSchemaChanged = head(r3) !== b3;
+          } catch (err) {
+            noSchemaChanged = "ERR " + String(err);
+          }
+          const d4 = Mvu.getMvuData({ type: "message", message_id: lastId });
+          const b4 = head(d4);
+          try {
+            const r4 = await Mvu.parseMessage(
+              `<UpdateVariable>\n<JSONPatch>\n[{"op":"replace","path":"/世界/当前场所","value":"PROBE_PLACE"}]\n</JSONPatch>\n</UpdateVariable>`,
+              d4,
+            );
+            replaceOnlyChanged = head(r4) !== b4;
+          } catch (err) {
+            replaceOnlyChanged = "ERR " + String(err);
+          }
+        }
+        // ── 直接监听 MVU 的 COMMAND_PARSED：这是唯一能看到「解析器 Ft 到底产出了什么」的位置。
+        //    它为空 ⇒ 解析问题；非空而变量不变 ⇒ 应用/写入被拒。
+        const parsedProbe = await (async () => {
+          try {
+            const frame = document.querySelector<HTMLIFrameElement>(
+              "iframe[data-js-slash-runner-host]",
+            );
+            const w = frame?.contentWindow as unknown as
+              | {
+                  eventOn?: (n: string, h: (d: unknown, cmds?: unknown, raw?: unknown) => void) => void;
+                  Mvu?: {
+                    parseMessage?: (m: string, d: unknown) => Promise<unknown>;
+                    getMvuData?: (o: unknown) => unknown;
+                  };
+                  tavern_events?: Record<string, string>;
+                }
+              | null;
+            if (!w?.eventOn || !w.Mvu?.parseMessage) return "NO_API";
+            const evName =
+              (w.tavern_events && w.tavern_events.COMMAND_PARSED) || "mag_command_parsed";
+            const seen: unknown[] = [];
+            w.eventOn(evName, (_d: unknown, cmds?: unknown) => {
+              seen.push(cmds);
+            });
+            const d = w.Mvu.getMvuData({
+              type: "message",
+              message_id: api.messages.getLastId(),
+            });
+            try {
+              await w.Mvu.parseMessage(text, d);
+            } catch {
+              /* 结果由下面 seen 反映 */
+            }
+            return seen.map((s) =>
+              Array.isArray(s)
+                ? { len: s.length, first: JSON.stringify(s[0] ?? null).slice(0, 200) }
+                : String(s),
+            );
+          } catch (err) {
+            return "ERR " + String(err);
+          }
+        })();
+        return {
+          textLen: text.length,
+          hasUpdateVariable: /<UpdateVariable/i.test(text),
+          hasPatchTag: !!patch,
+          patchTagOpenCount: (text.match(/<json_?patch>/gi) || []).length,
+          patchTagCloseCount: (text.match(/<\/json_?patch>/gi) || []).length,
+          patchBlock: patch ? patch[2].trim().slice(0, 600) : null,
+          // 前 40 个字符里的不可见/非 ASCII 码点（零宽字符、全角空格等会让解析器直接失败）
+          patchCodes: patch
+            ? Array.from(patch[2].trim().slice(0, 40))
+                .map((c) => c.charCodeAt(0))
+                .filter((c) => c < 32 || c > 126)
+            : null,
+          blockFromText: blockStart >= 0 ? text.slice(blockStart, blockStart + 900) : null,
+          before,
+          after,
+          changed: before !== after,
+          patchOnlyChanged,
+          patchOnlyNote,
+          noSchemaChanged,
+          replaceOnlyChanged,
+          ctProbe,
+          parsedProbe,
+        };
+      } catch (err) {
+        return "ERR " + String(err);
+      }
+    };
     const snapshot = () => ({
       build: BUILD_MARKER,
+      /** 初始化窗口是否仍挡着输入（前端 `scriptInitBusy`）—— 与窗口时长一起构成可观测证据。 */
+      busy: busyActive,
       chatReady: api.messages.chatReady(),
+      /** 宿主视角的"最后一条楼层下标"：与 MVU 自己调 `getLastMessageId()` 的结果对照用
+       *  （真机日志里 MVU 曾在会话有 3 层时拿到 0 —— 它据此把变量写回了楼层 0）。 */
+      lastId: api.messages.getLastId(),
       messages: api.messages.getAll().length,
       withVariables: api.messages
         .getAll()
@@ -407,13 +700,70 @@ const plugin: NyaaPlugin = {
           role: m.role,
           keys: slot ? Object.keys(slot) : [],
           sd: !!slot?.stat_data,
+          // stat_data 的**顶层键**（截前 8 个）：日志里的 `sd:true` 区分不出"有真实数据"与
+          // "只有 MVU 兜底出来的空对象"，这一项才能直接看出变量是否真的落地。
+          sdKeys:
+            slot && slot.stat_data && typeof slot.stat_data === "object"
+              ? Object.keys(slot.stat_data as Record<string, unknown>).slice(0, 8)
+              : null,
           sc: !!slot?.schema,
+          // `stat_data` 的取值前 140 字符：只列键名（sdKeys）区分不出"哪个楼层是旧值"，
+          // 而"变量更新了但状态栏没跟上"恰恰要靠**逐楼层取值的差异**来定位。
+          sdHead:
+            slot && slot.stat_data && typeof slot.stat_data === "object"
+              ? JSON.stringify(slot.stat_data).slice(0, 140)
+              : null,
+          /** schema 前 120 字符：MVU 的写入校验按 schema 做，判断"更新被拒"时要看它。 */
+          schemaHead:
+            slot && slot.schema && typeof slot.schema === "object"
+              ? JSON.stringify(slot.schema).slice(0, 120)
+              : null,
+          /**
+           * 正文里 `<UpdateVariable>` 块的前 300 字符：MVU 的变量更新入口是拿**消息正文**去解析的
+           * （`Yt(e)` → `$t(n, o)`），所以"patch 为什么没应用"最终要看这段原文的格式。
+           */
+          uvBlock: (() => {
+            const c = typeof m.content === "string" ? m.content : "";
+            const i = c.indexOf("<UpdateVariable");
+            if (i < 0) return null;
+            const j = c.indexOf("</UpdateVariable", i);
+            return j < 0 ? c.slice(i, i + 2500) : c.slice(i, j + 20).slice(0, 2500);
+          })(),
           // 正文尾部：MVU 追加状态栏占位符改的就是正文 —— 用它判断"追加有没有落到消息上"。
           hasPh: typeof m.content === "string" && m.content.indexOf("StatusPlaceHolderImpl") >= 0,
+          /** 正文长度：定位"重新生成后正文消失"这类问题时要能一眼看出哪条消息的内容变空了。 */
+          len: typeof m.content === "string" ? m.content.length : null,
           tail: typeof m.content === "string" ? m.content.slice(-50) : null,
         };
       }),
       lorebook: lorebookProbe(),
+      // 卡片 iframe **实际读到**的变量（每张卡一个）：与上面的逐楼层取值对照，就能判定
+      // "变量更新了但状态栏没跟上"是断在「通知没到卡片」还是「卡片读的楼层不是被更新的那条」。
+      cards: (() => {
+        try {
+          return Array.from(
+            document.querySelectorAll<HTMLIFrameElement>("iframe[id^=nyaachat-card]"),
+          ).map((f) => {
+            const w = f.contentWindow as unknown as
+              | { getAllVariables?: () => unknown; __nyaCardDispatch?: unknown }
+              | null;
+            let sdHead: string | null = null;
+            try {
+              const all = w?.getAllVariables?.() as { stat_data?: unknown } | undefined;
+              sdHead = all && all.stat_data ? JSON.stringify(all.stat_data).slice(0, 140) : null;
+            } catch {
+              sdHead = "ERR";
+            }
+            return {
+              id: f.id,
+              dispatch: typeof w?.__nyaCardDispatch,
+              sdHead,
+            };
+          });
+        } catch {
+          return [];
+        }
+      })(),
       varTrace: (() => {
         const w = window as unknown as { __nyaVarTrace?: unknown[] };
         return Array.isArray(w.__nyaVarTrace) ? w.__nyaVarTrace.slice(-25) : [];
@@ -482,6 +832,19 @@ const plugin: NyaaPlugin = {
               const id = api.messages.getLastId();
               traceEmit(id);
               handle?.emit(tavernValue, id);
+              // 回复落地后自动留一份**收尾快照**：把"每条楼层的变量取值"与"每张卡片实际读到的
+              // 变量"同时写进日志。定位"MVU 变量更新了、状态栏没跟上"这类问题时，这两组数据
+              // 缺一不可 —— 不必再让用户手动跑 __nyaScriptRunnerDiag()。
+              setTimeout(() => {
+                if (disposed) return;
+                // 先让 MVU 自己解析一次最新消息（`Mvu.parseMessage` 是它公开的入口，
+                // 内部就是 `Yt` 用的那个 `$t`）—— "变量更新了但没进状态栏"这类问题，
+                // 只有这一步能直接指出是"命令没解析出来"还是"应用/写入被拒"。
+                void (async () => {
+                  const parsed = await mvuParseProbe();
+                  if (!disposed) dumpProbe("回复后快照", { ...snapshot(), mvuParse: parsed });
+                })();
+              }, 5000);
             })();
             return;
           }
@@ -531,6 +894,9 @@ const plugin: NyaaPlugin = {
       handle = null;
       container.remove();
       setCardApiPredefine(null);
+      // 停用/卸载时**必须**放开输入：否则 UI 会一直停在"初始化中"（脚本已不再存在）。
+      endBusy("disposed");
+      notice.remove();
     };
   },
   SettingsPanel,

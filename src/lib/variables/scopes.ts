@@ -68,6 +68,19 @@ function notifyVariableListeners(): void {
   }
 }
 
+/**
+ * 由**宿主适配器**在「非变量层写入」改变量时手动广播一次。
+ *
+ * 为什么需要它：脚本侧（典型是 MVU）大量用 `setChatMessages([{message_id, swipes_data}])`
+ * 直接写楼层的 `variables`（那才是 MVU 的变量权威形态），这条路径走的是
+ * `VariableAdapter.patchMessages`，**不经过** `writeScopeData` ⇒ 不会 notify ⇒ 前端卡
+ * （状态栏）永远收不到重绘信号。用户症状："对话让 MVU 变量更新了，但更新的数值未进入状态栏"。
+ * 见 `src/components/ChatInterface.tsx` 里三处适配器实现（patchMessages / patchSession / commitSession）。
+ */
+export function notifyVariablesChanged(): void {
+  notifyVariableListeners();
+}
+
 // ---------------------------------------------------------------------------
 // global 作用域
 // ---------------------------------------------------------------------------
