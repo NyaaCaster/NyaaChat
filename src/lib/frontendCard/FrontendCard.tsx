@@ -12,8 +12,9 @@
 // 它的 `srcdoc`；卡片内部发生的一切都在 iframe 的 document 里，React 从不 diff
 // 那块 DOM。
 
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import { Code2 } from "lucide-react";
+import { subscribeVariables } from "../variables";
 import { buildCardSrcdoc } from "./srcdoc";
 
 interface FrontendCardProps {
@@ -40,6 +41,26 @@ export const FrontendCard = React.memo(function FrontendCard({
 
   const srcdoc = useMemo(() => buildCardSrcdoc(html), [html]);
 
+  // 变量变化 → 通知卡片 iframe 重绘（MVU技术性说明 §4.6：状态栏 View 靠
+  // eventOn(Mvu.events.VARIABLE_UPDATE_ENDED) 自动重绘；事件名取自 Mvu.events，值即
+  // `mag_variable_update_ended`）。没有这一步，面板只会显示 iframe 加载那一刻的初始快照
+  // （真机实测：JSONPatch 已把时间改成 07:10，面板仍停在 07:00）。
+  const frameRef = React.useRef<HTMLIFrameElement | null>(null);
+  const dispatchVariableUpdateEnded = useCallback(() => {
+    try {
+      const win = frameRef.current?.contentWindow as unknown as
+        | { __nyaCardDispatch?: (...args: unknown[]) => void }
+        | undefined;
+      win?.__nyaCardDispatch?.("mag_variable_update_ended", {});
+    } catch {
+      /* 卡片未就绪或已卸载：忽略 */
+    }
+  }, []);
+  React.useEffect(
+    () => subscribeVariables(dispatchVariableUpdateEnded),
+    [dispatchVariableUpdateEnded],
+  );
+
   return (
     <div className="not-prose my-2 relative group/card">
       <button
@@ -57,9 +78,11 @@ export const FrontendCard = React.memo(function FrontendCard({
       ) : (
         <iframe
           id={frameId}
+          ref={frameRef}
           title={frameId}
           srcDoc={srcdoc}
           loading="lazy"
+          onLoad={dispatchVariableUpdateEnded}
           className="w-full block border-0 bg-transparent"
           // Same-origin, NOT sandboxed — required for the height sync
           // (the card reads window.frameElement). See srcdoc.ts.

@@ -432,6 +432,40 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
     [regexScripts, flagalacTraceScripts, mvuControlScripts],
   );
 
+  // ─── MVU 状态栏占位符：宿主侧兜底（MVU技术性说明 §3.9 / §4.6）───────────────────
+  //
+  // 文档规定的收尾是：**确保消息正文尾部含 `<StatusPlaceHolderImpl/>`**（并删掉正文里的
+  // `<status_current_variable>` 段），再由卡片的 markdownOnly 正则把它替换成 ```html 看板。
+  // 这一步本该由 MVU bundle 的更新收尾完成；但在我们的仿真层里它的 message_received 监听器
+  // 已被 abort（真机 v12-2000 实证：回复时刻零次 API 调用、回复楼层 hasPh:false），
+  // 而用户手工在正文末尾补一个占位符，状态栏立刻出现（同一环境实证）。
+  // 因此这里按文档**在宿主侧补上同一小步**，条件收窄且幂等：
+  //   · 仅当显示正则链里确实存在以 `<StatusPlaceHolderImpl/>` 为 findRegex 的规则（卡片期待状态栏）；
+  //   · 仅补**最后一条助手楼层**，且它确实带 MVU 变量（`stat_data`）、正文里还没有占位符；
+  //   · 已有占位符 ⇒ 不追加（幂等，不会重复堆叠）。
+  const statusPlaceholderExpected = React.useMemo(
+    () =>
+      displayRegexScripts.some(
+        (s) => typeof s.findRegex === "string" && s.findRegex.includes("StatusPlaceHolderImpl"),
+      ),
+    [displayRegexScripts],
+  );
+  useEffect(() => {
+    if (!statusPlaceholderExpected) return;
+    const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
+    if (!lastAssistant) return;
+    const slot = Array.isArray(lastAssistant.variables) ? lastAssistant.variables[0] : undefined;
+    if (!slot || typeof slot !== "object" || !("stat_data" in (slot as Record<string, unknown>))) return;
+    if (lastAssistant.content.includes("<StatusPlaceHolderImpl/>")) return;
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === lastAssistant.id && !m.content.includes("<StatusPlaceHolderImpl/>")
+          ? { ...m, content: `${m.content.replace(/\s+$/, "")}\n\n<StatusPlaceHolderImpl/>` }
+          : m,
+      ),
+    );
+  }, [messages, statusPlaceholderExpected]);
+
   // AnswererFlagalac unicodeEncoding (D-28/D-27) — display-side gate (F-2).
   //
   // The stored text keeps the model's `\uXXXX` escapes on purpose, and MessageItem

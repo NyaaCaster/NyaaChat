@@ -102,7 +102,7 @@ function buildBootstrapScript(bridge: ScriptHostBridge, importMap: Record<string
   async function main() {
     // probe 先装、库后载：这样库加载期的 console 也被记进环形缓冲（用户只需一条命令看全貌）。
     try { if (window.__nyaInstallProbes) window.__nyaInstallProbes(); } catch (e) {}
-    try { console.info('[js-slash-runner] 宿主脚本构建 v12-1753'); } catch (e) {}
+    try { console.info('[js-slash-runner] 宿主脚本构建 v12-2135'); } catch (e) {}
     // F3（t7 实测）：逐库容错 —— 五个库原先共用一个 try，任一个失败（典型：
     // 后缀为 mjs 的库被 nosniff 以 application/octet-stream 拒掉）就会整轮中止、
     // 所有脚本都不跑。改为单库失败只记一条并继续；全部结束后若有失败库，汇总一条
@@ -155,7 +155,8 @@ function buildBootstrapScript(bridge: ScriptHostBridge, importMap: Record<string
         helperRoot.appendChild(scriptNode);
       }
       document.body.appendChild(helperRoot);
-    } catch (e) { console.error('[js-slash-runner] 构建 #tavern_helper 失败，MVU 偏好状态可能取不到值', e); }    for (var j = 0; j < data.scripts.length; j++) {
+    } catch (e) { console.error('[js-slash-runner] 构建 #tavern_helper 失败，MVU 偏好状态可能取不到值', e); }
+    for (var j = 0; j < data.scripts.length; j++) {
       await runOne(data.scripts[j]);
       try { if (window.__nyaSyncMvu) window.__nyaSyncMvu(); } catch (e) {}
     }
@@ -257,10 +258,12 @@ export function createSrcdocScriptHost(): ScriptHost {
       };
 
       return {
-        emit(tavernEventValue: string, payload?: unknown) {
+        // 酒馆语义：`emit(event, ...args)` —— 多参数事件（MVU 的 VARIABLE_INITIALIZED 等）
+        // 必须原样转发，否则 iframe 内处理器拿到 undefined（真机 v12-1753 实测报错）。
+        emit(tavernEventValue: string, ...args: unknown[]) {
           if (!alive) return;
           try {
-            iframe.contentWindow?.__nyaDispatch?.(tavernEventValue, payload);
+            iframe.contentWindow?.__nyaDispatch?.(tavernEventValue, ...args);
           } catch (err) {
             log.warn("emit", `派发事件 ${tavernEventValue} 失败`, err);
           }

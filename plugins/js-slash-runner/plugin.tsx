@@ -25,7 +25,7 @@ export const JS_SLASH_RUNNER_PLUGIN_ID = "js-slash-runner";
 /** 初始化忙碌窗口上限：≤5s（脚本自身超时是 30s，绝不能让"脚本可能挂住"变成"用户被锁住"）。 */
 const INIT_BUSY_MAX_MS = 20000;
 /** 构建标记：在主页面控制台输入 __nyaScriptRunnerBuild 即可确认当前跑的是哪个构建。 */
-const BUILD_MARKER = 'v12-1753';
+const BUILD_MARKER = 'v12-2135';
 const log = pluginLogger(JS_SLASH_RUNNER_PLUGIN_ID);
 
 // ─── 模块级状态（面板与 setup 共享；插件是单例）─────────────────────────────
@@ -401,6 +401,12 @@ const plugin: NyaaPlugin = {
 
     // 宿主事件 → iframe（只派发有对应 tavern_events 常量的那几个）。
     const offs: Array<() => void> = [];
+    // ⚠️ 只在聊天 id **真正变化**时才派发 chat_id_changed。重复派发会让 MVU 反复重建监听器，
+    // 而它的清理顺序是 abort() 在前、移除监听器在后 —— 中间一旦出错就留下"已 abort 但仍在册"
+    // 的僵尸处理器，我们的 message_received 正好喂给它（n?.aborted 静默返回 ⇒ Yt 不执行 ⇒
+    // 回复楼层永远不加 StatusPlaceHolderImpl）。真机 v12-2109 实证：回复时刻只读 2 次会话 id、
+    // 值未变，chatIdHistory 全程同一个 id。
+    let lastChatId: string | null = null;
     for (const [hostEvent, tavernKey] of Object.entries(HOST_TO_TAVERN_EVENT)) {
       const tavernValue = TAVERN_EVENTS[tavernKey];
       if (!tavernValue) continue;
@@ -425,7 +431,7 @@ const plugin: NyaaPlugin = {
               /* ignore */
             }
           };
-          // ⚠️ 宿主的"回复日志落地"信号**早于**正文进入 messages（真机 v12-1753 实证：
+          // ⚠️ 宿主的"回复日志落地"信号**早于**正文进入 messages（真机 v12-2109 实证：
           //    `getChatMessages(2)` 拿到的 `message` 长度为 **0** ⇒ MVU 的 jo 在
           //    `o.message.length < 5` 处**静默 return**，状态栏占位符永不追加）。
           //    因此这里等正文真正就绪再派发：轮询最新楼层，内容可用即发；最多 3s 兜底发一次。
@@ -453,6 +459,13 @@ const plugin: NyaaPlugin = {
                 hostEvent === "session:changed"
                 ? (api.messages.diagnostics().sessionId ?? "nyaachat-unsaved")
                 : payload;
+          // ⚠️ 聊天 id 未变就**不派发** chat_id_changed（见上方 lastChatId 的注释）：
+          //    重复派发 → MVU 反复重建监听器 → 留下已 abort 的僵尸处理器 → Yt 不执行。
+          if (hostEvent === "session:changed") {
+            const id = api.messages.diagnostics().sessionId ?? "nyaachat-unsaved";
+            if (id === lastChatId) return;
+            lastChatId = id;
+          }
           // 临时诊断：宿主到底发了哪些事件、翻译后的载荷是什么（配 predefine 的
           // `__nyaShellProbe.events` 就能判定事件链断在哪一环）。定位后删除。
           traceEmit(resolved);

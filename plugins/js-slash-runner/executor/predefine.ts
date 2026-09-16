@@ -300,7 +300,13 @@ export function buildPredefineScript(): string {
   function eventRemoveListener(name, handler) {
     if (handlers.has(name)) handlers.get(name).delete(handler);
   }
-  function eventEmit(name, payload) {
+  // ⚠️ 酒馆语义：eventEmit(event, ...args) —— 处理器收到的是**同样的一串参数**。
+  // 早先这里只转发第一个参数，直接把 MVU/mvu_zod 之间的多参数事件打断（真机 v12-1753：
+  // MVU 用 eventEmit(VARIABLE_INITIALIZED, a, o) 发两个参数，zod 侧处理器拿到 undefined，
+  // 报 "Cannot read properties of undefined (reading 'forEach')" /
+  // "Cannot set properties of undefined (setting 'length')"）。
+  function eventEmit(name) {
+    var args = Array.prototype.slice.call(arguments, 1);
     // 探针：记录"派发了什么事件、有几个处理器"——用来区分「事件没进 iframe」/
     // 「MVU 没注册处理器」/「处理器跑了但内部门控没开」（真机排查 message_received 用）。
     try {
@@ -311,18 +317,20 @@ export function buildPredefineScript(): string {
         var rec = probe.events[name] || { n: 0, handlers: size, last: null };
         rec.n++;
         rec.handlers = size;
-        try { rec.last = String(payload).slice(0, 40); } catch (e) {}
+        try { rec.last = String(args[0]).slice(0, 40); } catch (e) {}
+        rec.args = args.length;
         probe.events[name] = rec;
       }
     } catch (e) { /* 探针绝不能影响主流程 */ }
     if (!handlers.has(name)) return;
     handlers.get(name).forEach(function (h) {
-      try { h(payload); } catch (e) { console.error('[js-slash-runner] 事件处理器抛错 ' + name, e); }
+      try { h.apply(null, args); } catch (e) { console.error('[js-slash-runner] 事件处理器抛错 ' + name, e); }
     });
   }
 
-  window.__nyaDispatch = function (name, payload) {
-    eventEmit(name, payload);
+  window.__nyaDispatch = function (name) {
+    var args = Array.prototype.slice.call(arguments, 1);
+    eventEmit.apply(null, [name].concat(args));
     if (globalInitialized.has(name)) {
       globalInitialized.get(name).forEach(function (resolve) { resolve(); });
       globalInitialized.delete(name);
@@ -490,7 +498,22 @@ export function buildPredefineScript(): string {
       saveSettingsDebounced: function () {},
       // ⚠️ 必须与 CHAT_CHANGED 事件的载荷**同源同值**（见 currentChatId 的注释）：
       //    MVU 的初始化谓词拿它和事件载荷做 === 比较，假就回滚全部事件处理器。
-      getCurrentChatId: function () { return currentChatId(); },
+      // 探针：记录读取次数/时刻/值 —— jo 只读 2 次（开头 + 早退判定），走到 c() 守卫
+      // 会多读；据此判定 jo 有没有走到调用 Yt 的那一行。
+      getCurrentChatId: function () {
+        var id = currentChatId();
+        try {
+          var probe = window.__nyaShellProbe;
+          if (probe) {
+            probe.chatIdReads = (probe.chatIdReads || 0) + 1;
+            probe.chatIdValue = id;
+            probe.chatIdHistory = (probe.chatIdHistory || []).concat([
+              { t: Math.round(performance.now()), n: probe.chatIdReads, id: String(id).slice(0, 8) }
+            ]).slice(-15);
+          }
+        } catch (e) { /* 探针绝不能影响主流程 */ }
+        return id;
+      },
       getCurrentLocale: function () { return 'zh-cn'; },
       getChatCompletionModel: function () { return ''; },
       getCharacterCardFields: function () { return {}; },
@@ -698,12 +721,12 @@ export function buildCardPredefineScript(): string {
   var bridge = window.parent.__nyaScriptHostBridge;
   if (!bridge) return;
   var api = bridge.api;
+  // ⚠️ 形状必须与 ST 的 getAllVariables 一致：**顶层就是合并后的变量表**（卡片直接
+  //   取 vars.stat_data），而不是 {global,chat,message} 的嵌套壳。原先返回嵌套壳 ⇒
+  //   vars.stat_data === undefined ⇒ 状态栏每个字段都落到卡片里的字面兜底值
+  //   （真机 v12-2109 实测：JSONPatch 已把世界.当前时间改成 07:05，面板仍显示 07:00）。
   function getAllVariables() {
-    return {
-      global: api.variables.getVariables('global'),
-      chat: api.variables.getVariables('chat'),
-      message: api.variables.getVariables('message', { messageId: 'latest' })
-    };
+    return api.variables.getVariables('message', { messageId: 'latest' }) || {};
   }
   function getVariables(option) {
     option = option || {};
@@ -717,13 +740,48 @@ export function buildCardPredefineScript(): string {
       try { return fn.apply(this, arguments); }
       catch (e) { console.error('[js-slash-runner] errorCatched 捕获', e); }
     };
-  };  window.getAllVariables = getAllVariables;
+  };
+  window.getAllVariables = getAllVariables;
   window.getVariables = getVariables;
   window.getLastMessageId = function () { return api.messages.getLastId(); };
   window.getCurrentPersonaName = function () { return api.identity.user; };
   window.getCurrentCharName = function () { return api.identity.char; };
   window.tavern_events = ${events};
   window.SillyTavern = { name1: api.identity.user, name2: api.identity.char };
+
+  // ── 事件总线 + Mvu 镜像（MVU技术性说明 §4.6）────────────────────────────────
+  // 状态栏 View 的自动重绘靠 eventOn(Mvu.events.VARIABLE_UPDATE_ENDED, redraw)；
+  // 早先这里没有事件总线、也没有 Mvu ⇒ View 只在 iframe 加载时用 getAllVariables() 画一次
+  // 初始快照，之后变量更新了也不重绘（真机实测：JSONPatch 已把时间改成 07:10，面板仍显示 07:00）。
+  var cardHandlers = new Map();
+  window.eventOn = function (name, handler) {
+    if (typeof handler !== 'function') return;
+    if (!cardHandlers.has(name)) cardHandlers.set(name, new Set());
+    cardHandlers.get(name).add(handler);
+  };
+  window.eventRemoveListener = function (name, handler) {
+    if (cardHandlers.has(name)) cardHandlers.get(name).delete(handler);
+  };
+  window.eventEmit = function (name) {
+    var args = Array.prototype.slice.call(arguments, 1);
+    if (!cardHandlers.has(name)) return;
+    cardHandlers.get(name).forEach(function (h) {
+      try { h.apply(null, args); } catch (e) { console.error('[js-slash-runner] 卡片事件处理器抛错 ' + name, e); }
+    });
+  };
+  // 宿主（FrontendCard 渲染器）在变量变化时调用它 —— 派发 VariableUpdateEnded 触发重绘。
+  window.__nyaCardDispatch = function () {
+    window.eventEmit.apply(null, arguments);
+  };
+  // Mvu 由脚本宿主镜像到父窗口（见 buildPredefineScript 的 __nyaSyncMvu）；这里以 getter 取，
+  // 保证卡片拿到的是同一个对象（Mvu.events.* 的事件名必须一致）。
+  try {
+    Object.defineProperty(window, 'Mvu', {
+      configurable: true,
+      get: function () { try { return window.parent.Mvu; } catch (e) { return undefined; } },
+      set: function () { /* 空 set：与脚本宿主侧一致 */ },
+    });
+  } catch (e) { /* 定义失败也不能影响卡片渲染 */ }
 })();
 `;
 }
