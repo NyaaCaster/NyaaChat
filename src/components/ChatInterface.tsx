@@ -40,6 +40,7 @@ import {
   buildImagePrompt,
   buildKbSearchContext,
   buildMessageContent,
+  buildPromptTextPrepareOptions,
   buildRequestMessages,
   buildMemoryContext,
   buildSearchContext,
@@ -48,6 +49,9 @@ import {
   isFlagalacTraceCleanupEnabled,
   isFlagalacUnicodeEncodingEnabled,
 } from "../lib/chatPipeline";
+// 条目文本渲染缝（SSOT §2.3 / D16-R 选项 A）：含 EJS 的条目必须在
+// `buildRequestMessages` **之前**的异步前置段里渲染完，组装期只做同步取值。
+import { preparePromptText } from "../plugins/promptText";
 // 插件事件总线（SSOT §2.7）：宿主 → 插件的 `message:sent` / `generation:started` /
 // `message:deleted` 都在本组件发射（这里是唯一同时持有"用户消息写入"与"请求组装"两处时序的地方）。
 import { emitPluginEvent } from "../plugins/runtime";
@@ -743,10 +747,16 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
     // We pre-compute which world-info keyword rules would activate so we can
     // collect their linkedKbIds and fetch KB search results for injection into
     // the same turn's <search_context> block.
+    //
+    // ⚠️ `activatedRules` 刻意提升到 `try` 之外：下面新增的条目文本渲染缝
+    //（`preparePromptText`）**必须复用这一份激活集**，绝不能自己再算一次 ——
+    // 口径一旦与 `buildRequestMessages` 内部不一致，就会出现"渲染了未激活条目
+    // ⇒ setvar 误写"（SSOT §2.3 的硬要求）。
     let kbSearchContext: string | null = null;
+    let activatedRules: ReturnType<typeof getActivatedKeywordRules> = [];
     if (currentCharacter?.worldInfo) {
       try {
-        const activatedRules = getActivatedKeywordRules(
+        activatedRules = getActivatedKeywordRules(
           processedInput,
           currentCharacter.worldInfo,
         );
@@ -829,6 +839,32 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
         });
       }
     }
+
+    // 条目文本渲染缝 · 异步 pre-pass（SSOT §2.1 数据流 / §2.3 / D16-R 选项 A）。
+    //
+    // 对上面这一份 `activatedRules`（**同一次** `getActivatedKeywordRules()` 的返回值）
+    // 里判据为真的条目，先复现「占位符 → 变量宏 → 正则」前缀链（与组装期的
+    // `renderRule` 是同一份代码），再把结果交给已注册的渲染器（EJS 插件）渲染 ——
+    // 于是 EJS 落在链的最后，与上游 ST-Prompt-Template 的顺序一致。
+    //
+    // 无渲染器注册时 `preparePromptText` 直接返回、不触碰任何状态，`needsPromptText`
+    // 也退化为 `hasVariableMacro` ⇒ 请求体与改造前**逐字节一致**（P4 验收①）。
+    // 渲染器抛错按条目降级（K3），绝不阻断生成。
+    await preparePromptText(
+      activatedRules,
+      buildPromptTextPrepareOptions(
+        {
+          sessionId: currentSession?.id ?? "",
+          turnId: botMessageId,
+          identity: { user: userName, char: charName },
+          character: {
+            id: currentCharacter?.id ?? null,
+            name: currentCharacter?.name ?? "",
+          },
+        },
+        { userName, charName, currentCharacter },
+      ),
+    );
 
     // Merge web-search and KB-search contexts into one block.
     // Both ride the same <search_context> volatile part in the latest user turn;

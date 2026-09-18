@@ -16,6 +16,17 @@ import {
 } from "./FlagalacTemplates";
 import { encodeFlagalacUnicodeEscapes } from "./flagalacUnicode";
 import { hasVariableMacro, substituteVariableMacros } from "./variables";
+// 条目文本渲染缝（SSOT §2.2/§2.3，D3/D4/D13）。`promptText` 是**叶子模块**
+// （只依赖 ../types 与 ../lib/variables），因此这里新增的静态边不会构成模块环。
+// 无渲染器注册时 `needsPromptText ≡ hasVariableMacro` ⇒ 请求体与改造前逐字节一致。
+import {
+  getPreparedPromptText,
+  hasPreparedPromptText,
+  needsPromptText,
+  type PromptTextContext,
+  type PromptTextPrefixChain,
+  type PromptTextPrepareOptions,
+} from "../plugins/promptText";
 
 // ---------------------------------------------------------------------------
 // Regex macro context (host side)
@@ -164,6 +175,74 @@ export function collectLinkedKbIds(activatedRules: WorldInfoRule[]): string[] {
     }
   }
   return Array.from(ids);
+}
+
+// ─── 条目文本前缀链（D16-R 选项 A：EJS 在最后）─────────────────────────────
+//
+// 上游 ST-Prompt-Template 的顺序是「变量宏 → 正则 → **EJS**」（EJS 最后）。NyaaChat
+// 的组装期顺序是「占位符 → 变量宏 → 正则」，EJS 只能由**异步 pre-pass** 在末尾接上
+// （`await getwi` 要求异步；SSOT §1.1 选项 C 已否决）。
+//
+// 为了让 pre-pass 与组装期**共用同一份代码**（而不是两套顺序），下面把这条前缀链抽成
+// `applyPrefixChain()`，两侧都走它：
+//   · 组装期：`renderRule()` 是它的薄包装；
+//   · pre-pass：`buildPromptTextPrepareOptions()` 把 `buildPrefixChain()` 交给
+//     `preparePromptText`，由后者对每个条目复现同一条链，再交给插件跑 EJS。
+
+/** `applyPrefixChain` 的选项（`allowVariableMacros` = 变量宏是否上链）。 */
+export interface PrefixChainOptions {
+  allowVariableMacros: boolean;
+}
+
+/**
+ * 前缀链工厂的入参 —— 与 `buildRequestMessages` 的上下文同口径：正则链取
+ * `getEffectiveRegexScripts(currentCharacter)`（**未传 depth**，故 pre-pass 可无副作用
+ * 复现，见 SSOT §1.1 注）。
+ */
+export interface PrefixChainParams {
+  userName: string;
+  charName: string;
+  currentCharacter?: CharacterSettings | null;
+  /** 组装期已算好的正则链；省略时按 `currentCharacter` 现算（pre-pass 用这条路径）。 */
+  promptRegex?: RegexScript[];
+}
+
+/**
+ * 构造一条前缀链：占位符（`{{user}}`/`{{char}}`）→ 变量宏（可选）→ 世界书正则。
+ *
+ * ⚠️ 这是**唯一**一份实现。`buildRequestMessages` 的 `renderRule` 与
+ * `preparePromptText` 的 pre-pass 都用它；改这里即两侧同时生效（D16-R 选项 A 的要求）。
+ */
+export function buildPrefixChain(params: PrefixChainParams): PromptTextPrefixChain {
+  const { userName, charName, currentCharacter, promptRegex } = params;
+  const regexChain =
+    promptRegex ?? getEffectiveRegexScripts(currentCharacter ?? undefined);
+  return {
+    renderPrefix(text: string, opts: PrefixChainOptions): string {
+      const named = text
+        .replace(/\{\{user\}\}/g, userName)
+        .replace(/\{\{char\}\}/g, charName);
+      const macroed = opts.allowVariableMacros ? substituteVariableMacros(named) : named;
+      return regexChain.length
+        ? getRegexedString(macroed, regex_placement.WORLD_INFO, regexChain, {
+            isPrompt: true,
+          })
+        : macroed;
+    },
+  };
+}
+
+/**
+ * pre-pass 接线：把"本轮激活条目 + 本轮身份"翻译成 `preparePromptText` 的选项。
+ *
+ * 调用方（`ChatInterface`）**必须**复用同一次 `getActivatedKeywordRules()` 的返回值：
+ * pre-pass 与组装期一旦用了不同的激活集，就会出现"渲染了未激活条目 ⇒ `setvar` 误写"。
+ */
+export function buildPromptTextPrepareOptions(
+  ctx: PromptTextContext,
+  params: PrefixChainParams,
+): PromptTextPrepareOptions {
+  return { ...ctx, prefixChain: buildPrefixChain(params) };
 }
 
 /**
@@ -828,20 +907,49 @@ export function buildRequestMessages(args: BuildRequestArgs): ApiMessage[] {
   //    含变量宏的"永久"条目因此被移到尾部渲染 —— 这也更贴近 ST 语义：样例卡里那条
   //    `变量列表` 原本就是 `position=at_depth` / `depth=0`（贴在最新消息前的动态
   //    注入），并不是真正的前缀常驻内容。
-  const renderRule = (text: string, allowVariableMacros = false) => {
-    const named = text.replace(/\{\{user\}\}/g, userName).replace(/\{\{char\}\}/g, charName);
-    const macroed = allowVariableMacros ? substituteVariableMacros(named) : named;
-    return promptRegex.length
-      ? getRegexedString(macroed, regex_placement.WORLD_INFO, promptRegex, { isPrompt: true })
-      : macroed;
-  };
+  //
+  // 🔺 前缀链与 pre-pass **共用同一份代码**（D16-R 选项 A）：`applyPrefixChain` 由
+  //    `buildPrefixChain()` 构造，`preparePromptText` 的 pre-pass 拿的是同一个工厂
+  //    产物（`buildPromptTextPrepareOptions`），因此"占位符 → 变量宏 → 正则"这条链
+  //    在两条路径上不可能漂移；EJS 由渲染器接在链的**最后**。
+  const applyPrefixChain = buildPrefixChain({
+    userName,
+    charName,
+    currentCharacter,
+    promptRegex,
+  });
+  const renderRule = (text: string, allowVariableMacros = false) =>
+    applyPrefixChain.renderPrefix(text, { allowVariableMacros });
 
-  // 永久条目分流：不含变量宏的留在**静态前缀**（逐轮字节一致）；含变量宏的改由
-  // 动态尾部渲染（D6-①'）。两组的相对顺序都由 `filter` 保序 ⇒ 对不含变量宏的卡片
-  // 而言，前缀与改造前逐字节相同。
+  // 永久条目分流（D13 / SSOT §2.6）：三组互斥，`filter` 保序
+  //   · 静态       → 静态前缀（逐轮字节一致 ⇒ 缓存命中）
+  //   · 只含变量宏 → 动态尾部「═ 变量状态 ═」（**原有行为，字节不变**）
+  //   · 含 EJS     → 动态尾部「═ 模板设定 ═」（EJS 产物逐轮可变）；
+  //                  含宏的也归这一组 —— pre-pass 已把前缀链（含宏展开）跑完。
+  //
+  // 判据（`chatPipeline.ts:843-844` 的原 `hasVariableMacro`）已泛化为
+  // `needsPromptText`：含变量宏 **或** 任一渲染器 `matches`。两者是**两个时点**的
+  // 问题，必须分开问：
+  //   · `needsPromptText(r.content)` —— **声明**：该条目该不该由渲染器接管（pre-pass
+  //     用它筛出候选，即下面 `rendererOwnedPermanentRules` 的候选集）；
+  //   · `hasPreparedPromptText(r.id)` —— **事实**：本轮真的渲染出结果了吗。
+  // 分流用后者：否则"插件已注册但未启用"时条目会被移出静态前缀，请求体不再与改造前
+  // 逐字节一致。无渲染器注册时 pre-pass 直接返回 ⇒ 候选集与结果集都为空 ⇒ 分组与
+  // 改造前完全一致（P4 验收①）。
   const permanentRules = activeRules.filter((r) => r.triggerType === "permanent");
-  const staticPermanentRules = permanentRules.filter((r) => !hasVariableMacro(r.content));
-  const dynamicPermanentRules = permanentRules.filter((r) => hasVariableMacro(r.content));
+  const promptTextCandidates = permanentRules.filter((r) => needsPromptText(r.content));
+  const rendererOwnedPermanentRules = promptTextCandidates.filter((r) =>
+    hasPreparedPromptText(r.id),
+  );
+  const nonRendererPermanentRules = permanentRules.filter(
+    (r) => !hasPreparedPromptText(r.id),
+  );
+  const staticPermanentRules = nonRendererPermanentRules.filter(
+    (r) => !hasVariableMacro(r.content),
+  );
+  const dynamicPermanentRules = nonRendererPermanentRules.filter((r) =>
+    hasVariableMacro(r.content),
+  );
 
   // Static prefix: session-protocol anchor + persona + PERMANENT world info.
   // These stay byte-identical across turns so the cached prefix keeps
@@ -875,28 +983,60 @@ export function buildRequestMessages(args: BuildRequestArgs): ApiMessage[] {
   }
 
   // Dynamic tail: KEYWORD-triggered world info (hard/soft sectioned) +
-  // variable-macro PERMANENT entries (D6-①') + MCP rules, merged into ONE trailing
-  // system message wrapped in <session_rules>. Search context is NOT here — it's
-  // external text and rides the user turn instead (see above).
+  // variable-macro PERMANENT entries (D6-①') + EJS-rendered PERMANENT entries
+  // (D16-R) + MCP rules, merged into ONE trailing system message wrapped in
+  // <session_rules>. Search context is NOT here — it's external text and rides
+  // the user turn instead (see above).
   const keywordRules = activeRules.filter((r) => r.triggerType !== "permanent");
-  const renderTailEntry = (rule: WorldInfoRule) => {
-    const tag = rule.position === "assistant" ? "Assistant Note" : "World Info";
-    return `[${tag}] ${renderRule(rule.content, true)}`;
-  };
   const tailParts: string[] = [];
-  if (keywordRules.length > 0 || dynamicPermanentRules.length > 0) {
+  if (
+    keywordRules.length > 0 ||
+    dynamicPermanentRules.length > 0 ||
+    rendererOwnedPermanentRules.length > 0
+  ) {
     tailParts.push(RULES_MEDIATION_CLAUSE);
-    const hardRules = keywordRules.filter((r) => r.hard === true);
-    const softRules = keywordRules.filter((r) => r.hard !== true);
+    // 两个小节共用的行渲染：被渲染器接管过的条目取本轮结果，否则走原有语义。
+    // （两者都只产出 `[tag] text` 一行，差别只在文本来源。）
+    const renderSectionEntry = (rule: WorldInfoRule) => {
+      const tag = rule.position === "assistant" ? "Assistant Note" : "World Info";
+      return `[${tag}] ${
+        hasPreparedPromptText(rule.id)
+          ? getPreparedPromptText(rule.id, renderRule(rule.content, true))
+          : renderRule(rule.content, true)
+      }`;
+    };
+    // 关键词条目里含 EJS 的那些**不进** 硬约束/场景设定，而进 ═ 模板设定 ═
+    // （SSOT §2.1 数据流："═ 模板设定 ═（含 EJS 的 permanent 条目 + keyword 含 EJS 条目）"）
+    const keywordTemplateRules = keywordRules.filter((r) => hasPreparedPromptText(r.id));
+    const keywordPlainRules = keywordRules.filter((r) => !hasPreparedPromptText(r.id));
+    const hardRules = keywordPlainRules.filter((r) => r.hard === true);
+    const softRules = keywordPlainRules.filter((r) => r.hard !== true);
     if (hardRules.length > 0) {
-      tailParts.push(`═ 硬约束 ═\n${hardRules.map(renderTailEntry).join("\n\n")}`);
+      tailParts.push(`═ 硬约束 ═\n${hardRules.map(renderSectionEntry).join("\n\n")}`);
     }
     if (softRules.length > 0) {
-      tailParts.push(`═ 场景设定 ═\n${softRules.map(renderTailEntry).join("\n\n")}`);
+      tailParts.push(`═ 场景设定 ═\n${softRules.map(renderSectionEntry).join("\n\n")}`);
     }
     // 变量状态块：含变量宏的永久条目，位置在关键词条目之后、MCP 之前。
     if (dynamicPermanentRules.length > 0) {
-      tailParts.push(`═ 变量状态 ═\n${dynamicPermanentRules.map(renderTailEntry).join("\n\n")}`);
+      tailParts.push(`═ 变量状态 ═\n${dynamicPermanentRules.map(renderSectionEntry).join("\n\n")}`);
+    }
+    // 模板设定块：被渲染器接管的条目（含 EJS 的 permanent + keyword 条目）。
+    // ⚠️ **仅当本轮真的有条目被渲染时产出**：无 EJS 条目（或插件未启用 ⇒ pre-pass
+    //    没跑）⇒ `tailParts` 与改造前逐字节一致。
+    // ⚠️ 仍然只是 tailParts 的一段：它们最终全部并进**唯一一条**尾部 system 消息
+    //    （`api.ts` 的折叠不变量，见下方 tailMessages 的注释）。
+    // ⚠️ **空文本条目整条丢弃**（t10 集成发现并修复）：渲染出空串（模板未命中，或渲染器
+    //    按条目降级返回 `''`）时，`renderSectionEntry` 只会产出 `[World Info] ` 这种
+    //    **空壳行** —— 既无信息量，又会让"本轮确有内容"的判据失真。K3 要求降级条目的
+    //    内容**不进请求体**，故这里按"渲染结果非空"过滤 ⇒ 该条目完全消失。
+    const templateRules = [...rendererOwnedPermanentRules, ...keywordTemplateRules].filter(
+      (r) => getPreparedPromptText(r.id, "") !== "",
+    );
+    if (templateRules.length > 0) {
+      tailParts.push(
+        `═ 模板设定 ═\n${templateRules.map(renderSectionEntry).join("\n\n")}`,
+      );
     }
   }
   // MCP tool data-usage guidelines go LAST within the tail — the closest

@@ -14,15 +14,17 @@
  * 类型来自宿主侧契约 `src/plugins/types.ts`（type-only 导入，不产生运行时环）。
  */
 import type { NyaaPlugin } from "../src/plugins/types";
+import ejsTemplate from "./EJS-template/plugin";
 import jsSlashRunner from "./js-slash-runner/plugin";
 import quoteTts from "./quote-tts/plugin";
 
-/** 已注册插件：`quote-tts`（V1 首版）与 `js-slash-runner`（第二阶段 P3）。
+/** 已注册插件：`quote-tts`（V1 首版）、`js-slash-runner`（第二阶段 P3）与
+ *  `ejs-template`（世界书条目正文的 EJS 渲染，order=20）。
  *
  *  ⚠️ 不要为了让 UI 显示出东西而在这里塞占位插件：列表只由本数组产生，
  *  塞进来的东西就是"真实存在的插件"。
  */
-const registered: NyaaPlugin[] = [quoteTts, jsSlashRunner];
+const registered: NyaaPlugin[] = [quoteTts, jsSlashRunner, ejsTemplate];
 
 export const plugins: NyaaPlugin[] = registered.sort((a, b) => {
   const ao = typeof a.meta.order === "number" ? a.meta.order : 0;
