@@ -714,7 +714,7 @@ python dev-server/tools/verify-ejs-p6-cache.py --date 2026-09-18 --model deepsee
 |---|---|
 | **P7-③ 契约登记** | ✅ `插件框架规范.md` 已补登记（§1.1 / §2.5 + **§2.5.1 专节** / §6 步骤 4 / §7.2 / §8 偏差表 **D-21**） |
 | **`FileCode2` 图标** | ✅ 选**扩允许集**（非改插件图标）：`ExtensionsModal.tsx` 的 `PLUGIN_ICONS` 12 → **13 项**。依据 = 该表注释本条规定"需要新图标时在这里加一行具名导入 + 一条映射即可"，且 `FileCode2` 对"脚本运行器"语义正确。登记为偏差表 **D-22** |
-| **悬挂提交 `6421131`** | ⬜ 待执行（`git prune --expire=now` + `git fsck` 复核） |
-| **提交推送** | ⬜ 待执行（主仓与 dev-server 仓分别提交推送） |
-| **dev 测试服** | ⬜ 待执行（`python dev-server/tools/rebuild-dev.py --up` + 复跑 P6 判据） |
+| **悬挂提交 `6421131`** | ⏸ **未执行 —— 实测发现波及面远大于预期，交你拍板**。`git fsck --unreachable` 显示本仓共有 **198 个不可达对象**（82 commit / 79 tree / 37 blob），其中绝大多数是**历史上被 drop 掉的 stash**（形如 `WIP on master: …` / `index on master: …`，内容涉及 KB 检索注入、v1.5.1 计费重平衡、ComfyUI 计费、SSRF 加固等**旧工作**），**不是本轮产生的**；`6421131` 只是其中最新、也是唯一由本轮（t13）产生的那个。`git gc --prune=now` 或 `git prune --expire=now` 会**一并删掉全部 198 个**（另有 9 个仅由 reflog 保护）。⇒ 未动手。三个选项：**(a)** 全部清理；**(b)** 保持现状（不可达对象不影响 `HEAD`/`log`/`status`，只是占空间）；**(c)** 我先把那些 stash 提成 `refs/…` 保下来、再清理。 |
+| **提交推送** | ✅ 主仓 `0d82959`（`fix(extensions-modal)`: FileCode2 进白名单）→ `249a255`（`docs`: P6 验收 + promptText 契约登记），`master` 已推送 `5e00ae7..249a255`；dev-server 仓 `a70cb77`（`test`: P6 判据脚本 + 证据 22 文件），`main` 已推送 `0da516f..a70cb77` |
+| **dev 测试服** | ✅ `python tools/rebuild-dev.py --up`（镜像重建 + 容器重启，`GET /__dev__/health → 200`）；并在**新构建**上复跑：`verify-ejs-p6.py --all` **21 / 0 / 1**（含新增 **`P6-BASE-7`** 图标告警 + **`P6-NC-5`**）、engine `both`/`subset` **57/57 差异 0**、engine `--negative-control` 57/57 检出、host **49 / 0**、integration **29 / 29**、`tsc` exit 0 |
 
