@@ -31,6 +31,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   Book,
+  FileCode2,
   Flame,
   GripVertical,
   Loader2,
@@ -87,12 +88,21 @@ const EMPTY_SEARCH_TEXT = "没有匹配的插件";
  *
  * 代价（明确登记）：插件只能从这个表里挑图标，写表外的名字会回退到 `Puzzle` 并
  * 在控制台给出提示（提示里会列出可选值）。需要新图标时在这里加一行具名导入 +
- * 一条映射即可。当前真实插件 `quote-tts` 用的是 `Volume2`。
+ * 一条映射即可。现役三个插件与它们的图标：`quote-tts` → `Volume2`、
+ * `js-slash-runner` → `FileCode2`、`ejs-template` → `Sparkles`。
+ *
+ * ⚠️ `FileCode2` 是 2026-09-18 按上面这条规则补进来的：`js-slash-runner` 的
+ * `meta.icon` 一直是 `FileCode2`，而表里没有它 ⇒ **每次渲染都 warn + 回退拼图块**
+ * （P6 真机实测到 37 条该告警）。两条修法里选了「扩表」而不是「改插件图标」：
+ * ① 上面这条注释本来就规定"需要新图标时在这里加一行"；② `FileCode2` 对"脚本运行器"
+ * 语义正确，换成表内已有图标反而是降级。**上限仍在**：加图标要过 review，
+ * 不是放开任意图标名。
  */
 const PLUGIN_ICONS: Record<string, LucideIcon> = {
   AlertTriangle,
   ArrowLeft,
   Book,
+  FileCode2,
   Flame,
   Loader2,
   MessageSquare,
