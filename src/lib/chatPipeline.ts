@@ -1026,12 +1026,15 @@ export function buildRequestMessages(args: BuildRequestArgs): ApiMessage[] {
     //    没跑）⇒ `tailParts` 与改造前逐字节一致。
     // ⚠️ 仍然只是 tailParts 的一段：它们最终全部并进**唯一一条**尾部 system 消息
     //    （`api.ts` 的折叠不变量，见下方 tailMessages 的注释）。
-    // ⚠️ **空文本条目整条丢弃**（t10 集成发现并修复）：渲染出空串（模板未命中，或渲染器
-    //    按条目降级返回 `''`）时，`renderSectionEntry` 只会产出 `[World Info] ` 这种
-    //    **空壳行** —— 既无信息量，又会让"本轮确有内容"的判据失真。K3 要求降级条目的
-    //    内容**不进请求体**，故这里按"渲染结果非空"过滤 ⇒ 该条目完全消失。
+    // ⚠️ **空（或纯空白）文本条目整条丢弃**（t10 集成发现、P6 真机补全）：
+    //    渲染出空串（模板未命中，或渲染器按条目降级返回 `''`）时，`renderSectionEntry`
+    //    只会产出 `[World Info] ` 这种**空壳行** —— 既无信息量，又会让"本轮确有内容"的
+    //    判据失真。K3 要求降级条目的内容**不进请求体**，故这里按"渲染结果非空白"过滤。
+    //    ⚠️ 必须用 `.trim()`：P6 真机实测到 **纯空白**（`"\n"` / `"  "`）的渲染结果
+    //       —— 只判 `!== ""` 挡不住它，每个都会漏成一行 `[World Info] `（t10/t11 的夹具
+    //       只造了 `""`，所以集成期没暴露）。任何"空"的判定都该按 trim 后的内容算。
     const templateRules = [...rendererOwnedPermanentRules, ...keywordTemplateRules].filter(
-      (r) => getPreparedPromptText(r.id, "") !== "",
+      (r) => getPreparedPromptText(r.id, "").trim() !== "",
     );
     if (templateRules.length > 0) {
       tailParts.push(
