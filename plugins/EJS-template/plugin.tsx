@@ -159,6 +159,15 @@ let turn: TurnState | null = null;
  * `EJS本地自测方法.md` §8 要的 `matched` 字段。
  */
 const pendingMatchKeys = new Set<string>();
+/**
+ * **本轮已计入 `matched` 的正文键** —— 跨批去重（P6 真机发现）。
+ *
+ * 为什么需要它：同一轮里 `needsPromptText()` 会被问**两批**（`chatPipeline` 的分组判定
+ * 一批 + `preparePromptText` 一批），而 `pendingMatchKeys` 每批都被取走并清空 ⇒ 第二批
+ * 不认识第一批 ⇒ 同一批正文被数两遍（真机实测：39 条被显示成 **77**）。
+ * 这里保留一份"已计入"的集合，只在**换轮**时清，`matched` 因此逐批去重累加。
+ */
+const seenMatchKeys = new Set<string>();
 /** 跨轮复用的执行载体（`templateHash` 缓存住在它内部 ⇒ 复用才有收益）。 */
 let carrier: Carrier | null = null;
 /** vendor YAML 的按需预热（本文件与面板各持一份 memo；失败只告警一次）。 */
@@ -250,11 +259,14 @@ function clip(value: string, max: number): string {
 function ensureTurn(ctx: PromptTextContext): TurnState {
   if (!turn || turn.turnId !== ctx.turnId) {
     const now = Date.now();
+    // 换轮 ⇒ 清"已计入"集合。⚠️ 不能在这里清 `pendingMatchKeys`：`matches()` 在
+    // `render()` 之前就被问过，本批的键已经躺在集合里，清了会丢掉本轮第一批的命中数。
+    seenMatchKeys.clear();
     turn = {
       turnId: ctx.turnId,
       startedAt: now,
       updatedAt: now,
-      matched: pendingMatchKeys.size,
+      matched: 0,
       rendered: 0,
       failed: 0,
       blocks: 0,
@@ -267,11 +279,15 @@ function ensureTurn(ctx: PromptTextContext): TurnState {
       callIndex: 0,
       nameCandidates: collectNameCandidates(),
     };
-    pendingMatchKeys.clear();
-  } else if (pendingMatchKeys.size > 0) {
-    turn.matched += pendingMatchKeys.size;
-    pendingMatchKeys.clear();
   }
+  // 跨批去重：同一轮内同一个"正文键"只计入一次（键 = FNV-1a 哈希 + 长度）。
+  for (const key of pendingMatchKeys) {
+    if (!seenMatchKeys.has(key)) {
+      seenMatchKeys.add(key);
+      turn.matched += 1;
+    }
+  }
+  pendingMatchKeys.clear();
   return turn;
 }
 
@@ -523,6 +539,7 @@ const plugin: NyaaPlugin = {
       carrier = null;
       turn = null;
       pendingMatchKeys.clear();
+      seenMatchKeys.clear();
       yamlReady = null;
     };
   },
@@ -535,6 +552,7 @@ export default plugin;
 export function resetEjsTemplateForTests(): void {
   turn = null;
   pendingMatchKeys.clear();
+  seenMatchKeys.clear();
   yamlReady = null;
   try {
     carrier?.destroy();
