@@ -296,6 +296,19 @@ export function buildPredefineScript(): string {
 
   function getLastMessageId() { return api.messages.getLastId(); }
 
+  // 酒馆助手里 getCurrentMessageId() 返回「当前楼层 iframe 所属的楼层号」
+  // （上游实现：解析 iframe 名 TH-message--<id>--<n>；不在楼层 iframe 内会抛错）。
+  //
+  // NyaaChat 没有「每楼层一个脚本 iframe」—— 卡脚本统一跑在**同一个** script-host iframe 里，
+  // 且它始终绑定最新楼层 ⇒ 这里映射为「最新楼层号」（与 getLastMessageId 同值）。我们自己的
+  // EJS 集成判据的宿主桩也是这么映射的。
+  //
+  // ⚠️ 缺了它**不是**「未实现 API 显式抛错」，而是裸 ReferenceError：MVU 的打包产物直接裸调
+  // 这个全局（Mvu.getCurrentMvuData / Mvu.replaceCurrentMvuData 里各一处）。真机症状
+  // （2026-09-18 用户实测）：雨宫樱卡状态栏切换深浅色主题时报
+  // 「主题未能保存，已恢复为浅色主题：getCurrentMessageId is not defined」。
+  function getCurrentMessageId() { return api.messages.getLastId(); }
+
   // ── 事件（M6/M7）──────────────────────────────────────────────────────
   function eventOn(name, handler) {
     if (typeof handler !== 'function') return;
@@ -630,6 +643,7 @@ export function buildPredefineScript(): string {
     getChatMessages: getChatMessages,
     setChatMessages: setChatMessages,
     getLastMessageId: getLastMessageId,
+    getCurrentMessageId: getCurrentMessageId,
     eventOn: eventOn,
     eventEmit: eventEmit,
     eventRemoveListener: eventRemoveListener,
@@ -856,6 +870,9 @@ export function buildCardPredefineScript(): string {
     return api.variables.getVariables(scope, scope === 'message' ? { messageId: option.message_id || 'latest' } : undefined);
   };
   window.getLastMessageId = function () { var api = getApi(); return api ? api.messages.getLastId() : -1; };
+  // 与脚本宿主侧同一口径：卡脚本（含状态栏内联 script）裸调 getCurrentMessageId() 时要拿得到，
+  // 否则就是 ReferenceError（Mvu.getCurrentMvuData 会走到这里）。
+  window.getCurrentMessageId = function () { var api = getApi(); return api ? api.messages.getLastId() : -1; };
   window.getLastMessage = function () {
     var api = getApi();
     if (!api) return null;
