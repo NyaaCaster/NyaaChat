@@ -149,3 +149,19 @@ P6 要做的第一件事：起真实实例（本地 dev 测试机 http://127.0.0
 *交接人：captain（本阶段全程自办高风险部分并保留最终裁定）*
 *日期：2026-09-18*
 *团队 `ejs-template-p1` 已于本阶段结束时归档（8 名成员 / 14 个任务）*
+
+---
+
+## 附：P6 实测起点（2026-09-18 补充）
+
+dev 测试机已就绪，可直接用于 P6 真机验收：
+
+    cd H:\GitHub\NyaaChat\dev-server
+    python tools/rebuild-dev.py --up      # 构建 + 重启（改前端后需重跑）
+    # → http://127.0.0.1:4095/   账号 nyaa（dev 栈无 Basic Auth）
+
+- **后端**：角色卡 / 知识库继续指向 macmini（`http://192.168.31.141:3095/api/shared|knowledge/`）⇒ 真实数据。
+- **排障不必截图**：浏览器控制台已注入收集器 ⇒ NDJSON 落盘 `dev-server/logs/browser/`；nginx 日志在 `dev-server/logs/nginx/`。
+- **P6 进度**：用户实测「**EJS 模板插件对角色卡的解析正常**」⇒ P6-①（端到端生成成功）已获真人证据；② `usage.cached_tokens` / ③ `setvar` 每轮恰好一次（真实卡是条件写 ⇒ "有写入的轮次恰好一次 + 任何轮次 ≤1"）/ ④ 抛错按条目降级，三项待测。
+- **部署时修掉的真实缺陷**（已提交 `60f087b`）：`.dockerignore` 原以 `dev-server` 排除**整个目录**，而 `dev-server/Dockerfile` 要 `COPY dev-server/nginx/default.conf.template`、构建期 patch 还要 `dev-server/tools/devlog/console-collector.js` ⇒ 构建连续两次失败。现改为逐项排除（`.git` / `.env` / `secrets` / `logs`）。**教训**：`.dockerignore` 的目录级排除会连带砍掉 Dockerfile 自己依赖的文件，排除粒度必须与 Dockerfile 的 COPY 清单对齐。
+- **本阶段最终提交**：主仓 `98c670f`（插件本体）→ `60f087b`（构建配置）→ `9f5992b`（EJS 面板精简）→ `12526e6`（脚本运行器安全提示）→ `384ca48`（风险提示补句号）；dev-server 仓 `2e5cd73`（判据脚本 + 复核报告）、`0da516f`（golden 基准入库）。
