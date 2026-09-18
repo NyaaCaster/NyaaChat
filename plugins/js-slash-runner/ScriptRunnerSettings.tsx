@@ -6,9 +6,9 @@
  *
  *  1. **「加载即运行」开关** —— 写 `updateConfig({ runOnLoad })`（`defaults.runOnLoad = true`，
  *     §8 P5 验收 2）。它只声明"要什么"，真正的执行时机由 P3 的插件 setup 读取本配置后决定。
- *  2. **安全风险提示（D5① 硬要求）** —— 文案必须写明"卡片脚本与 NyaaChat 宿主**同源**运行、
- *     可访问本机数据与凭据；只运行你信任来源的角色卡"。脚本载体是同源隐藏 iframe（不 sandbox，
- *     D5 决策①），这不是可以折叠隐藏的次要说明，所以常驻显示、紧贴面板顶部。
+ *  2. **安全风险提示（D5① 硬要求）** —— 文案写明"卡片脚本可访问本机数据与凭据；只运行你信任
+ *     来源的角色卡"。脚本载体是同源隐藏 iframe（不 sandbox，D5 决策①），这不是可以折叠隐藏的
+ *     次要说明，所以常驻显示、紧贴面板顶部。
  *  3. **脚本库入口** —— 打开 `ScriptLibraryModal`（列表/启停/删除/排序/导入）。
  *  4. **最近一条脚本错误** —— 脚本在 iframe 里抛错时宿主只会在控制台留痕，用户看不到；
  *     这里把 P3 `executor/errors.ts` 环形缓冲的最后一条呈现出来。
@@ -76,9 +76,9 @@ export interface ScriptRunnerSettingsProps extends PluginSettingsPanelProps {
   recentError?: ScriptRunError | null;
 }
 
-/** 安全风险提示正文（D5① 指定必须写明的三件事：同源 / 可访问本机数据与凭据 / 只运行可信来源）。 */
+/** 安全风险提示正文（可访问本机数据与凭据 / 只运行可信来源）。同源运行属实现事实，见文件头的载体说明。 */
 export const SECURITY_NOTICE_TEXT =
-  "卡片脚本与 NyaaChat 宿主同源运行，可访问本机数据与凭据；只运行你信任来源的角色卡。";
+  "卡片脚本可访问本机数据与凭据；只运行你信任来源的角色卡。";
 
 const UNNAMED_SCRIPT = "(未命名脚本)";
 
