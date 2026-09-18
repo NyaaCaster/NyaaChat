@@ -29,6 +29,8 @@ import {
   convertSillyTavernCharacter,
   convertNativeCard,
   extractCharaJson,
+  extractCardJson,
+  cardFileKind,
 } from "../lib/sillyTavernImport";
 import { exportCharacterPng, imageBlobToCoverWebp } from "../lib/pngCard";
 import { toNativeCardJson } from "../lib/sillyTavernScripts";
@@ -293,10 +295,11 @@ export function CharacterEditModal({
     if (!file) return;
     setImportError(null);
     try {
-      if (!file.name.toLowerCase().endsWith(".png")) {
-        throw new Error("仅支持 PNG 角色卡");
+      const kind = cardFileKind(file.name);
+      if (!kind) {
+        throw new Error("仅支持 .png / .json 角色卡");
       }
-      const raw = await extractCharaJson(file);
+      const raw = kind === "png" ? await extractCharaJson(file) : await extractCardJson(file);
       const imported: CharacterSettings = isSillyTavernFormat(raw)
         ? convertSillyTavernCharacter(raw)
         : convertNativeCard(raw);
@@ -306,13 +309,16 @@ export function CharacterEditModal({
       setFirstMes(imported.firstMes || "");
       setWorldInfo(imported.worldInfo || []);
       // Use the imported PNG's pixels as the new cover (re-encoded to 512×768).
-      try {
-        const coverWebp = await imageBlobToCoverWebp(file);
-        coverBlobRef.current = coverWebp;
-        setCoverRemoved(false);
-        setPreview(URL.createObjectURL(coverWebp));
-      } catch {
-        // keep the existing cover on decode failure
+      // ⚠️ JSON 卡没有像素 ⇒ 跳过，保留现有封面。
+      if (kind === "png") {
+        try {
+          const coverWebp = await imageBlobToCoverWebp(file);
+          coverBlobRef.current = coverWebp;
+          setCoverRemoved(false);
+          setPreview(URL.createObjectURL(coverWebp));
+        } catch {
+          // keep the existing cover on decode failure
+        }
       }
     } catch (err: any) {
       setImportError("角色卡导入失败：" + (err?.message || String(err)));
@@ -481,7 +487,7 @@ export function CharacterEditModal({
         <div className="p-4 sm:p-5">
           <input
             type="file"
-            accept=".png"
+            accept=".png,.json"
             className="hidden"
             ref={importInputRef}
             onChange={handleImportForEdit}

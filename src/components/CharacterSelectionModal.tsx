@@ -6,6 +6,8 @@ import {
   convertSillyTavernCharacter,
   convertNativeCard,
   extractCharaJson,
+  extractCardJson,
+  cardFileKind,
 } from "../lib/sillyTavernImport";
 import { imageBlobToCoverWebp } from "../lib/pngCard";
 import { saveCover, deleteCover, COVER_MARKER } from "../lib/coverStorage";
@@ -160,13 +162,15 @@ export function CharacterSelectionModal({
     }
 
     try {
-      if (!file.name.toLowerCase().endsWith(".png")) {
-        throw new Error("仅支持 PNG 角色卡");
+      const kind = cardFileKind(file.name);
+      if (!kind) {
+        throw new Error("仅支持 .png / .json 角色卡");
       }
 
-      // Card data rides in the PNG's `chara` tEXt chunk; dispatch on the parsed
-      // object's shape (ST card vs. our native card).
-      const raw = await extractCharaJson(file);
+      // PNG：卡数据在 `chara` tEXt chunk 里（`extractCharaJson`）；
+      // JSON：文件本身**就是**卡对象（`extractCardJson`）。
+      // 两条路径此后完全一致 —— 都按解析出的对象形状分派（ST 卡 vs. 我们的原生卡）。
+      const raw = kind === "png" ? await extractCharaJson(file) : await extractCardJson(file);
       const newCharacter: CharacterSettings = isSillyTavernFormat(raw)
         ? convertSillyTavernCharacter(raw)
         : convertNativeCard(raw);
@@ -174,12 +178,15 @@ export function CharacterSelectionModal({
       // The PNG's visible pixels ARE the cover — re-encode them to a 512×768
       // WebP and store under the new character id. Failure to decode the cover
       // is non-fatal: the character still imports, just without a cover.
-      try {
-        const coverWebp = await imageBlobToCoverWebp(file);
-        await saveCover(newCharacter.id, coverWebp);
-        newCharacter.coverImage = COVER_MARKER;
-      } catch {
-        // leave coverImage unset
+      // ⚠️ JSON 卡没有像素 ⇒ 直接跳过（别让 `imageBlobToCoverWebp` 白抛一次再被 catch 吞掉）。
+      if (kind === "png") {
+        try {
+          const coverWebp = await imageBlobToCoverWebp(file);
+          await saveCover(newCharacter.id, coverWebp);
+          newCharacter.coverImage = COVER_MARKER;
+        } catch {
+          // leave coverImage unset
+        }
       }
 
       onSave({
@@ -467,7 +474,7 @@ export function CharacterSelectionModal({
           <>
             <input
               type="file"
-              accept=".png"
+              accept=".png,.json"
               className="hidden"
               ref={fileInputRef}
               onChange={handleImport}

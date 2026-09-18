@@ -65,6 +65,53 @@ export async function parseSillyTavernPng(file: File): Promise<CharacterSettings
   return convertSillyTavernCharacter(await extractCharaJson(file));
 }
 
+// ─────────────────────────── 角色卡文件类型（.png / .json）───────────────────────────
+
+/** 角色卡文件类型。UI 的 `accept` 与这里的判定必须一致（两处各写一份必然漂移）。 */
+export type CardFileKind = "png" | "json";
+
+/** 由**文件名**判定卡片类型；不支持的类型返回 `null`（调用方负责给用户可读文案）。 */
+export function cardFileKind(fileName: string): CardFileKind | null {
+  const lower = (fileName || "").toLowerCase();
+  if (lower.endsWith(".png")) return "png";
+  if (lower.endsWith(".json")) return "json";
+  return null;
+}
+
+/**
+ * 解析 `.json` 角色卡文本。**纯函数** —— 判据可以直接喂字符串，不必造 `File`。
+ *
+ * 兼容三类：SillyTavern v2/v3（`data` 包裹）、SillyTavern v1（扁平）、
+ * NyaaChat 原生卡（`format: "nyaachat-character"`）。**这里只做"是不是一个 JSON 对象"**，
+ * 具体是哪种卡交给 `isSillyTavernFormat` 分派、字段校验交给两个 converter。
+ *
+ * ⚠️ 必须剥 **UTF-8 BOM**：`JSON.parse("\uFEFF{…}")` 会抛 `Unexpected token`，而中文卡
+ * 常由 Windows 工具（记事本 / PowerShell `Out-File`）导出 ⇒ BOM 很常见，不剥就是"看着是合法
+ * JSON 却导不进来"。
+ */
+export function parseCardJsonText(text: string): any {
+  const cleaned = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+  if (!cleaned.trim()) throw new Error("JSON 文件是空的");
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(cleaned);
+  } catch (err: any) {
+    throw new Error(`不是有效的 JSON：${err?.message ?? String(err)}`);
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("JSON 角色卡必须是一个对象（不支持数组或裸值）");
+  }
+  return parsed;
+}
+
+/** 读取 `.json` 角色卡文件。大小上限与 PNG 路径一致（`MAX_IMPORT_BYTES`）。 */
+export async function extractCardJson(file: File): Promise<any> {
+  if (file.size > MAX_IMPORT_BYTES) {
+    throw new Error(`JSON 文件过大（${(file.size / 1024 / 1024).toFixed(2)} MB），上限 5 MB`);
+  }
+  return parseCardJsonText(await file.text());
+}
+
 /** Convert a NyaaChat-native card JSON (the object embedded in our own PNG
  *  export, `format: "nyaachat-character"`) into CharacterSettings. Reads our own
  *  top-level fields directly — regex under `regexScripts`, card JS scripts under
@@ -118,11 +165,35 @@ export function convertNativeCard(parsed: any): CharacterSettings {
   };
 }
 
+/**
+ * 判定"这张卡是不是 **SillyTavern 卡**"（否则按 NyaaChat 原生卡处理）。
+ *
+ * 判定顺序有意如此（2026-09-18 放宽 `.json` 导入时重写，旧实现在注释里点出的两个坑已修）：
+ *  1. **原生卡的显式标记优先** —— `format: "nyaachat-character"` 直接判原生，免得被下面
+ *     按形状的规则抢走；
+ *  2. ST v2/v3：`spec` 以 `chara_card_` 开头（前缀匹配，兼容将来的 v4）；
+ *  3. **缺 `spec` 的 ST 野卡**：`data` 下有 `name` / `character_book` / `first_mes` 任一。
+ *     ⚠️ 旧实现要求 `data.name` 与 `data.description` **同时存在** ⇒ 少写 `description`
+ *     的 v2 卡会被误判成原生卡，再因顶层没有 `name` 而抛 `Missing or invalid "name"`；
+ *  4. ST v1 **扁平卡**：顶层蛇形字段（`first_mes` / `character_book` / `mes_example`）
+ *     且**没有**原生驼形字段（`firstMes` / `worldInfo` / `regexScripts`）。
+ *     （旧实现不看这一条 ⇒ v1 扁平卡走原生分支，`first_mes` 与世界书被**静默丢弃**。）
+ */
 function isSillyTavernFormat(parsed: any): boolean {
-  return (
-    parsed?.spec === "chara_card_v3" ||
-    (parsed?.data?.name !== undefined && parsed?.data?.description !== undefined)
-  );
+  if (!parsed || typeof parsed !== "object") return false;
+  if (parsed.format === "nyaachat-character") return false;
+  if (typeof parsed.spec === "string" && parsed.spec.startsWith("chara_card_")) return true;
+  const data = parsed.data;
+  if (data && typeof data === "object" && !Array.isArray(data)) {
+    if (data.name !== undefined || data.character_book !== undefined || data.first_mes !== undefined) {
+      return true;
+    }
+  }
+  const looksFlatSt =
+    parsed.first_mes !== undefined || parsed.character_book !== undefined || parsed.mes_example !== undefined;
+  const looksNative =
+    parsed.firstMes !== undefined || parsed.worldInfo !== undefined || Array.isArray(parsed.regexScripts);
+  return looksFlatSt && !looksNative;
 }
 
 // Map a SillyTavern character card's `data.extensions.regex_scripts` into our
