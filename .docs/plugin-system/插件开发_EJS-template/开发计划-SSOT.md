@@ -312,7 +312,10 @@ plugins/EJS-template/
 | 6 | `eslint.config.js` / `tsconfig.json` | **不改**（`files` 已含 `plugins/**`，`tsconfig` 无 `include`） | 0 |
 | 7 | `nginx.conf` / `ext-host/**` | **不改**（纯前端，无后端） | 0 |
 
-> **契约登记**：`src/plugins/promptText.ts` 属**新增宿主契约面**，须在 `插件框架规范.md` §2.5 / §6 补一行登记（与 `hostContext` / `scriptHost` 并列）。
+> **契约登记**：`src/plugins/promptText.ts` 属**新增宿主契约面**，**✅ 已于 2026-09-18 登记**进 `插件框架规范.md`
+> （与 `hostContext` / `scriptHost` 并列）：§1.1 目录树、**§2.5 导出面 + §2.5.1 专节**、§6 步骤 4、§7.2 自查表、
+> §8 偏差表 **D-21**。登记内容含叶子模块纪律（只允许 `import type` 自 `../types`；禁止值导入
+> index/runtime/registry/backend）、宿主接线三处、前缀链顺序、K3 降级语义（`""` vs 不写 `text`）与幂等键。
 
 ---
 
@@ -322,7 +325,8 @@ plugins/EJS-template/
 
 - **只允许两类静态边**：`src/plugins/types`（type-only）与叶子 `src/plugins/promptText` / `scriptHost` / `pluginLog`。
   **禁止**值导入 `src/plugins/{index,runtime,registry,backend}`（模块环 ⇒ 插件静默消失）。
-- `meta.icon` 必须取自 12 项白名单（`ExtensionsModal.tsx:92-105`）⇒ 用 `Sparkles`。
+- `meta.icon` 必须取自白名单（`ExtensionsModal.tsx` 的 `PLUGIN_ICONS`，**2026-09-18 起为 13 项**；本次补入
+  `FileCode2` 供 `js-slash-runner` 使用，见 `插件框架规范.md` 偏差表 **D-22**）⇒ 本插件用 `Sparkles`。
 - `meta.id = "ejs-template"`（kebab-case）；目录名 `EJS-template` 仅作磁盘路径。
 
 ### 5.1 ✅ 落地前提：路径已纠正（原 P1 阻塞项，已解决）
@@ -398,7 +402,7 @@ plugins/EJS-template/
 | **P3** | env 桥 + lodash 子集（**符号清单见 `EJS技术性说明.md` §4**） | ① 7 个符号语义逐条对拍；② 未实现符号调用显式抛错且文案含符号名（O7）；③ `_.*` 9 函数与 lodash 行为一致（含 `isObject` 的数组/函数边界） |
 | **P4** | 宿主缝隙 + 渲染器链 | ① **未启用插件时请求体与改造前逐字节一致**（反向验证：先伪造差异确认断言会红）；② 含 EJS 条目进 `═ 模板设定 ═` 且**尾部仍只有一条 system**（O10）；③ 无渲染器注册时 `needsPromptText ≡ hasVariableMacro`；④ import 闭包无环（插件不消失） |
 | **P5** | 最小 UI | ① 开关生效；② 错误在面板可见（非仅 console）；③ 统计数字与 P4 实际渲染条目数一致 |
-| **P6** | 真机验收 | ① 两张卡端到端生成成功且**无 `<% %>` 泄漏进请求**；② 用 provider `usage.cached_tokens` 实测：含 EJS 条目退出前缀、其余条目仍命中；③ `setvar` 每轮**恰好一次**（计数断言）；④ 模板抛错时降级 + 日志可见 + 生成不被阻断 |
+| **P6** ✅ **已完成（2026-09-18）** | 真机验收（可复跑判据 + 证据落盘，见 **§15**） | ① 端到端生成成功且**无 `<% %>` 泄漏进请求**（在**完整出站请求体**上验）✅；② 含 EJS 条目退出前缀、其余条目仍命中（**机制** `P6-PRB-8` + **provider 实测** 24.9% → 52.4%）✅；③ `setvar` 每轮**恰好一次**（面板「变量写入」=1/轮 + IDB `1 → 2`；**提交级**归 P1–P5 单元判据）✅；④ 模板抛错时降级 + **插件侧**日志/面板可见 + 生成不被阻断 ✅<br>命令：`python dev-server/tools/verify-ejs-p6.py --all --json`（19/0/1，连跑两次判定行哈希一致）+ `python dev-server/tools/verify-ejs-p6-cache.py --date 2026-09-18 --model deepseek-flash --marker "P6缓存探针" --json`（4/0） |
 | **P7** | 文档与交接 | ① 插件 README（含保真度损失登记）；② 阶段交接文档（含"续接提示词"）；③ 更新 `插件框架规范.md` 的契约登记 |
 
 ---
@@ -410,7 +414,7 @@ plugins/EJS-template/
 | **V1** | 未启用插件时请求体逐字节一致 | 与"改造前基线"字节比对（**先伪造差异证明断言非恒真**） |
 | **V2** | 黄金基准逐条一致 | **57/57**（且 1002 块语法面计数一致） |
 | **V3** | 无 `<%` 泄漏进请求体 | 请求体扫描 `<%` 命中 0 |
-| **V4** | 尾部仍为单条 system | 出站数组末尾 system 计数 = 1；次末条非 system（`api.ts:364` 前提） |
+| **V4** | 尾部仍为单条 system | ⚠️ **仅 `buildRequestMessages()` 的出口**：末尾 system 计数 = 1；次末条非 system（`api.ts:364` 前提）。**线上报文不成立** —— `api.ts` 的 `foldTailSystemIntoLatestUser()` 会把尾部 system **折进最新 user 轮的 volatile parts**（非 Anthropic provider，`api.ts:360-395`）。⇒ P6 的线上判据改为「尾部小节（`═ 硬约束/场景设定/变量状态/模板设定 ═` 之一）恰好 1 处且在**最后一条消息**」；**不得**用 `<session_rules>` 当标记（静态前缀的协议锚点**正文本就提及该标签**，实测命中 `messages[0]`，见 §15 F-P6-2） |
 | **V5** | 缓存命中实测 | `usage.cached_tokens` ≈ 静态前缀 + 历史长度（含 EJS 条目已退出前缀） |
 | **V6** | 写入幂等 | `setvar` 提交次数 = 激活且含 EJS 的条目数（不是块数、不是轮数的倍数） |
 | **V7** | 抛错降级 | 注入一个必抛模板 ⇒ 该条目内容为空/降级、其余条目正常、生成完成、日志有记录 |
@@ -456,6 +460,8 @@ plugins/EJS-template/
 | 2026-09-18 | 初稿（待用户复核）。含 D1–D15 与修正项 **D16-R**（EJS 在渲染链中的位置）。**未进入编码**。 |
 | 2026-09-18 | 用户拍板「全部使用推荐」⇒ SSOT 定稿（§1/§1.1/§14），路径纠正完成（§5.1）。 |
 | 2026-09-18 | **P0 完成**（`dev-server/tools/verify-ejs-golden.ts`）：57/57 条目 ok、failed 0、42 ms；语法面 11 项与审计报告**逐项一致**；两次运行 `golden.json` **SHA256 一致**（`C00DC334081836DC78A478104B6BE73533DD0B9FE2DB859C2B26911E7CC58B82`）。<br>**P0 修正三处**：① 渲染单位 = **57 条目**（非 1002 块）；② env 符号 6 → **7**（新增宿主全局 **`YAML`**，见 §6）；③ 上游 `ejs.js` 是 **browserify UMD bundle**，Node 里**可直接 require**（无需 shim）。 |
+| 2026-09-18 | **P1–P5 完成并推送**：engine 两模式 57/57 差异 0、host 50/0、integration 29/29、`tsc` exit 0、t12 终局交叉复核 `verdict=pass`；8 个真问题与 9 条纪律见 `.docs/阶段交接-EJS模板插件-P1-P5.md`。 |
+| 2026-09-18 | **P6 真机验收完成**（§15）：`verify-ejs-p6.py --all` **19/0/1**（连跑两次判定行哈希一致）+ `verify-ejs-p6-cache.py` **4/0**（deepseek 命中 24.9% → 52.4%）。新增 **7 条真机发现 F-P6-1..7**（含"交接文档的 ④ 日志形态不成立"、"§10 V4 只对 pipeline 出口成立"、"三处锚点已过期"、"dev 日志会丢行"），并据此修正 §10 V4、§9 P6、§15 与交接文档。完整报告 `dev-server/ejs-p6/report.md`。 |
 
 ---
 
@@ -637,3 +643,78 @@ plugins/EJS-template/
 - ⚠️ **锚点冻结纪律（t10 执行）**：① 任何成员在终态后的修改都必须**先报 captain**（见「后交付修正清单」与「冻结状态」）；② t10 **开跑前重算 10 个文件的哈希**作为快照入库、**跑完后再算一次**，前后两次必须一致才算有效运行（verify-engine 已内建该自检并打印它实际验证的哈希）；③ **禁止引用任何成员回执里的哈希**作为冻结依据。
 
 **一条流程盲点（需 t10 兜住）**：各实现的 `verify` 用的是**单文件 eslint**（并行期刻意避开全仓 `tsc`，以免被兄弟模块未落地误伤），而 **eslint 不检查类型**。因此"类型错"不会被成员自己的验收抓到 —— 实测本轮就出现过 `host/carrier.ts:693-694` 与 `host/renderEntry.ts(405,34)`（`Property 'error' does not exist on type 'CompileOutcome'`）两例**进行中的类型错**。⇒ **t10 的 `npx tsc --noEmit` 是唯一的类型门禁，必须全绿才算集成通过**。
+
+---
+
+## 15. P6 真机验收（✅ 已完成，2026-09-18）
+
+> **完整报告**：`dev-server/ejs-p6/report.md`（含证据文件清单与全部复跑命令）。
+> **取证时点**：2026-09-18 03:22–03:41 UTC（本地 11:22–11:41）· dev 实例 `http://127.0.0.1:4095/`。
+
+### 15.1 判据（两条命令，均可复跑留档）
+
+```powershell
+cd H:\GitHub\NyaaChat
+python dev-server/tools/verify-ejs-p6.py --all --json        # 19 passed / 0 failed / 1 skipped
+python dev-server/tools/verify-ejs-p6-cache.py --date 2026-09-18 --model deepseek-flash `
+       --marker "P6缓存探针" --json                          # 4 passed / 0 failed
+```
+
+- 主判据 **连跑两次判定行哈希一致**（`d1a3435321e7c99d`），两次 `script=b4724617e301`、`drift=[]`。
+- 探针相口径预期 vs 实测：`rendered 40` / `matched 41` / 面板块数 `576` / 降级 `1` / 变量写入 `1` —— 全部吻合。
+- **4 条真负向对照**（伪造 `<%` / 伪造空壳行 / 错期望值的面板谓词 / 抓取钩子前置守卫）全部成立。
+
+### 15.2 ② 的 provider 侧实测（真人 deepseek-flash 三轮）
+
+| 轮次 | prompt_tokens | `prompt_cache_hit_tokens` | 比例 |
+|---|---|---|---|
+| 第 1 轮（冷） | 2053 | 512 | 24.9 % |
+| 第 2 轮 | 2443 | 1280 | 52.4 % |
+| 第 3 轮 | 2812 | **1664** | **59.2 %** |
+
+三轮**真实请求正文**（4753 / 5454 / 6117 字符，未截断）同时验到：`═ 模板设定 ═` 存在、`<%` = 0、`[World Info] ` 空壳行 = 0。
+⇒ ② 的两半齐了：**机制**（含 EJS 条目退出前缀、前缀逐字节稳定）+ **实测**（前缀确实被复用，命中率单调上升）。
+
+### 15.3 七条真机发现（3 条同时改了文档）
+
+| # | 发现 | 处置 |
+|---|---|---|
+| **F-P6-1** | **P6 交接文档写的 ④ 降级日志形态不会出现**：`plugin.tsx` 两处 `return ""` **吞错并返回空串**（`""` 是 string）⇒ 宿主认为"渲染成功出空串"，`promptText.ts` 那两条降级分支（要求**抛错**/**返回非字符串**）都不触发。实际通道 = 插件侧 `log.error`（控制台 `[plugins:ejs-template]`，实测 6 条）+ 面板统计/最近一次错误 | 交接文档该句**已改写**（§15.5） |
+| **F-P6-2** | **§10 V4 只对 `buildRequestMessages()` 出口成立**：线上报文末条是 `user`（`api.ts` 折叠）。且**不能用 `<session_rules>` 当尾部标记** —— 协议锚点正文本就提及它，实测 `messages[0]` 也命中 | §10 V4 行**已补注**；P6 判据改用只在此处出现的**小节头** |
+| **F-P6-3** | 三处锚点已被 P6 修复改掉：`chatPipeline.ts bbd531f8f8ba → 5b0d10e09b16`、`plugin.tsx 0a8042f7bbe6 → 842739ec38fb`、`EjsTemplateSettings.tsx f44f08da3bf7 → 46a7f34921f2` | §15.4 坐标表**整表刷新** |
+| **F-P6-4** | `verify-js-slash-runner.py` 的 `map_world_info` 与产品口径不同（helper 按 ST 顶层 `position`；产品只认 `extensions.position===4 && role===2`）⇒ 本卡 44 条产品侧**全是 `system`**（真机 `[World Info] ` 的来源） | P6 判据**不复用**该 helper，按产品口径自建 `map_card_world_info()`；JSR 判据断言不受影响 |
+| **F-P6-5** | **dev NDJSON 本身是损坏的**（比"丢批"更根本）：记录的 `text` 含**真换行** ⇒ 一条记录横跨多个物理行、**下一条记录的头部被拼到同一行**（实测 374 物理行里 120+ 行无法 `json.loads`）；真人第 3 轮那条响应**连 `[nyaachat-log:response]` 标记都被破坏**（"按行解析"静默漏掉它）。另有 `console-collector.js` 的 `flush()` 超 `MAX_BATCH_CHARS=400000` 丢较旧一半 | P6 主判据**一律抓完整出站请求体**（页面内钩子 + 响应体 `clone()`）；缓存取证改为**以 `usage: {prompt_tokens:` 载荷为锚**做原始扫描 + `--marker` 精确归属（计数会因记录重复而偏高，已在脚本头注写明） |
+| **F-P6-6** | 判据踩坑：插件行 `textContent` 在 `errorCount>0` 时变成 `EJS模板1`（红色计数徽标）⇒ 精确等值匹配失效、面板判据全线假红（基线相无错误所以掩盖了它） | 改前缀匹配 + 重试 + "单元格一个都没读到即失败"的前置守卫 |
+| **F-P6-7** | **③ 的真机观测是状态级**：`变量写入=1/轮` + `probe 1→2` 无法区分"同一轮同值提交两次" | 报告**不宣称**"真机已证提交恰好一次"；提交级归 P1–P5 单元判据（host V6 / integration A5c-A5e） |
+
+### 15.4 P6 终态坐标（2026-09-18 11:22–11:41；sha256 前 12 位）
+
+- 插件侧：`engine/compile.ts 0c4f8b05406b` · `engine/escape.ts 16bbcf0f73d9` · `engine/syntax.ts f524d90bf7d7` · `lodashSubset.ts e0e881ed493b` · `host/env.ts d5584aeba486` · `host/renderEntry.ts d1f555870943` · `host/carrier.ts a456082cebd8` · `errors.ts dbe082c4e623` · **`plugin.tsx 842739ec38fb`** · **`EjsTemplateSettings.tsx 46a7f34921f2`**
+- 宿主侧：**`src/lib/chatPipeline.ts 5b0d10e09b16`** · `src/plugins/promptText.ts 0f539b905e19` · `src/components/ChatInterface.tsx 35d9ae51f4b3` · `plugins/registry.ts 27ef5f17e8ae`
+- 判据脚本：**`dev-server/tools/verify-ejs-p6.py b4724617e301`** · **`verify-ejs-p6-cache.py d60de4dea658`**
+- 夹具：`.ref/EJS/魔法少女V3.2.6.json 0964c4f9aa6a`（969,630 B，**只读**）
+- P1–P5 判据脚本坐标（engine `ab5a1740cde3` / host `b8c2d11ff7b9` / integration `42d2e4b3696e`）**未变**。
+
+### 15.5 本轮同时修正的文档
+
+1. `.docs/交接提示词-EJS-P6.md` —— ④ 的日志形态句（F-P6-1）。
+2. 本文件 §10 的 V4 行（F-P6-2）、§9 的 P6 行、本条 §15（坐标与发现）。
+3. `.docs/阶段交接-EJS模板插件-P6.md` —— P6 验收记录 + P7 续接提示词。
+
+### 15.6 未覆盖 / 不写成"通过"
+
+- ② 的 provider 侧在**自动化通道**为 `SKIP`（dev 镜像预填的 QiniAPI 不回传缓存字段）⇒ 该项由**真人两轮**覆盖，但不是同一次自动化跑出来的。
+- ③ 的**提交级**幂等、`getwi` 返回 content 分支、`random` 系运行期调用、`STATE.initialVariables` 静默回落：P6 未新增覆盖（前者归 P1–P5 单元判据，后三者沿用既有登记）。
+- 真人两轮所在会话是**新开的短会话**（messages 3 → 9），非长篇 RP。
+- dev 日志丢行是**已知基础设施缺陷**（F-P6-5），判据已避开它，但缺陷本身未修。
+
+### 15.7 P6 收尾与遗留处置（2026-09-18，用户指示"完成最后 4 项"）
+
+| 项 | 处置 |
+|---|---|
+| **P7-③ 契约登记** | ✅ `插件框架规范.md` 已补登记（§1.1 / §2.5 + **§2.5.1 专节** / §6 步骤 4 / §7.2 / §8 偏差表 **D-21**） |
+| **`FileCode2` 图标** | ✅ 选**扩允许集**（非改插件图标）：`ExtensionsModal.tsx` 的 `PLUGIN_ICONS` 12 → **13 项**。依据 = 该表注释本条规定"需要新图标时在这里加一行具名导入 + 一条映射即可"，且 `FileCode2` 对"脚本运行器"语义正确。登记为偏差表 **D-22** |
+| **悬挂提交 `6421131`** | ⬜ 待执行（`git prune --expire=now` + `git fsck` 复核） |
+| **提交推送** | ⬜ 待执行（主仓与 dev-server 仓分别提交推送） |
+| **dev 测试服** | ⬜ 待执行（`python dev-server/tools/rebuild-dev.py --up` + 复跑 P6 判据） |
+

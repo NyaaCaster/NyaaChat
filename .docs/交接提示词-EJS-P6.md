@@ -74,7 +74,13 @@ while ($true) {
 - browser/browser-YYYY-MM-DD.ndjson —— 浏览器控制台，一行一 JSON，字段 at/level/text/sessionId
   · [nyaachat-log:request]  出站请求（含 renderedMessages，但被前端截断）
   · [nyaachat-log:response] 响应（含 usage：prompt_tokens / prompt_cache_hit_tokens / prompt_cache_miss_tokens）
-  · [promptText] 条目「…」渲染失败，已降级（内容已丢弃，不进请求体）  ← EJS 降级的唯一日志形态
+  · [promptText] 条目「…」渲染失败，已降级（内容已丢弃，不进请求体）
+    ⚠️ **【2026-09-18 P6 实测更正 · F-P6-1】这条日志形态在当前实现下不会出现**：
+    `plugins/EJS-template/plugin.tsx` 两处 `return ""` **吞错并返回空串**，而 `""` 是 string
+    ⇒ 宿主认为"渲染成功、结果是空串"。`promptText.ts` 那两条降级分支的触发条件是
+    **渲染器抛错** / **返回非字符串**，两者在 ejs-template 下都不成立。
+    **实际可见通道 = 插件侧**：控制台 `[plugins:ejs-template] render — 模板错误：条目「…」渲染失败…`
+    + 面板「降级条目数 / 最近一次错误」。（P6 两轮实测：插件侧命中 6 条，宿主 `[promptText]` 0 条。）
 - nginx/access.log、nginx/error.log
 
 读取技巧（踩过的坑）：
