@@ -36,6 +36,9 @@ import {
   type PromptTextWriteScope,
 } from "./env";
 import { compileTemplate, hashTemplate } from "../engine/compile";
+// 宿主叶子模块：下面三条是**降级诊断**（面板里另有「最近一次错误 / 运行日志」两个可见通道），
+// 发行版静音、dev 实例照打 —— 判据与宿主插件日志同源，见 `pluginLog.isDevBuild`。
+import { devWarn } from "../../../src/plugins/pluginLog";
 
 // ─────────────────────────── 载体接口（冻结形状，结构化声明）───────────────────────────
 
@@ -302,7 +305,7 @@ function replayWrites(
     for (const intent of intents) applyWriteIntent(snapshot, intent);
   } catch (err) {
     // 回放失败不该打断渲染（文本已产出；宿主侧快照少了这次写入）
-    console.warn(`[${EJS_TEMPLATE_PLUGIN_ID}] 写入回放失败（本条目的文本不受影响）`, err);
+    devWarn(`[${EJS_TEMPLATE_PLUGIN_ID}] 写入回放失败（本条目的文本不受影响）`, err);
   }
 }
 
@@ -367,7 +370,7 @@ export async function renderEntry(
         error: result.error,
       });
     } catch (err) {
-      console.warn(`[${EJS_TEMPLATE_PLUGIN_ID}] onResult 钩子抛错（已忽略）`, err);
+      devWarn(`[${EJS_TEMPLATE_PLUGIN_ID}] onResult 钩子抛错（已忽略）`, err);
     }
   };
 
@@ -421,7 +424,7 @@ export async function renderEntry(
     outcomes = await carrier.render(calls, envSnapshot as unknown as Record<string, unknown>);
   } catch (err) {
     const message = String((err as Error)?.message ?? err) || "载体渲染抛错";
-    console.warn(`[${EJS_TEMPLATE_PLUGIN_ID}] 载体渲染抛错（条目「${entryName}」已降级）`, err);
+    devWarn(`[${EJS_TEMPLATE_PLUGIN_ID}] 载体渲染抛错（条目「${entryName}」已降级）`, err);
     return fail(message, true);
   }
 

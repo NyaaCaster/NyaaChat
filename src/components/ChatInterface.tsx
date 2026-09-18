@@ -67,6 +67,7 @@ import { UserAccountModal } from "./UserAccountModal";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { useAttachments } from "../hooks/useAttachments";
 import { useCoverObjectUrl } from "../hooks/useCoverObjectUrl";
+import { devInfo } from "../plugins/pluginLog";
 
 /**
  * Map a thrown error from the API layer to a user-friendly Chinese message.
@@ -431,7 +432,7 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
       // 同时挂到 window 上：`console.info` 在**页面极早期**可能早于 dev console 收集器，
       // 而 `__nyaScriptRunnerDiag()`（用户手动触发，通常晚得多）能稳定读到它。
       (window as unknown as { __nyaRegexChain?: unknown }).__nyaRegexChain = digest;
-      console.info("[regex-chain] 显示侧正则链 " + JSON.stringify(digest));
+      devInfo("[regex-chain] 显示侧正则链 " + JSON.stringify(digest));
     } catch {
       /* 诊断失败不影响渲染 */
     }

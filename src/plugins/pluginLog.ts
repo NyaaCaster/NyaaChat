@@ -232,14 +232,20 @@ function record(
   rebuildSnapshots();
 
   // ⚠️ 原始 Error 必须作为**额外参数**传下去：只打 String(err) 会丢掉栈。
-  const line = formatPluginLogLine(id, scope, message);
-  if (level === "error") {
-    if (err === undefined) console.error(line);
-    else console.error(line, err);
-  } else if (err === undefined) {
-    console.warn(line);
-  } else {
-    console.warn(line, err);
+  // ⚠️ **控制台输出按"发行版隔离"分档**（2026-09-18）：
+  //   · `error` —— **永远**写控制台（真失败；藏起来等于让用户无从自查）；
+  //   · `warn`  —— **仅开发实例**写控制台。注意**只隔离控制台**：环形缓冲、快照、
+  //                扩展面板里的运行日志**照常记录**（面板才是发行版的用户可见通道）。
+  if (isDevBuild() || level === "error") {
+    const line = formatPluginLogLine(id, scope, message);
+    if (level === "error") {
+      if (err === undefined) console.error(line);
+      else console.error(line, err);
+    } else if (err === undefined) {
+      console.warn(line);
+    } else {
+      console.warn(line, err);
+    }
   }
 
   notify();
@@ -285,7 +291,19 @@ function isDevBuild(): boolean {
   if (devOverride !== null) return devOverride;
   try {
     const meta = import.meta as unknown as { env?: { DEV?: boolean } };
-    return meta.env?.DEV === true;
+    if (meta.env?.DEV === true) return true;
+  } catch {
+    /* node/tsx 下 import.meta.env 可能不存在（见上方注释） */
+  }
+  // ⚠️ **不能只看 `import.meta.env.DEV`**（2026-09-18 修正）：dev 实例
+  // （`nyaachat-dev-app`）本身就是**production 构建** —— `dev-server/Dockerfile` 先跑
+  // `patches/apply.mjs` 再跑 `npm run build` ⇒ `import.meta.env.DEV` 在 dev 镜像里**同样是
+  // false**。只看它会让"开发监控"在 dev 里也一起消失，或反过来在发行版里照旧输出。
+  // 真正的判别是 dev-only 补丁注入的标记 `window.__nyaachatDevLog`
+  // （`03-inject-console-collector.mjs` 把 `<script src="/dev-server...console-collector.js">`
+  // 插在 `</head>` 之前，先于应用 bundle 执行；发行版镜像没有这个脚本）。
+  try {
+    return Boolean((globalThis as unknown as { __nyaachatDevLog?: unknown }).__nyaachatDevLog);
   } catch {
     return false;
   }
@@ -305,6 +323,31 @@ export function recordPluginInfo(pluginId: string, scope: string, message: strin
   const line = formatPluginLogLine(pluginId, scope, message);
   if (rest.length === 0) console.info(line);
   else console.info(line, ...rest);
+}
+
+/**
+ * 原始诊断输出的 **dev 闸门** —— 给**不走 `pluginLog`** 的调用点用。
+ *
+ * 用途：`[frontend-card] 切分结果` / `[regex-chain] …` / 各插件叶子模块里的 `console.warn`
+ * 这类**移植期诊断**，它们不进插件日志环形缓冲、只往控制台喊 ⇒ 发行版里必须静音。
+ * 判据与 `record()` **完全同源**（同一个 `isDevBuild()`），避免出现两套 dev 判别而漂移。
+ */
+export function isDevConsoleEnabled(): boolean {
+  return isDevBuild();
+}
+
+/** 仅开发实例可见的 `console.info`（发行版是 no-op）。 */
+export function devInfo(message: string, ...rest: unknown[]): void {
+  if (!isDevBuild()) return;
+  if (rest.length === 0) console.info(message);
+  else console.info(message, ...rest);
+}
+
+/** 仅开发实例可见的 `console.warn`（发行版是 no-op）。 */
+export function devWarn(message: string, ...rest: unknown[]): void {
+  if (!isDevBuild()) return;
+  if (rest.length === 0) console.warn(message);
+  else console.warn(message, ...rest);
 }
 
 /** 插件自用的带归属日志器（`pluginId` 由插件模块自己传入，通常是常量 `PLUGIN_ID`）。 */

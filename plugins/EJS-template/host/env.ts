@@ -66,6 +66,9 @@ import { getScriptHostApi, setScriptHostApi } from "../../../src/plugins/scriptH
 import { UNIMPLEMENTED_EJS_SYMBOLS } from "../errors";
 import { DEFAULT_DELIMITER, DEFAULT_OPEN_DELIMITER } from "../engine/syntax";
 import { lodashSubset } from "../lodashSubset";
+// 宿主叶子模块（插件可直接引，见 `插件框架规范.md` §2.5 的叶子模块纪律）：
+// 这里的 `devWarn` 与宿主插件日志的"控制台分档"**同一判据**（发行版静音、dev 实例照打）。
+import { devWarn } from "../../../src/plugins/pluginLog";
 
 // ─────────────────────────── 常量与登记表 ───────────────────────────
 
@@ -333,9 +336,11 @@ const startupWarnings: EjsStartupWarning[] = [];
 function warnOnce(code: EjsStartupWarning["code"], message: string, detail?: string): void {
   if (startupWarnings.some((w) => w.code === code)) return;
   startupWarnings.push({ code, message, detail });
-  // 只在控制台留一条（面板可见性由 `plugin.tsx` 注册的生命周期记；本模块不 import 宿主日志模块）。
+  // 只在**开发实例**的控制台留一条；发行版静音（面板可见性由 `plugin.tsx` 注册的生命周期记）。
+  // 判据走宿主叶子 `pluginLog` 的 `devWarn`（与插件日志的控制台分档**同源**），
+  // 不在这里自己再判一次 dev —— 两套判别必然漂移。
   try {
-    console.warn(`[${EJS_TEMPLATE_PLUGIN_ID}] ${message}${detail ? ` —— ${detail}` : ''}`);
+    devWarn(`[${EJS_TEMPLATE_PLUGIN_ID}] ${message}${detail ? ` —— ${detail}` : ''}`);
   } catch {
     /* 控制台不可用不影响渲染 */
   }
@@ -399,7 +404,7 @@ function readScopeOrEmpty(api: ScriptHostApi | null, scope: ScriptHostVariableSc
     const value = api.variables.getVariables(scope) as unknown;
     return isPlainObjectLike(value) ? (value as Record<string, unknown>) : {};
   } catch (err) {
-    console.warn(`[${EJS_TEMPLATE_PLUGIN_ID}] 读变量作用域 ${scope} 失败，本条降级为空`, err);
+    devWarn(`[${EJS_TEMPLATE_PLUGIN_ID}] 读变量作用域 ${scope} 失败，本条降级为空`, err);
     return {};
   }
 }
@@ -420,7 +425,7 @@ function buildLorebookIndex(api: ScriptHostApi | null): Record<string, string> {
       if (typeof entry.content === "string") index[comment] = entry.content;
     }
   } catch (err) {
-    console.warn(`[${EJS_TEMPLATE_PLUGIN_ID}] 读世界书条目失败，getwi 将一律返回 null`, err);
+    devWarn(`[${EJS_TEMPLATE_PLUGIN_ID}] 读世界书条目失败，getwi 将一律返回 null`, err);
   }
   return index;
 }

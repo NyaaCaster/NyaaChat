@@ -22,6 +22,7 @@ import { setDefaultEnvProvider } from "../lib/regex/macros";
 import { renderPluginDecorations } from "../plugins/decorators";
 import type { DecorationRenderInput } from "../plugins/decorators";
 import { emitPluginEvent, getPluginRuntimeSnapshot, subscribePluginRuntime } from "../plugins/runtime";
+import { devInfo, devWarn } from "../plugins/pluginLog";
 import { FrontendCard, splitFrontendContent } from "../lib/frontendCard";
 import type { RegexScript } from "../types";
 
@@ -491,7 +492,7 @@ export const MessageItem = React.memo(function MessageItem({
       };
       const w = window as unknown as { __nyaFrontendCardDiag?: unknown[] };
       w.__nyaFrontendCardDiag = (w.__nyaFrontendCardDiag || []).concat([diag]).slice(-20);
-      console.warn("[frontend-card] 入口诊断", diag);
+      devWarn("[frontend-card] 入口诊断", diag);
     } catch (e) { /* 诊断失败不影响渲染 */ }
     if (!frontendRenderingEnabled || message.imageUrl || message.role === "user") return null;
     const parts = splitFrontendContent(regexedContent);
@@ -503,7 +504,7 @@ export const MessageItem = React.memo(function MessageItem({
           regexedContent.indexOf("StatusPlaceHolderImpl") >= 0 ||
           regexedContent.indexOf("<UpdateVariable") >= 0)
       ) {
-        console.info("[frontend-card] 切分结果", {
+        devInfo("[frontend-card] 切分结果", {
           types: parts ? parts.map((p) => p.type) : null,
           hasFence: regexedContent.indexOf("```") >= 0,
           fenceLangs: (regexedContent.match(/```[a-zA-Z0-9_-]*/g) || []).slice(0, 4),

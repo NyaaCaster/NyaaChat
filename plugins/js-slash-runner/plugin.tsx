@@ -11,7 +11,7 @@
  * 子模块 —— 不碰 `runtime`/`registry`/`backend`（会构成模块环，见 `hostContext.ts`）。
  */
 import { useSyncExternalStore } from "react";
-import { pluginLogger } from "../../src/plugins/pluginLog";
+import { devInfo, devWarn, pluginLogger } from "../../src/plugins/pluginLog";
 import { getScriptHostApi, setCardApiPredefine, setScriptInitBusy } from "../../src/plugins/scriptHost";
 import type { NyaaPlugin, PluginSettingsPanelProps } from "../../src/plugins/types";
 import type { ScriptRecord } from "../../src/types";
@@ -182,7 +182,7 @@ const plugin: NyaaPlugin = {
     // 可查的构建标记（主页面全局）：确认"当前跑的构建"不再靠猜。
     try {
       (window as unknown as Record<string, unknown>).__nyaScriptRunnerBuild = BUILD_MARKER;
-      console.info('[js-slash-runner] 插件已启用，构建 ' + BUILD_MARKER);
+      devInfo('[js-slash-runner] 插件已启用，构建 ' + BUILD_MARKER);
     } catch { /* 标记失败不影响功能 */ }
 
     const api = getScriptHostApi();
@@ -237,7 +237,7 @@ const plugin: NyaaPlugin = {
         // 而"窗口到底持续了多久"是判定"用户有没有机会看到阻塞"的唯一客观证据。
         // 定位稳定后可降级（真机 v12-2400 首版就是因为窗口只有 ~1s 而用户完全看不到）。
         try {
-          console.warn(`[js-slash-runner] 初始化窗口结束（${reason}）`);
+          devWarn(`[js-slash-runner] 初始化窗口结束（${reason}）`);
         } catch {
           /* console 被劫持也不影响主流程 */
         }
@@ -490,11 +490,11 @@ const plugin: NyaaPlugin = {
     // 主页面可直接打印的诊断：控制台输入 __nyaScriptRunnerDiag()    // ⚠️ 同时打一行 **JSON 字符串**：dev 的 console 收集器会把嵌套对象截断成 {…}
     //（真机贴回来的日志里 `iframes: 1, …` 就是被截断的），JSON 一行才能完整回贴。
     const dumpProbe = (label: string, s: unknown) => {
-      console.warn(`[js-slash-runner] ${label}`, s);
+      devWarn(`[js-slash-runner] ${label}`, s);
       try {
-        console.warn(`[js-slash-runner] ${label}JSON ` + JSON.stringify(s));
+        devWarn(`[js-slash-runner] ${label}JSON ` + JSON.stringify(s));
       } catch {
-        console.warn(`[js-slash-runner] ${label}JSON (序列化失败)`);
+        devWarn(`[js-slash-runner] ${label}JSON (序列化失败)`);
       }
     };
     /**
