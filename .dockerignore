@@ -11,4 +11,15 @@ src/temp/
 # secrets/（构建密钥）、logs/（浏览器落盘日志，可能含对话内容）都不属于发布镜像的
 # 构建上下文。最终镜像只从 builder 复制 dist，本来就不会包含它；这里排除是为了
 # 不再把密钥与日志传进构建上下文和 builder 缓存层。
-dev-server
+#
+# ⚠️ 不能用 `dev-server` 排除**整个目录**：`dev-server/Dockerfile`（本地预览栈自己用）
+#    里有 `COPY dev-server/nginx/default.conf.template`，整目录排除会让构建在解析该
+#    COPY 时直接失败（`failed to calculate checksum … not found`）。
+# ⚠️ 也不能排除 `dev-server/tools`：`patches/03-inject-console-collector.mjs` 会在构建期
+#    copy `tools/devlog/console-collector.js` 进 `public/__dev__/`（构建时注入浏览器控制台
+#    收集器）。tools/ 里只有脚本、**没有密钥**（密钥在 secrets/、日志在 logs/）。
+#    ⇒ 逐项排除：只挡掉 .git / .env / secrets / logs。
+dev-server/.git
+dev-server/.env
+dev-server/secrets
+dev-server/logs
