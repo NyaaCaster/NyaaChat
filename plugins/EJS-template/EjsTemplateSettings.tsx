@@ -5,12 +5,11 @@
  *
  * | 区块 | 实现 |
  * |---|---|
- * | 启用开关 | **复用框架**：开关在插件详情页头部（`ExtensionsModal` 的 `ToggleSwitch`），本面板**不做第二套**，只读地显示"运行时是否已装配" |
- * | 报错 / 日志可见 | `pluginLogger` 写入的记录经 `getPluginErrors` + `subscribePluginErrors` 渲染成列表（**非仅 console** —— 这是 `ST扩展移植规范.md` §10.2 坑 #6 的教训） |
  * | 本轮渲染统计 | 条目数 / 块数 / 耗时 / 降级数 / 变量写入数（数据源 = 本文件的统计 store，由 `plugin.tsx` 的渲染器发布） |
- * | 逐条目视图 | ①「本轮渲染记录」（按宿主调用顺序，含块数/耗时/状态/错误摘要）②「含 EJS 的条目」（当前角色世界书扫描，含触发类型与启用状态） |
+ * | 最近一次错误 | 渲染失败时由 `describeEjsError` 产出的用户可读文案（title + detail），紧贴统计区显示 |
+ * | 含 EJS 的条目 | 当前角色世界书扫描（触发类型 / 启用状态 / 块数 / 字符数）+「刷新条目」 |
  * | 试渲染 | 用当前变量快照渲染指定条目一次，**只读、不提交写入**（`runTrialEjsRender`） |
- * | 安全告知 | 同源运行 + 只运行可信来源的卡 + **K1 死循环风险明示**（含软上限的具体数值） |
+ * | 安全告知 | 模板可访问本机数据与凭据（只渲染可信来源的卡）+ **已知风险：死循环会卡住发送流程**（含软上限数值） |
  *
  * ## 明确不做（SSOT §12 NG1）
  *
@@ -33,12 +32,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { AlertTriangle, Loader2 } from "lucide-react";
 import type { PluginSettingsPanelProps } from "../../src/plugins/types";
-import {
-  clearPluginErrors,
-  getPluginErrors,
-  pluginLogger,
-  subscribePluginErrors,
-} from "../../src/plugins/pluginLog";
+import { pluginLogger } from "../../src/plugins/pluginLog";
 import { getScriptHostApi } from "../../src/plugins/scriptHost";
 import { compileTemplate } from "./engine/compile";
 import { createCarrier } from "./host/carrier";
@@ -50,8 +44,7 @@ import { describeEjsError } from "./errors";
  * 插件 id 的字面量副本。
  *
  * ⚠️ **不能**从 `plugin.tsx` 导入（`plugin → Settings → plugin` 的反向值边 ⇒ 模块环）。
- * 两端同值由验收（面板里的记录必须出现在 `getPluginErrors("ejs-template")` 中）与
- * `plugins/registry.ts` 的 `meta.id` 共同守住。
+ * 两端同值由 `plugins/registry.ts` 的 `meta.id` 与渲染统计 / `pluginLogger` 使用的 scope 共同守住。
  */
 const EJS_PLUGIN_ID = "ejs-template";
 
@@ -211,7 +204,7 @@ export function publishEjsLastError(lastError: EjsLastError | null): void {
   emit({ ...snapshot, lastError });
 }
 
-/** 「清空统计」按钮：只清统计与最近错误，**不动**运行日志（那有独立按钮）。 */
+/** 「清空统计」按钮：清统计与最近一次错误。 */
 export function clearEjsRenderState(): void {
   if (!snapshot.turn && !snapshot.lastError) return;
   emit({ ...snapshot, turn: null, lastError: null });
@@ -415,17 +408,11 @@ export function collectEjsWorldInfoEntries(): EjsWorldInfoEntry[] {
 
 /** 安全告知（SSOT §8：照 `ScriptRunnerSettings.tsx:79-81` 的文案风格）。 */
 export const EJS_SECURITY_NOTICE_TEXT =
-  "EJS 模板与 NyaaChat 宿主同源运行（隐藏 iframe，未加 sandbox），可访问本机数据与凭据；只渲染你信任来源的角色卡。";
+  "EJS 模板可访问本机数据与凭据；只渲染你信任来源的角色卡。";
 
 /** K1 风险提示（D12：UI 必须明示"死循环发生在发送路径"）。 */
 export const EJS_K1_NOTICE_TEXT =
-  `已知风险（K1）：模板里的死循环会让「发送」流程卡住且无法中断（当前 CSP 下无法用 Worker 隔离）。` +
-  `本插件用软上限缓解：单条目 EJS 块数 ≤ ${EJS_SOFT_CAP_MAX_BLOCKS}、单条目正文 ≤ ${EJS_SOFT_CAP_MAX_CHARS} 字符` +
-  `（超出即跳过该条目并降级），载体超时 ${EJS_SOFT_CAP_CARRIER_TIMEOUT_MS} ms。`;
-
-/** 渲染失败时的处置说明（SSOT §2.7 / K3：绝不把 `<% %>` 原文发给模型）。 */
-export const EJS_DEGRADE_NOTICE_TEXT =
-  "渲染失败的条目会被丢弃内容（绝不把 <% %> 原文发给模型），错误同时写入下方「运行日志」与本面板的统计记录；单个条目失败不影响其它条目与生成流程。";
+  `已知风险：模板里的死循环会让「发送」流程卡住且无法中断确保角色卡 单条目 EJS 块数 ≤ ${EJS_SOFT_CAP_MAX_BLOCKS}、单条目正文 ≤ ${EJS_SOFT_CAP_MAX_CHARS} 字符（超出即跳过该条目并降级）`;
 
 function formatTime(at: number): string {
   try {
@@ -442,11 +429,6 @@ function shortTurnId(turnId: string): string {
   return `…${trimmed.slice(-12)}`;
 }
 
-function firstLineOf(message: string): string {
-  const line = message.split("\n")[0] ?? "";
-  return line.trim() || "(空消息)";
-}
-
 /**
  * ejs-template 设置面板。
  *
@@ -457,14 +439,12 @@ function firstLineOf(message: string): string {
 export function EjsTemplateSettings(props: PluginSettingsPanelProps) {
   const { pluginId } = props;
   const render = useSyncExternalStore(subscribeEjsRenderStats, getEjsRenderSnapshot);
-  const records = useSyncExternalStore(subscribePluginErrors, () => getPluginErrors(pluginId));
 
   const [entries, setEntries] = useState<EjsWorldInfoEntry[]>(() => collectEjsWorldInfoEntries());
   const [selectedId, setSelectedId] = useState<string>("");
   const [trialRunning, setTrialRunning] = useState(false);
   const [trial, setTrial] = useState<EjsTrialResult | null>(null);
   const [trialTargetName, setTrialTargetName] = useState<string>("");
-  const [expandedRecordId, setExpandedRecordId] = useState<string | null>(null);
 
   // 卸载后不再 setState（试渲染是异步的，面板可能已被关闭）。
   const aliveRef = useRef(true);
@@ -478,7 +458,6 @@ export function EjsTemplateSettings(props: PluginSettingsPanelProps) {
   const hostReady = getScriptHostApi() !== null;
   const selected = entries.find((entry) => entry.id === selectedId) ?? entries[0] ?? null;
   const turn = render.turn;
-  const errorRecords = records.filter((record) => record.level === "error").length;
 
   const refreshEntries = () => {
     const next = collectEjsWorldInfoEntries();
@@ -512,22 +491,6 @@ export function EjsTemplateSettings(props: PluginSettingsPanelProps) {
           <p className="leading-relaxed break-words">{EJS_SECURITY_NOTICE_TEXT}</p>
           <p className="leading-relaxed break-words">{EJS_K1_NOTICE_TEXT}</p>
         </div>
-      </div>
-
-      {/* ── 启用状态（只读；开关在详情页头部，复用框架）───────────────────── */}
-      <div className="space-y-2">
-        <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-          启用状态
-        </label>
-        <p className="text-xs text-gray-600 dark:text-gray-300 break-words">
-          {render.active
-            ? "已启用：渲染器已注册到宿主的「条目文本渲染缝」，含 EJS 的激活条目会在发送前渲染。"
-            : "未启用：渲染器未注册，宿主对含 EJS 的条目按原文处理（needsPromptText 退化为仅变量宏，行为与本插件存在前一致）。"}
-        </p>
-        <p className="text-[11px] text-gray-500 dark:text-gray-400 break-words">
-          开关在插件详情页「头部」（复用框架的插件启用开关），本面板不另做第二套。构建标记：{" "}
-          <span className="font-mono break-all">{render.build}</span>
-        </p>
       </div>
 
       {/* ── 本轮渲染统计 ─────────────────────────────────────────────────── */}
@@ -584,62 +547,6 @@ export function EjsTemplateSettings(props: PluginSettingsPanelProps) {
         </p>
       </div>
 
-      {/* ── 逐条目视图 ①：本轮渲染记录 ───────────────────────────────────── */}
-      <div className="space-y-2">
-        <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-          逐条目视图 · 本轮渲染记录
-        </label>
-        <p className="text-[11px] text-gray-500 dark:text-gray-400 break-words">{EJS_DEGRADE_NOTICE_TEXT}</p>
-        {!turn || turn.items.length === 0 ? (
-          <p className="text-[11px] text-gray-500 dark:text-gray-400">本轮没有渲染记录。</p>
-        ) : (
-          <ul className="space-y-1.5 list-none min-w-0">
-            {turn.items.slice(0, 50).map((item) => (
-              <li
-                key={`${item.index}-${item.entryId}`}
-                className="rounded-lg border border-gray-200 dark:border-white/10 p-2 min-w-0"
-              >
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-gray-500 dark:text-gray-400 min-w-0">
-                  <span className="tabular-nums">#{item.index}</span>
-                  <span className="font-medium text-gray-700 dark:text-gray-300 break-all">
-                    {item.entryName ?? "(未匹配到条目名)"}
-                    {item.nameGuessed ? " ≈" : ""}
-                  </span>
-                  <span>块 {item.blocks}</span>
-                  <span className="tabular-nums">
-                    入 {item.inputChars} / 出 {item.outputChars}
-                  </span>
-                  <span className="tabular-nums">{item.elapsedMs} ms</span>
-                  <span
-                    className={
-                      item.ok
-                        ? "text-green-600 dark:text-green-400"
-                        : "text-red-600 dark:text-red-400"
-                    }
-                  >
-                    {item.skipped ? "已跳过（超软上限）" : item.deduped ? "幂等命中" : item.ok ? "成功" : "降级"}
-                  </span>
-                </div>
-                {!item.ok && item.errorTitle && (
-                  <p className="mt-0.5 text-[11px] text-red-600 dark:text-red-400 break-words">
-                    {item.errorTitle}
-                  </p>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-        {turn && turn.items.length > 50 && (
-          <p className="text-[11px] text-gray-500 dark:text-gray-400">
-            仅显示前 50 行（本轮共 {turn.items.length} 行）。
-          </p>
-        )}
-        <p className="text-[11px] text-gray-500 dark:text-gray-400 break-words">
-          条目名是「尽力匹配」：渲染器只拿得到条目正文（宿主契约不含 rule id），这里按「世界书条目正文出现在
-          该次输入里」做最长匹配，命中的名字标 <span className="font-mono">≈</span>，匹配不上就显示「未匹配到条目名」。
-        </p>
-      </div>
-
       {/* ── 逐条目视图 ②：当前角色含 EJS 的条目 ─────────────────────────── */}
       <div className="space-y-2">
         <div className="flex items-center justify-between gap-2 min-h-[1.25rem]">
@@ -683,10 +590,6 @@ export function EjsTemplateSettings(props: PluginSettingsPanelProps) {
             ))}
           </ul>
         )}
-        <p className="text-[11px] text-gray-500 dark:text-gray-400 break-words">
-          数据源 = 宿主的 `character.getWorldInfo()`（只有当前角色这一本世界书，即 `getwi` 的保真度
-          损失）。含 EJS 的「常驻」条目在发送时进入尾部 `═ 模板设定 ═` 小节；关键词条目按其激活结果进入约束小节。
-        </p>
       </div>
 
       {/* ── 试渲染（只读）───────────────────────────────────────────────── */}
@@ -762,98 +665,6 @@ export function EjsTemplateSettings(props: PluginSettingsPanelProps) {
         )}
       </div>
 
-      {/* ── 运行日志（非仅 console：读 pluginLog 的环形缓冲）─────────────── */}
-      <div className="space-y-2 min-w-0">
-        <div className="flex items-center justify-between gap-2 min-h-[1.25rem]">
-          <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-            运行日志
-            {errorRecords > 0 && (
-              <span className="normal-case text-red-500 dark:text-red-400">{errorRecords} 条错误</span>
-            )}
-          </span>
-          {records.length > 0 && (
-            <button
-              type="button"
-              onClick={() => {
-                clearPluginErrors(pluginId);
-                setExpandedRecordId(null);
-              }}
-              className="px-2 py-1 text-[11px] font-medium rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/10 transition-colors"
-            >
-              清空日志
-            </button>
-          )}
-        </div>
-        {records.length === 0 ? (
-          <p className="text-[11px] text-gray-500 dark:text-gray-400">
-            暂无运行日志。渲染失败、载体超时、未实现符号等都会记在这里（保留最近 20 条），
-            不需要开 DevTools。
-          </p>
-        ) : (
-          <ul className="space-y-2 list-none min-w-0">
-            {records.map((record) => (
-              <li
-                key={record.id}
-                className="rounded-xl border border-gray-200 dark:border-white/10 p-2.5 min-w-0"
-              >
-                <div className="flex items-start gap-2 min-w-0">
-                  <span
-                    className={`mt-0.5 flex-shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-medium ${
-                      record.level === "error"
-                        ? "bg-red-500/10 text-red-600 dark:text-red-400"
-                        : "bg-amber-500/10 text-amber-600 dark:text-amber-400"
-                    }`}
-                  >
-                    {record.level === "error" ? "错误" : "警告"}
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-gray-500 dark:text-gray-400">
-                      <span className="tabular-nums">{formatTime(record.at)}</span>
-                      <span className="font-mono break-all">{record.scope}</span>
-                      {record.count > 1 && (
-                        <span className="tabular-nums" title="连续重复次数">
-                          ×{record.count}
-                        </span>
-                      )}
-                    </div>
-                    <p className="mt-0.5 text-xs text-gray-700 dark:text-gray-300 break-words">
-                      {firstLineOf(record.message)}
-                    </p>
-                    {record.stack && (
-                      <>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setExpandedRecordId(expandedRecordId === record.id ? null : record.id)
-                          }
-                          className="mt-1 text-[11px] text-blue-600 dark:text-blue-400 hover:underline"
-                        >
-                          {expandedRecordId === record.id ? "收起堆栈" : "展开堆栈"}
-                        </button>
-                        {expandedRecordId === record.id && (
-                          <pre className="mt-1 max-h-40 overflow-auto rounded-lg bg-gray-100/70 dark:bg-black/30 p-2 text-[10px] leading-relaxed font-mono whitespace-pre-wrap break-all text-gray-600 dark:text-gray-400">
-                            {record.stack}
-                          </pre>
-                        )}
-                      </>
-                    )}
-                  </div>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-        <p className="text-[11px] text-gray-500 dark:text-gray-400 break-words">
-          列表只显示首行（控制台行另把完整文案截到 600 字符，末尾的「处置」行可能被砍）；
-          要看完整的「阶段 / 原因 / 提示 / 处置」，用上方「最近一次错误」框（保留 1200 字符，已剥离模板正文）。
-        </p>
-      </div>
-
-      {/* ── 明确不做（NG1）──────────────────────────────────────────────── */}
-      <p className="text-[11px] text-gray-500 dark:text-gray-400 break-words">
-        本面板不提供 EJS 编写能力：没有编辑器、没有语法高亮、没有在线修改（SSOT §12 NG1）。
-        这里只展示运行状态并对指定条目做一次只读试渲染。
-      </p>
     </div>
   );
 }
