@@ -412,7 +412,7 @@ export const EJS_SECURITY_NOTICE_TEXT =
 
 /** K1 风险提示（D12：UI 必须明示"死循环发生在发送路径"）。 */
 export const EJS_K1_NOTICE_TEXT =
-  `已知风险：模板里的死循环会让「发送」流程卡住且无法中断确保角色卡 单条目 EJS 块数 ≤ ${EJS_SOFT_CAP_MAX_BLOCKS}、单条目正文 ≤ ${EJS_SOFT_CAP_MAX_CHARS} 字符（超出即跳过该条目并降级）`;
+  `已知风险：模板里的死循环会让「发送」流程卡住且无法中断。确保角色卡 单条目 EJS 块数 ≤ ${EJS_SOFT_CAP_MAX_BLOCKS}、单条目正文 ≤ ${EJS_SOFT_CAP_MAX_CHARS} 字符（超出即跳过该条目并降级）`;
 
 function formatTime(at: number): string {
   try {
