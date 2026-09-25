@@ -1,4 +1,19 @@
 # 更新历史
+## v1.6.3
+Github Commit: [c0b9044](https://github.com/NyaaCaster/NyaaChat/commit/c0b9044)
+
+发布日期：2026-09-26
+
+### ✨ 新功能
+- 添加与酒馆规范互通的额外开场白功能，存在多套对话开场白时可以用左右箭头切换开场白
+- 角色编辑窗口「第一条消息」右上方新增「其它开场」按钮，可编辑多套开场白
+- 之前导入的带多套开局的酒馆角色卡请删除后重新导入
+
+### 🔧 优化
+- 为作者提供共享角色卡内「编辑共享角色」界面内的「角色导出」按钮
+- 修复对话气泡中的 Markdown 表格的渲染样式
+
+---
 ## v1.6.2
 Github Commit: [a62b8ba](https://github.com/NyaaCaster/NyaaChat/commit/a62b8badfe4deea2dcb16b2276d83f5afd6b15bd)
 
