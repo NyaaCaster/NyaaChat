@@ -454,21 +454,21 @@ export function CharacterEditModal({
             {mode === "shared-author" && importError && (
               <p className="text-xs text-red-500 dark:text-red-400 break-all">{importError}</p>
             )}
-            <div className="flex gap-3">
-              {mode === "shared-author" ? (
+            <div className="flex gap-2 sm:gap-3">
+              <button
+                onClick={() => setIsExportChooserOpen(true)}
+                className="flex-shrink-0 px-3 sm:px-4 py-2 bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 hover:bg-gray-50 dark:hover:bg-white/10 text-gray-700 dark:text-gray-300 text-sm font-medium rounded-xl transition-all flex items-center justify-center gap-1.5 sm:gap-2"
+                title="导出角色卡"
+              >
+                <Download size={16} /> 角色导出
+              </button>
+              {mode === "shared-author" && (
                 <button
                   onClick={() => importInputRef.current?.click()}
-                  className="flex-shrink-0 px-4 py-2 bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 hover:bg-gray-50 dark:hover:bg-white/10 text-gray-700 dark:text-gray-300 text-sm font-medium rounded-xl transition-all flex items-center justify-center gap-2"
+                  className="flex-shrink-0 px-3 sm:px-4 py-2 bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 hover:bg-gray-50 dark:hover:bg-white/10 text-gray-700 dark:text-gray-300 text-sm font-medium rounded-xl transition-all flex items-center justify-center gap-1.5 sm:gap-2"
                   title="以导入角色卡的方式替换当前内容"
                 >
                   <Upload size={16} /> 角色导入
-                </button>
-              ) : (
-                <button
-                  onClick={() => setIsExportChooserOpen(true)}
-                  className="flex-shrink-0 px-4 py-2 bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 hover:bg-gray-50 dark:hover:bg-white/10 text-gray-700 dark:text-gray-300 text-sm font-medium rounded-xl transition-all flex items-center justify-center gap-2"
-                >
-                  <Download size={16} /> 角色导出
                 </button>
               )}
               {mode === "shared-author" ? (

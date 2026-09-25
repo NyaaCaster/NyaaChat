@@ -365,22 +365,25 @@ export function CharacterSelectionModal({
     setUpdatingId(character.id);
     try {
       const res = await fetchCharacterCard(character.globalId);
-      if (res.kind !== "ok") {
+      if (res.kind === "ok") {
+        const card = res.data.card;
+        sharePrefillRef.current = {
+          source: card.source,
+          intro: card.intro,
+          tags: card.tags,
+        };
+      } else {
         if (res.kind === "error" && res.status === 404) {
           flash("err", "该角色已从共享角色库删除，无法编辑。");
+          return;
         } else if (res.kind === "error" && res.status === 403) {
           flash("err", "只有作者本人可以编辑此角色。");
+          return;
         } else {
-          flash("err", "无法加载角色信息，请稍后再试。");
+          // 网络抖动或离线状态，允许优雅降级使用本地角色信息进入编辑界面
+          flash("err", "未能连接到共享库最新元数据，已加载本地卡片进入编辑。");
         }
-        return;
       }
-      const card = res.data.card;
-      sharePrefillRef.current = {
-        source: card.source,
-        intro: card.intro,
-        tags: card.tags,
-      };
       // Edit from the locally-held card (its id binds the conversation); the
       // editor only revises name/desc/firstMes/worldInfo/cover. Open in
       // shared-author mode (保存→发布更新, 导出→导入).
