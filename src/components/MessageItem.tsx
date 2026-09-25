@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeRaw from "rehype-raw";
 import rehypeKatex from "rehype-katex";
@@ -7,7 +8,7 @@ import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import type { PluggableList } from "unified";
 import { Message } from "../types";
 import { motion } from "motion/react";
-import { Copy, Check, Trash2, RefreshCw, Pencil, X as XIcon, ImagePlus, Download, Loader2, FileText, Image as ImageIcon } from "lucide-react";
+import { Copy, Check, Trash2, RefreshCw, Pencil, X as XIcon, ImagePlus, Download, Loader2, FileText, Image as ImageIcon, ChevronLeft, ChevronRight } from "lucide-react";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ImageViewerModal } from "./ImageViewerModal";
 import { CoverViewerModal } from "./CoverViewerModal";
@@ -63,7 +64,7 @@ const sanitizeSchema = {
   },
 };
 
-const markdownRemarkPlugins: PluggableList = [remarkMath];
+const markdownRemarkPlugins: PluggableList = [remarkGfm, remarkMath];
 const markdownRehypePlugins: PluggableList = [rehypeRaw, rehypeKatex, [rehypeSanitize, sanitizeSchema]];
 
 // navigator.clipboard requires a secure context (HTTPS or localhost). When the
@@ -288,6 +289,8 @@ interface MessageItemProps {
    *  side image on PC and a feathered top-right avatar on mobile, and opens the
    *  cover viewer on click. */
   coverUrl?: string | null;
+  /** 额外开场白左右切换回调（仅第一条消息处于多开场模式时有效） */
+  onSwipeChange?: (newSwipeId: number) => void;
 }
 
 export const MessageItem = React.memo(function MessageItem({
@@ -308,6 +311,7 @@ export const MessageItem = React.memo(function MessageItem({
   frontendRenderingEnabled = true,
   decodeFlagalacEscapes = false,
   coverUrl,
+  onSwipeChange,
 }: MessageItemProps) {
   const [copiedMsg, setCopiedMsg] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -891,6 +895,42 @@ export const MessageItem = React.memo(function MessageItem({
           </>
         ) : (
           <>
+            {/* 多开场白翻页器（仅第一条消息处于多候选时显示） */}
+            {!editing && !isUser && message.swipes && message.swipes.length > 1 && onSwipeChange && (
+              <div className="flex items-center gap-0.5 mr-1 bg-gray-100 dark:bg-gray-700/60 rounded px-1 py-0.5 text-[11px] font-mono select-none text-gray-500 dark:text-gray-400">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const total = message.swipes!.length;
+                    const cur = message.swipeId ?? 0;
+                    const prev = (cur - 1 + total) % total;
+                    onSwipeChange(prev);
+                  }}
+                  disabled={busy}
+                  className="p-0.5 hover:text-gray-800 dark:hover:text-gray-200 disabled:opacity-40 transition-colors"
+                  title="上一条开场白"
+                >
+                  <ChevronLeft size={12} />
+                </button>
+                <span className="px-0.5">
+                  {(message.swipeId ?? 0) + 1}/{message.swipes.length}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const total = message.swipes!.length;
+                    const cur = message.swipeId ?? 0;
+                    const next = (cur + 1) % total;
+                    onSwipeChange(next);
+                  }}
+                  disabled={busy}
+                  className="p-0.5 hover:text-gray-800 dark:hover:text-gray-200 disabled:opacity-40 transition-colors"
+                  title="下一条开场白"
+                >
+                  <ChevronRight size={12} />
+                </button>
+              </div>
+            )}
             {!editing && !isUser && onRegenerate && (
               <button
                 onClick={() => onRegenerate(message.id)}

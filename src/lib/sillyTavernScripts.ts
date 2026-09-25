@@ -238,6 +238,9 @@ export function toNativeCardJson(char: CharacterSettings): Record<string, unknow
     name: char.name,
     description: char.description,
     ...(char.firstMes ? { firstMes: char.firstMes } : {}),
+    ...(char.alternateGreetings && char.alternateGreetings.length
+      ? { alternateGreetings: char.alternateGreetings }
+      : {}),
     worldInfo: char.worldInfo ?? [],
     ...(char.regexScripts && char.regexScripts.length ? { regexScripts: char.regexScripts } : {}),
     ...(char.author ? { author: char.author } : {}),

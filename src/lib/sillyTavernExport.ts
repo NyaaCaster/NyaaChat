@@ -142,6 +142,10 @@ export function convertToSillyTavernCharacter(char: CharacterSettings): Record<s
     ? char.tags.filter((tag) => typeof tag === "string")
     : [];
 
+  const alternateGreetings: string[] = Array.isArray(char.alternateGreetings)
+    ? char.alternateGreetings.filter((g) => typeof g === "string" && g.trim() !== "")
+    : [];
+
   const data = {
     name,
     description,
@@ -155,7 +159,7 @@ export function convertToSillyTavernCharacter(char: CharacterSettings): Record<s
     tags,
     creator: "",
     character_version: "",
-    alternate_greetings: [] as string[],
+    alternate_greetings: alternateGreetings,
     extensions,
     group_only_greetings: [] as string[],
     character_book: {

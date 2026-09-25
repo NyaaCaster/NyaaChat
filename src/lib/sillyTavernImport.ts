@@ -148,6 +148,13 @@ export function convertNativeCard(parsed: any): CharacterSettings {
     name: parsed.name,
     description,
     firstMes: typeof parsed.firstMes === "string" && parsed.firstMes.trim() ? parsed.firstMes : undefined,
+    ...(Array.isArray(parsed.alternateGreetings)
+      ? {
+          alternateGreetings: parsed.alternateGreetings.filter(
+            (g: unknown) => typeof g === "string" && g.trim() !== ""
+          ),
+        }
+      : {}),
     worldInfo: Array.isArray(parsed.worldInfo) ? parsed.worldInfo : [],
     ...(Array.isArray(parsed.regexScripts) && parsed.regexScripts.length
       ? { regexScripts: parsed.regexScripts }
@@ -297,11 +304,18 @@ export function convertSillyTavernCharacter(parsed: any): CharacterSettings {
   // `sillyTavernScripts.ts` 里实现一次；这里不解释任何 ST 字段。
   const scripts = readSillyTavernScripts(data);
 
+  // 额外开场问候语（ST Spec v2/v3: `data.alternate_greetings`）
+  const rawAlt = data.alternate_greetings ?? parsed.alternate_greetings;
+  const alternateGreetings = Array.isArray(rawAlt)
+    ? (rawAlt.filter((g: unknown) => typeof g === "string" && g.trim() !== "") as string[])
+    : undefined;
+
   return {
     id: newId(),
     name: data.name,
     description: data.description,
     firstMes: data.first_mes || undefined,
+    ...(alternateGreetings && alternateGreetings.length > 0 ? { alternateGreetings } : {}),
     worldInfo,
     ...(regexScripts.length ? { regexScripts } : {}),
     ...(scripts.length ? { scripts } : {}),

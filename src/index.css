@@ -56,6 +56,26 @@
     max-width: 100%;
   }
 
+  .markdown-body table {
+    width: 100%;
+    margin-top: 0.75rem;
+    margin-bottom: 0.75rem;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+  }
+
+  .markdown-body th,
+  .markdown-body td {
+    padding: 0.5rem 0.75rem;
+    border: 1px solid rgba(156, 163, 175, 0.3);
+  }
+
+  .markdown-body th {
+    background-color: rgba(156, 163, 175, 0.15);
+    font-weight: 600;
+  }
+
   .markdown-body .katex-display {
     overflow-x: auto;
     overflow-y: hidden;

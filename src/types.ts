@@ -43,6 +43,10 @@ export interface Message {
    *  只撤销 **message 级**守门，session 级 `metadata` 仍被剥离。改动该守门时
    *  务必同时确认本注释与 SSOT §3 的表述。 */
   variables?: Array<Record<string, unknown>>;
+  /** 开场白备选分支列表（首条消息生效）。包含主开场白与额外问候语。 */
+  swipes?: string[];
+  /** 当前选中的开局索引（0-based，默认为 0）。 */
+  swipeId?: number;
 }
 
 export type ApiFormat = "openai" | "anthropic";
@@ -186,6 +190,8 @@ export interface CharacterSettings {
   name: string;
   description: string;
   firstMes?: string;
+  /** SillyTavern 规范：额外开场问候语列表（data.alternate_greetings） */
+  alternateGreetings?: string[];
   worldInfo?: WorldInfoRule[];
   /** Character-scoped regex scripts (ST: `data.extensions.regex_scripts`).
    *  Run after global scripts in the combined chain. */

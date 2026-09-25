@@ -36,6 +36,7 @@ import { exportCharacterPng, imageBlobToCoverWebp } from "../lib/pngCard";
 import { toNativeCardJson } from "../lib/sillyTavernScripts";
 import { loadCover, saveCover, deleteCover, COVER_MARKER } from "../lib/coverStorage";
 import { BaseModal } from "./BaseModal";
+import { AlternateGreetingsModal } from "./AlternateGreetingsModal";
 // SSOT §2.7：本弹窗是**世界书（worldInfo）的编辑入口**，保存成功即"世界书已更新"。
 import { emitPluginEvent } from "../plugins/runtime";
 import { DeleteConfirmDialog } from "./DeleteConfirmDialog";
@@ -71,6 +72,8 @@ export function CharacterEditModal({
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [firstMes, setFirstMes] = useState("");
+  const [alternateGreetings, setAlternateGreetings] = useState<string[]>([]);
+  const [isAltGreetingsOpen, setIsAltGreetingsOpen] = useState(false);
   const [worldInfo, setWorldInfo] = useState<WorldInfoRule[]>([]);
   const [isRuleModalOpen, setIsRuleModalOpen] = useState(false);
   const [editingRule, setEditingRule] = useState<WorldInfoRule | null>(null);
@@ -109,6 +112,7 @@ export function CharacterEditModal({
       setName(initialCharacter.name);
       setDescription(initialCharacter.description);
       setFirstMes(initialCharacter.firstMes || "");
+      setAlternateGreetings(initialCharacter.alternateGreetings || []);
       setWorldInfo(initialCharacter.worldInfo || []);
       cardIdRef.current = initialCharacter.id;
       // Load an existing cover from IndexedDB for preview.
@@ -126,6 +130,7 @@ export function CharacterEditModal({
       setName("");
       setDescription("");
       setFirstMes("");
+      setAlternateGreetings([]);
       setWorldInfo([]);
       cardIdRef.current = newId();
     }
@@ -199,6 +204,7 @@ export function CharacterEditModal({
       name: name.trim(),
       description: description.trim(),
       firstMes: firstMes.trim() || undefined,
+      alternateGreetings: alternateGreetings.filter((g) => g.trim() !== ""),
       worldInfo: worldInfo,
       ...(coverImage ? { coverImage } : {}),
       // Preserve card data this modal has no editor for, so editing+saving a
@@ -240,6 +246,7 @@ export function CharacterEditModal({
     name: name.trim(),
     description: description.trim(),
     firstMes: firstMes.trim() || undefined,
+    alternateGreetings: alternateGreetings.filter((g) => g.trim() !== ""),
     worldInfo: worldInfo,
     ...(coverBlobRef.current || (!coverRemoved && initialCharacter?.coverImage)
       ? { coverImage: COVER_MARKER }
@@ -255,7 +262,7 @@ export function CharacterEditModal({
     ...(initialCharacter?.shared !== undefined ? { shared: initialCharacter.shared } : {}),
     ...(initialCharacter?.owner ? { owner: initialCharacter.owner } : {}),
     ...(initialCharacter?.tags?.length ? { tags: initialCharacter.tags } : {}),
-  }), [initialCharacter, name, description, firstMes, worldInfo, coverRemoved]);
+  }), [initialCharacter, name, description, firstMes, alternateGreetings, worldInfo, coverRemoved]);
 
   /** Resolve the cover blob to use as the export PNG's pixel carrier: the
    *  pending (just-cropped) blob if any, else the one already in IndexedDB,
@@ -307,6 +314,7 @@ export function CharacterEditModal({
       setName(imported.name);
       setDescription(imported.description);
       setFirstMes(imported.firstMes || "");
+      setAlternateGreetings(imported.alternateGreetings || []);
       setWorldInfo(imported.worldInfo || []);
       // Use the imported PNG's pixels as the new cover (re-encoded to 512×768).
       // ⚠️ JSON 卡没有像素 ⇒ 跳过，保留现有封面。
@@ -564,9 +572,19 @@ export function CharacterEditModal({
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">
-                第一条消息 (First Message)
-              </label>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                  第一条消息 (First Message)
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setIsAltGreetingsOpen(true)}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-lg text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors"
+                >
+                  <Plus size={13} />
+                  <span>其它开场 ({alternateGreetings.length})</span>
+                </button>
+              </div>
               <textarea
                 className="w-full px-3 py-2 text-sm bg-transparent border border-gray-200 dark:border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-shadow resize-none min-h-[80px]"
                 value={firstMes}
@@ -688,6 +706,14 @@ export function CharacterEditModal({
           </button>
         </div>
       </BaseModal>
+
+      {/* 额外问候语管理弹窗 */}
+      <AlternateGreetingsModal
+        isOpen={isAltGreetingsOpen}
+        onClose={() => setIsAltGreetingsOpen(false)}
+        greetings={alternateGreetings}
+        onSave={setAlternateGreetings}
+      />
     </>
   );
 }

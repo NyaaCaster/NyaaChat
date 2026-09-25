@@ -545,12 +545,15 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
 
   const buildFirstMes = (character: typeof currentCharacter): Message[] => {
     if (!character?.firstMes?.trim()) return [];
+    const validAlt = (character.alternateGreetings || []).filter((g) => g && g.trim() !== "");
+    const swipes = [character.firstMes, ...validAlt];
     return [
       {
         id: newId(),
         role: "assistant",
         content: character.firstMes,
         timestamp: Date.now(),
+        ...(swipes.length > 1 ? { swipes, swipeId: 0 } : {}),
       },
     ];
   };
@@ -1673,6 +1676,21 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
     setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, content: newContent } : m)));
   }, []);
 
+  const handleSwipeGreeting = useCallback((newSwipeId: number) => {
+    setMessages((prev) => {
+      if (prev.length === 0) return prev;
+      const first = prev[0];
+      if (!first.swipes || newSwipeId < 0 || newSwipeId >= first.swipes.length) return prev;
+      const nextContent = first.swipes[newSwipeId];
+      const updatedFirst: Message = {
+        ...first,
+        content: nextContent,
+        swipeId: newSwipeId,
+      };
+      return [updatedFirst, ...prev.slice(1)];
+    });
+  }, []);
+
   // P0: stabilized with empty deps — reads the hot-path refs so the callback
   // identity never changes across keystrokes / stream tokens, allowing
   // React.memo on every MessageItem to actually skip re-renders.
@@ -2306,6 +2324,7 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
                       regexScripts={displayRegexScripts}
                       decodeFlagalacEscapes={flagalacDecodeEscapes}
                       coverUrl={coverUrl}
+                      onSwipeChange={idx === 0 && messages.length === 1 ? handleSwipeGreeting : undefined}
                       frontendRenderingEnabled={
                         settings.isFrontendRenderingEnabled &&
                         (settings.frontendRenderingDepth === 0 ||
