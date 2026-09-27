@@ -9,8 +9,6 @@ import {
   Terminal,
   User,
   History,
-  Maximize,
-  Minimize,
   Puzzle,
   Regex,
   IdCard,
@@ -31,9 +29,6 @@ interface ChatHeaderProps {
   characters: CharacterSettings[] | undefined;
   currentCharacterId: string;
   isBypassActive: boolean;
-  isFullscreenSupported: boolean;
-  isFullscreen: boolean;
-  onToggleFullscreen: () => void;
   onOpenConsole: () => void;
   onOpenBypass: () => void;
   onOpenSettings: () => void;
@@ -53,9 +48,6 @@ export function ChatHeader({
   characters,
   currentCharacterId,
   isBypassActive,
-  isFullscreenSupported,
-  isFullscreen,
-  onToggleFullscreen,
   onOpenConsole,
   onOpenBypass,
   onOpenSettings,
@@ -137,15 +129,6 @@ export function ChatHeader({
           )}
         </div>
         <div className="flex items-center gap-1">
-          {isFullscreenSupported && (
-            <button
-              onClick={onToggleFullscreen}
-              className="p-1.5 text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-white/10 rounded-md transition-all duration-200"
-              title={isFullscreen ? "退出全屏" : "全屏模式"}
-            >
-              {isFullscreen ? <Minimize size={16} /> : <Maximize size={16} />}
-            </button>
-          )}
           <button
             onClick={onOpenConsole}
             className="p-1.5 text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-white/10 rounded-md transition-all duration-200"

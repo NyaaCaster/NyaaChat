@@ -12,6 +12,7 @@ import { FLAGALAC_NONE_ID, normalizeAnswererFlagalacState } from "./lib/Flagalac
 import { COMFYUI_FIXED_NAME, createDefaultImageProviders, createDefaultLlmProviders, defaultComfyFields, inferProvider } from "./lib/providers";
 import { ensureBuiltinLlmProviders } from "./lib/settingsBackup";
 import { newId } from "./lib/id";
+import { applyThemeColor, resolveTheme } from "./lib/themeColor";
 import { loadLastSessionId, loadSessions, saveLastSessionId } from "./lib/sessionStorage";
 import { getItem, setItem, removeItem } from "./lib/idbStorage";
 import { SettingsProvider } from "./lib/settingsContext";
@@ -881,18 +882,24 @@ export default function App() {
         ? "dark"
         : "light";
       root.classList.add(systemTheme);
+      // Keep the installed PWA's status-bar tint in step with the applied theme.
+      applyThemeColor(systemTheme);
 
       const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
       const handleChange = (e: MediaQueryListEvent) => {
         if (settings.theme === "system") {
           root.classList.remove("light", "dark");
           root.classList.add(e.matches ? "dark" : "light");
+          applyThemeColor(e.matches ? "dark" : "light");
         }
       };
       mediaQuery.addEventListener("change", handleChange);
       return () => mediaQuery.removeEventListener("change", handleChange);
     } else {
       root.classList.add(settings.theme);
+      // Manual choice: the index.html bootstrap could only guess from the OS
+      // preference, so correct the status-bar tint here.
+      applyThemeColor(resolveTheme(settings.theme));
     }
   }, [settings.theme]);
 

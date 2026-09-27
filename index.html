@@ -2,7 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- viewport-fit=cover lets the standalone (installed) window extend under
+         the notch / rounded corners; CSS opts regions back in with
+         env(safe-area-inset-*). Without it the installed app letterboxes. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
@@ -14,6 +17,60 @@
       <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap">
     </noscript>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐾</text></svg>">
+    <!-- ── PWA / "add to home screen" (Chrome, Android) ──────────────────────
+         Chrome offers the install prompt only when the manifest satisfies its
+         minimum installability criteria and the page is a secure context
+         (HTTPS or localhost):
+           https://developer.chrome.com/docs/lighthouse/pwa/installable-manifest
+         `display: standalone` in site.webmanifest is what makes the launched
+         window full-screen with no browser chrome. Icons are supplied at both
+         192x192 and 512x512, which Chrome requires.
+         The service-worker-less setup is intentional: Chrome does not require
+         a service worker to install, so none is registered (avoids stale-cache
+         risk in an app that already keeps state in IndexedDB). -->
+    <link rel="manifest" href="/site.webmanifest" />
+    <!-- ── theme-color: the standalone status-bar tint ───────────────────────
+         In `display: standalone` the Android status bar is NOT hidden — it is
+         tinted with `theme-color`, and `standalone` is exactly the mode we
+         chose. So this value must be the APP's background colour, not the
+         brand blue: a brand-coloured value paints an opaque blue band above
+         the UI.
+         Values mirror the app's own palette (see index.css `body` and
+         ChatInterface's root container):
+           light #FCFCFD   dark #0A0A0A
+         The reference deployment (h.nyaa.host:43080) does the same thing — its
+         theme-color is its *background* (#fafafa/#080808), not its brand
+         colour, and it re-writes the tag at runtime for the active scheme.
+         The inline script below does the same, so the very first painted frame
+         already uses the right tint instead of flashing a stale one. It can
+         only consult `prefers-color-scheme` (the user's *manual* theme choice
+         lives in IndexedDB and is not readable synchronously here); App.tsx
+         re-syncs this tag once the real theme is known. -->
+    <meta name="theme-color" content="#FCFCFD" />
+    <script>
+      // Keep in sync with LIGHT_BG/DARK_BG in src/lib/themeColor.ts.
+      (function () {
+        var LIGHT = "#FCFCFD", DARK = "#0A0A0A";
+        var meta = document.querySelector("meta[name='theme-color']");
+        if (!meta) return;
+        var mq = window.matchMedia("(prefers-color-scheme: dark)");
+        var apply = function (isDark) {
+          meta.setAttribute("content", isDark ? DARK : LIGHT);
+        };
+        apply(mq.matches);
+        // Track OS-level changes for users on theme = "system".
+        if (mq.addEventListener) {
+          mq.addEventListener("change", function (e) { apply(e.matches); });
+        }
+      })();
+    </script>
+    <meta name="mobile-web-app-capable" content="yes" />
+    <!-- iOS ignores `manifest` for the launch experience, so the Apple-specific
+         tags below are what give Safari users the same standalone behaviour. -->
+    <link rel="apple-touch-icon" sizes="180x180" href="/icons/pwa-192.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="NyaaChat" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <!-- FontAwesome icons (solid/brands) used by the app's own UI. -->
     <link rel="stylesheet" href="/css/fontawesome.min.css">
     <link rel="stylesheet" href="/css/solid.min.css">

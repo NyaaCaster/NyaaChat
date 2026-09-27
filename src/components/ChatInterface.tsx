@@ -62,7 +62,6 @@ import { ChatHeader } from "./ChatHeader";
 import { ChatComposer } from "./ChatComposer";
 import MemoryDivider from "./MemoryDivider";
 import { motion, AnimatePresence } from "motion/react";
-import { useFullscreen } from "../hooks/useFullscreen";
 import { UserAccountModal } from "./UserAccountModal";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { useAttachments } from "../hooks/useAttachments";
@@ -200,8 +199,6 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
   } | null>(null);
   const pendingSendRef = useRef<{ content: string; atts: ReturnType<typeof useAttachments>["attachments"]; baseMessages: Message[] } | null>(null);
 
-  const { isSupported: isFullscreenSupported, isFullscreen, toggleFullscreen } =
-    useFullscreen();
   const { attachments, addFiles, removeAt: removeAttachment, clear: clearAttachments } =
     useAttachments();
 
@@ -2225,9 +2222,6 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
         characters={settings.characters}
         currentCharacterId={settings.currentCharacterId}
         isBypassActive={isBypassActive}
-        isFullscreenSupported={isFullscreenSupported}
-        isFullscreen={isFullscreen}
-        onToggleFullscreen={toggleFullscreen}
         onOpenConsole={onOpenConsole}
         onOpenBypass={onOpenBypass}
         onOpenSettings={onOpenSettings}
