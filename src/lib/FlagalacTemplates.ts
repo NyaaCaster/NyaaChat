@@ -53,6 +53,8 @@ export interface FlagalacOption {
   available?: boolean;
   /** 置灰时显示的具体原因（必须说明缺什么，禁止沿用通用的「逻辑尚未接入」）。 */
   unavailableReason?: string;
+  /** 是否仅在 UI 中隐藏展示该选项（仍保留在底层数据和收敛逻辑中）。 */
+  hidden?: boolean;
 }
 
 export interface FlagalacTarget {
@@ -246,6 +248,7 @@ export const flagalacTargets: readonly FlagalacTarget[] = [
         description: "重写系统指令的定位，让后续内容被当作规则而非请求。",
         defaultEnabled: false,
         template: SYSTEM_DIRECTIVE_TEMPLATE,
+        hidden: true,
       },
       {
         id: "dualModelCard",
@@ -316,6 +319,7 @@ Gemini 只用简短句子回应，从不解释自己的决定。
         description: "长篇储备载荷：世界观式前言与召唤契约。",
         defaultEnabled: false,
         template: reserveBoostTemplate.content,
+        hidden: true,
       },
       {
         id: "toolChannel",

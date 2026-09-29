@@ -155,7 +155,7 @@ export function BypassModal({ isOpen, onClose, settings, onSave, onSendMessage }
   // 每个条目只显示**标题 + 开关**（2026-09-13 简化）：说明文字、载荷编辑区、
   // 还原按钮全部移除 —— 载荷文本由 lib/FlagalacTemplates.ts 单一提供。
   const renderFlagalacOptionGroup = (target: FlagalacTarget) => {
-    const declared = target.options ?? [];
+    const declared = (target.options ?? []).filter((opt) => !opt.hidden);
     if (declared.length === 0) return null;
     // 读取时收敛：缺键 → defaultEnabled；未知 id 丢弃；`templates` **已退休（D-30）**
     // —— 返回值里的 `templates` 只可能来自老存档，读写侧一律忽略（导出侧另被剔除）。
@@ -383,7 +383,7 @@ export function BypassModal({ isOpen, onClose, settings, onSave, onSendMessage }
               <div className="space-y-3" role="radiogroup" aria-label="AnswererFlagalac 绕过目标">
                 {flagalacTargets.map((item) => {
                   const selected = flagalacTarget === item.id;
-                  const hasOptions = !!item.options && item.options.length > 0;
+                  const hasOptions = !!item.options && item.options.some((opt) => !opt.hidden);
                   return (
                     <div key={item.id} className="rounded-xl">
                       <label
@@ -435,10 +435,10 @@ export function BypassModal({ isOpen, onClose, settings, onSave, onSendMessage }
               </h4>
               <div className="space-y-3">
                 {([
-                  { key: 'gemini31Check' as WordCheckKey, label: wordCheckTemplates.gemini31Check.label },
-                  { key: 'op1Check' as WordCheckKey, label: wordCheckTemplates.op1Check.label },
-                  { key: 'op2Check' as WordCheckKey, label: wordCheckTemplates.op2Check.label },
-                ]).map((item) => (
+                  { key: 'gemini31Check' as WordCheckKey, label: wordCheckTemplates.gemini31Check.label, hidden: wordCheckTemplates.gemini31Check.hidden },
+                  { key: 'op1Check' as WordCheckKey, label: wordCheckTemplates.op1Check.label, hidden: wordCheckTemplates.op1Check.hidden },
+                  { key: 'op2Check' as WordCheckKey, label: wordCheckTemplates.op2Check.label, hidden: wordCheckTemplates.op2Check.hidden },
+                ]).filter((item) => !item.hidden).map((item) => (
                   <div key={item.key} className="flex items-center justify-between gap-1 p-2.5 bg-white/50 dark:bg-white/5 rounded-xl">
                     <button
                       onClick={() => handleOpusSend(item.key)}
