@@ -15,6 +15,11 @@ declare const __COMFYUI_FIXED_DESC__: string;
  *  true → ext-host agent endpoint, false → user's chat LLM. */
 declare const __COMFYUI_FIXED_T2I_AGENT_ENABLE__: boolean;
 
+// NyaaAcount platform public entry (https). Injected by vite.config.ts from
+// NYAAACOUNT_PUBLIC_URL in .env (same key as the knowledge/shared compose
+// forwarding). Public URL only — safe to inline into the bundle.
+declare const __NYAACOUNT_PUBLIC_URL__: string;
+
 // Vite's ?raw suffix inlines a file's text content as a string at build time.
 // Used to render VERSION.md inside the version modal without a runtime fetch,
 // keeping VERSION.md as the single source.

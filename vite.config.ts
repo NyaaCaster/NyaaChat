@@ -37,6 +37,11 @@ export default defineConfig(({mode}) => {
       __COMFYUI_FIXED_T2I_AGENT_ENABLE__: JSON.stringify(
         env.COMFYUI_FIXED_T2I_AGENT_ENABLE === 'true'
       ),
+      // NyaaAcount platform public entry (register / recharge / account
+      // links). Reads the existing NYAAACOUNT_PUBLIC_URL key in .env — the
+      // same key the knowledge/shared compose files forward to their
+      // containers — so the URL lives in .env only.
+      __NYAACOUNT_PUBLIC_URL__: JSON.stringify(env.NYAAACOUNT_PUBLIC_URL || ''),
     },
     resolve: {
       alias: {

@@ -211,7 +211,7 @@ function AuthForm({
     }
   };
 
-  const NYAACOUNT_URL = "http://h.nyaa.host:5110/?view=register";
+  const NYAACOUNT_URL = `${__NYAACOUNT_PUBLIC_URL__}/?view=register`;
 
   const inputCls =
     "w-full px-3 py-2 text-sm bg-transparent border border-gray-200 dark:border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-shadow";
@@ -610,7 +610,7 @@ function AccountPanel({
               <CatCanIcon size={16} /> {profile.catfood != null ? profile.catfood : "—"}
             </span>
             <a
-              href="http://h.nyaa.host:5110/?view=recharge"
+              href={`${__NYAACOUNT_PUBLIC_URL__}/?view=recharge`}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-amber-400 border border-amber-500/30 hover:bg-amber-500/10 rounded-lg transition-colors"
@@ -762,7 +762,7 @@ function AccountPanel({
       {/* account management → NyaaAcount */}
       <button
         type="button"
-        onClick={() => window.open("http://h.nyaa.host:5110/", "_blank")}
+        onClick={() => window.open(__NYAACOUNT_PUBLIC_URL__ + "/", "_blank")}
         className="w-full px-4 py-2 bg-transparent border border-gray-200 dark:border-white/10 hover:bg-gray-100 dark:hover:bg-white/5 text-gray-700 dark:text-gray-300 text-sm font-medium rounded-xl transition-all flex items-center justify-center gap-2"
       >
         <IdCard size={15} /> 账号管理
