@@ -46,10 +46,17 @@ import {
   QUOTE_TTS_SPEECH_CAPABILITY,
   QUOTE_TTS_SPEECH_PATH,
   USER_DEFAULT_VOICE,
+  readQuoteDialogue,
 } from "./voices";
 
 /**
- * 逐块引号装饰：宿主对本块纯文本调用一次，返回与该文本同空间的区间。
+ * 逐块引号装饰：「朗读对白」子开关门控的引号台词 🔊 按钮（v1.1.0）。
+ *
+ * 开关语义（`voices.ts` 的 `quoteDialogue`，默认关）：关闭时本装饰器**零产出**
+ * —— 直接返回空数组，引号台词后不再出现内联 🔊；此时气泡底部按钮区的
+ * 「朗读消息」（`QuoteTtsBubbleButton`，由宿主 MessageItem 挂载）不受影响。
+ * 开关变化 ⇒ 运行时快照变化 ⇒ `MessageItem` 重渲染 ⇒ 本装饰器以最新
+ * `ctx.config` 重算 ⇒ 按钮即时出现/消失（与「改音色即时生效」同一链路）。
  *
  * `ctx.senderName` 已是宿主解析好的**展示口径**发送者名（user → 当前用户角色名，
  * assistant → 当前角色名；无值时回落 `"user"` / `"AI助手"`），`scanQuotes` 用它作为
@@ -73,8 +80,10 @@ import {
  * （`decorators.ts` 对每个插件取一次），`ctx.callBackend` 已由宿主绑定好本插件 id
  * 且带"能力是否声明"的校验。
  */
-const decorateQuotedText: MessageTextDecorator = (text, ctx) =>
-  scanQuotes(text, ctx.senderName).map((match) => ({
+const decorateQuotedText: MessageTextDecorator = (text, ctx) => {
+  // 「朗读对白」关闭（含缺省）⇒ 引号台词不插入内联按钮；零开销路径连 scan 都不做。
+  if (!readQuoteDialogue(ctx.config)) return [];
+  return scanQuotes(text, ctx.senderName).map((match) => ({
     start: match.start,
     end: match.end,
     // `scanQuotes` 的 key 是块内的 `${start}-${end}`；宿主侧再拼 `${pluginId}::`，
@@ -94,14 +103,16 @@ const decorateQuotedText: MessageTextDecorator = (text, ctx) =>
       />
     ),
   }));
+};
 
 const quoteTtsPlugin: NyaaPlugin = {
   meta: {
     id: QUOTE_TTS_PLUGIN_ID,
-    name: "引用朗读",
+    name: "语音朗读",
     description:
-      "为消息中引号包裹的台词（“”‘’「」『』）生成 🔊 按钮，按角色绑定的 Edge-TTS 音色朗读。",
-    version: "1.0.0",
+      "在聊天气泡按钮区提供「朗读消息」，按说话人绑定的 Edge-TTS 音色朗读整条气泡；" +
+      "可选开启「朗读对白」，在消息内引号台词（“”‘’「」『』）后插入 🔊 逐句朗读。",
+    version: "1.1.0",
     author: "Nyaa",
     // lucide-react 图标名；ExtensionsModal 按名解析，解析不到会回退到 Puzzle。
     icon: "Volume2",

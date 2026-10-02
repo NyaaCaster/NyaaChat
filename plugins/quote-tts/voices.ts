@@ -68,12 +68,26 @@ export const QUOTE_TTS_PLUGIN_ID = "quote-tts";
 export const QUOTE_TTS_SPEECH_CAPABILITY = "quote-tts.speech";
 export const QUOTE_TTS_SPEECH_PATH = "/api/ext-host/plugins/quote-tts/speech";
 
-/** 插件配置形态：`{ characterMap: { [角色名]: 音色 } }`。 */
+/** 插件配置形态：`{ characterMap: { [角色名]: 音色 }, quoteDialogue: boolean }`。 */
 export interface QuoteTtsConfig {
   characterMap: Record<string, QuoteTtsVoice>;
+  /** v1.1.0「朗读对白」子开关：关闭（缺省）时**不在**引号台词后插入内联 🔊 按钮；
+   *  气泡底部的「朗读消息」按钮不受它影响，随插件启用开关生效。 */
+  quoteDialogue: boolean;
 }
 
-export const QUOTE_TTS_DEFAULTS: QuoteTtsConfig = { characterMap: {} };
+export const QUOTE_TTS_DEFAULTS: QuoteTtsConfig = {
+  characterMap: {},
+  quoteDialogue: false,
+};
+
+/** 读取「朗读对白」子开关：只有显式 `true` 才开（归一化会把缺省值深合并进来，
+ *  此处兜底只防"宿主未接线/旧存档"两条路，语义与 defaults 一致 = 关）。 */
+export function readQuoteDialogue(
+  config: Record<string, unknown> | undefined,
+): boolean {
+  return config?.quoteDialogue === true;
+}
 
 const VOICE_SET: ReadonlySet<string> = new Set(AVAILABLE_VOICES);
 
@@ -91,8 +105,7 @@ export function readCharacterMap(config: Record<string, unknown> | undefined): R
 }
 
 /** 角色 → 音色；未配置或配置了非法值时回落到 `fallback`（默认 = 对话角色默认音色）。
- *  调用方按说话人类型传 `defaultVoiceFor("user" | "character")` 即可区分用户/角色默认。 */
-export function resolveVoice(
+ *  调用方按说话人类型传 `defaultVoiceFor("user" | "character")` 即可区分用户/角色默认。 */export function resolveVoice(
   characterMap: Record<string, QuoteTtsVoice>,
   charName: string,
   fallback: QuoteTtsVoice = DEFAULT_VOICE,

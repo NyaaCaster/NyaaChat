@@ -75,7 +75,7 @@ import {
   subscribeHostContext,
   type PluginHostContext,
 } from "../../src/plugins/hostContext";
-import { Field, FieldHint } from "../../src/components/SettingsFormBits";
+import { Field, FieldHint, ToggleSwitch } from "../../src/components/SettingsFormBits";
 import {
   AVAILABLE_VOICES,
   CHARACTER_DEFAULT_VOICE,
@@ -85,6 +85,7 @@ import {
   QUOTE_TTS_SPEECH_CAPABILITY,
   RESPONSE_FORMAT,
   readCharacterMap,
+  readQuoteDialogue,
   USER_DEFAULT_VOICE,
   type QuoteTtsVoice,
 } from "./voices";
@@ -170,6 +171,16 @@ export function QuoteTtsSettings({
 
   const characterMap = readCharacterMap(config);
   const participants = useMemo(() => collectParticipantNames(host), [host]);
+  // 「朗读对白」子开关（v1.1.0）：缺省关。`readQuoteDialogue` 只有显式 `true` 才开，
+  // 与 defaults（false）同一口径；改动经 `updateConfig` 走宿主 writer 必然落盘。
+  const quoteDialogue = readQuoteDialogue(config);
+
+  const handleQuoteDialogueChange = useCallback(
+    (next: boolean) => {
+      updateConfig({ quoteDialogue: next });
+    },
+    [updateConfig],
+  );
 
   const [preview, setPreview] = useState<PreviewState | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -266,6 +277,23 @@ export function QuoteTtsSettings({
   return (
     <div className="space-y-5">
       <Field
+        label="朗读开关"
+        actionSlot={
+          <ToggleSwitch
+            checked={quoteDialogue}
+            onChange={handleQuoteDialogueChange}
+            label="朗读对白"
+          />
+        }
+      >
+        <FieldHint>
+          开启后，消息中引号包裹的台词（“”‘’「」『』）后会出现内联 🔊
+          按钮，按角色绑定的音色逐句朗读；关闭（缺省）时不插入。气泡底部按钮区的
+          「朗读消息」不受此开关影响，随插件启用开关生效。
+        </FieldHint>
+      </Field>
+
+      <Field
         label="角色音色绑定"
         actionSlot={
           <span className="text-[11px] text-gray-500 dark:text-gray-400">
@@ -344,7 +372,8 @@ export function QuoteTtsSettings({
         参与者按当前会话自动扫描：当前用户角色名、当前角色名，以及消息里「人名:
         “引用”」的行首前缀。音色改动即时保存；试听使用固定文案「{PREVIEW_TEXT}」（上限{" "}
         {MAX_INPUT_LENGTH} 字符）。未绑定音色的角色按类型回落：用户角色 →{" "}
-        {USER_DEFAULT_VOICE}，对话角色 → {CHARACTER_DEFAULT_VOICE}。
+        {USER_DEFAULT_VOICE}，对话角色 → {CHARACTER_DEFAULT_VOICE}。气泡底部的
+        「朗读消息」按钮使用说话人对应的音色（用户气泡 → 用户角色行的音色）。
       </FieldHint>
     </div>
   );

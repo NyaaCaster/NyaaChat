@@ -1,20 +1,62 @@
 # quote-tts —— NyaaChat 原生插件
 
-> 为消息中引号包裹的台词生成 🔊 按钮，按角色绑定的 Edge-TTS 音色朗读。
+> 在聊天气泡按钮区提供「朗读消息」，按说话人绑定的 Edge-TTS 音色朗读整条气泡；
+> 可选开启「朗读对白」，在消息内引号台词（“”‘’「」『』）后插入 🔊 逐句朗读。
 > 移植自 ST 扩展 [`st-Quote-TTS`](https://github.com/NyaaCaster/st-Quote-TTS)（AGPL-3.0）。
 >
 > 这是 NyaaChat 插件系统 V1 的**首个原生插件**，也是"框架随插件编写而成熟"的验证对象
 > （审计报告 §2.3 结论：该扩展 8 项实现里 4 项在 NyaaChat 无对应物，必须由框架先给契约）。
 
+## 0. v1.1.0 改动摘要
+
+- **新增「朗读消息」**：气泡底部按钮区（`生成图片` 与`复制文本`之间）出现 🔊
+  图标按钮，朗读**整条气泡**的显示口径文本。音色按说话人取绑定值：用户气泡 →
+  用户角色行的音色（未绑定 → 云健），角色气泡 → 角色行的音色（未绑定 → 晓晓）。
+  **该按钮只随插件启用开关出现/消失**，不需要任何额外配置；与「朗读对白」子开关
+  无关。
+- **长文分段流水线播放**：整条消息可能几百到几千字，一次性全文请求会让本机
+  edge-tts 服务（travisvn/openai-edge-tts）同步阻塞合成整段 mp3、易撞 ext-host
+  的 60s 超时，也加重微软 Edge 在线 TTS 上游与局域网传输的峰值负担。「朗读消息」
+  因此改为 **`textChunker.ts` 标点自适应分段 + 串行流水线**（阅读器/有声书项目的
+  成熟形态）：
+  - 断句：`Intl.Segmenter("zh", sentence)` 句子层 → 贪心聚合到目标段长
+    （`TARGET_CHUNK_LENGTH = 300` 字符，业界常用 200–500 区间中值）→ 超限单句
+    按弱标点（`，、：`）就近二次切分 → 硬切兜底（`MAX_CHUNK_LENGTH = 900`，
+    ≤ ext-host 上限 1000）。任何输入都能终结，切点把标点留在段尾、原文零改写；
+    旧 Firefox（<125）自动回退到句末标点正则切分。
+  - 标签剔除：分段前先经 `prepareSpeechText` 把 `<></>` 类标签**及其包裹内容**
+    （如 `<thought>思维链</thought>`）整段剔除（HTML 注释与残余孤立标签一并
+    去掉，空白压缩），标签包裹的内容不进入语音生成；标签形态要求 `<` 后紧跟
+    字母，`a < b > c` 这类数学比较写法不会被误伤。
+  - 调度：**任何时刻最多 1 个合成请求在途**。第 1 段合成完即开始播放并同时
+    预取第 2 段（预取深度 1），单段合成（2~5s）短于单段播放时长 ⇒ 段间零空隙；
+    预取不做深 —— 用户随时可停止，多预取只浪费上游合成。
+  - 中断：播放/合成中**再次点击 = 停止**（软取消：在途请求结果被丢弃、不再发
+    新请求）；卸载同样先停止。
+- **全局播放互斥与可中断**（2026-10-03 定稿）：`playbackCoordinator.ts` 维护
+  全插件**单一朗读席位** —— 任一时刻最多一段语音在合成/播放。播放中的按钮有
+  可见状态（对白 🔊 蓝底高亮 / 气泡按钮蓝色 + title 显示「第 i/N 段」）；
+  **点击另一个播放按钮 ⇒ 先停止当前语音再开始新语音**；**再点同一个按钮 ⇒
+  停止**（toggle，合成中点击同样可取消）。互斥范围是 quote-tts 自家按钮；
+  其它插件/浏览器音频不在此列。
+- **原引号台词 🔊 降级为「朗读对白」子开关**（`config.quoteDialogue`，**默认关**）：
+  关闭时引号台词后不再插入内联 🔊；开启后行为与 v1.0.0 一致。
+- 新增文件 `QuoteTtsBubbleButton.tsx`（气泡朗读按钮）、`textChunker.ts`（断句
+  纯函数）、`playbackCoordinator.ts`（播放协调器）；宿主 `MessageItem.tsx`
+  在按钮区按插件启用状态条件挂载前者。
+
 ## 1. 文件职责
 
 | 文件 | 职责 | 归属 |
 |---|---|---|
-| `plugin.tsx` | 契约实现：`meta` / `defaults` / `backend` / `SettingsPanel` / `decorators.messageText` | 本任务（t6） |
-| `QuoteTtsSettings.tsx` | 设置面板（参与者 → 音色 + 🔊 试听），参与者枚举 | 本任务（t6） |
+| `plugin.tsx` | 契约实现：`meta` / `defaults` / `backend` / `SettingsPanel` / `decorators.messageText` | 本任务（t6）；v1.1.0 更新描述与门控 |
+| `QuoteTtsSettings.tsx` | 设置面板（朗读对白开关 + 参与者 → 音色 + 🔊 试听），参与者枚举 | 本任务（t6）；v1.1.0 增开关 |
 | `README.md` | 本文件：移植说明 | 本任务（t6） |
-| `voices.ts` | 14 个 Edge-TTS 音色、试听文案、默认常量、配置读写助手 | captain 自办 |
-| `QuoteTtsButton.tsx` | 消息内播放按钮（render 目标） | captain 自办 |
+| `voices.ts` | 14 个 Edge-TTS 音色、试听文案、默认常量、配置读写助手 | captain 自办；v1.1.0 增 `quoteDialogue` |
+| `QuoteTtsButton.tsx` | 消息内（引号台词）播放按钮（render 目标） | captain 自办 |
+| `QuoteTtsBubbleButton.tsx` | 气泡底部「朗读消息」按钮（分段流水线播放） | captain 自办 |
+| `textChunker.ts` | 长文本标点自适应断句（`Intl.Segmenter` + 弱标点回退 + 硬切兜底） | captain 自办 |
+| `playbackCoordinator.ts` | 全局播放协调器：单一朗读席位，跨按钮互斥与 toggle 停止 | captain 自办 |
 | `quoteScan.ts` | 引号扫描与区间计算 | captain 自办 |
 
 > 后三者由 captain 亲自实现，理由见 SSOT §10.2：装饰区间（rehype/切分/正则）是全案
@@ -53,15 +95,19 @@
 ## 4. 配置与持久化
 
 ```ts
-// AppState.plugins["quote-tts"]
+// AppState.plugins["quote-tts"]（v1.1.0）
 {
   enabled: boolean,
-  config: { characterMap: { [角色名]: "zh-CN-XiaoxiaoNeural" | ... } }
+  config: {
+    characterMap: { [角色名]: "zh-CN-XiaoxiaoNeural" | ... },
+    quoteDialogue: boolean,   // 「朗读对白」子开关，缺省 false（默认关）
+  }
 }
 ```
 
-- 缺省值：`defaults.characterMap = {}`（`README` 未绑定音色的角色回落到
-  `DEFAULT_VOICE = zh-CN-XiaoxiaoNeural`，等价 ST 的 `AVAILABLE_VOICES[0]`）。
+- 缺省值：`defaults.characterMap = {}`、`defaults.quoteDialogue = false`
+  （未绑定音色的角色回落到 `DEFAULT_VOICE = zh-CN-XiaoxiaoNeural`，等价 ST 的
+  `AVAILABLE_VOICES[0]`；「朗读对白」缺省关闭，引号台词后不插入内联 🔊）。
 - 写入路径：面板 `updateConfig` → `src/plugins/runtime.ts` 的
   `updatePluginConfig`（深合并）→ `App.tsx` 注册的 writer → `handleSaveSettings()`
   ⇒ 必然落盘 `nyaachat_settings`，刷新后保持。
@@ -96,17 +142,23 @@
 
 ## 6. 已知边界（诚实记录）
 
-1. **加粗人名不产内联绑定**：装饰只转换**字符串类型**的 children，所以
+1. **气泡「朗读消息」按启用开关显隐**：按钮由宿主 `MessageItem.tsx` 挂载
+   （`生成图片` 与`复制文本`之间），条件是 `AppState.plugins["quote-tts"].enabled ===
+   true` 且气泡有可读文本；不读 `quoteDialogue`（那是内联引号按钮的开关）。
+   长文由 `textChunker.ts` 分段逐段合成（段长 ≤ `MAX_CHUNK_LENGTH = 900`，
+   ≤ ext-host 上限 1000），完整朗读不再截断；段间为独立请求，衔接停顿由
+   流水线预取掩盖到接近零。
+2. **加粗人名不产内联绑定**：装饰只转换**字符串类型**的 children，所以
    `**Alice**: “…”` 里的 `Alice` 不会成为内联人名，播放时 `charName` 回落成发送者名。
    这是既有 `renderTextWithQuotes` 的行为（`src/plugins/decorators.ts` 顶部已声明），
    非本插件引入。设置面板仍会通过 markdown 归一化把 `Alice` 列为参与者。
-2. **只认半角冒号 `:`**：与 `quoteScan.ts` 一致。`她说：“…”` 不会被当作内联人名。
-3. **全角/半角引号对不混用**：逐对匹配（`“…”` / `‘…’` / `「…」` / `『…』`），
+3. **只认半角冒号 `:`**：与 `quoteScan.ts` 一致。`她说：“…”` 不会被当作内联人名。
+4. **全角/半角引号对不混用**：逐对匹配（`“…”` / `‘…’` / `「…」` / `『…』`），
    `“…」` 这类错配不匹配（ST 原版会匹配，属有意收紧）。
-4. **参与者列表依赖宿主上下文**：`getPluginHostContext()` 由 `App.tsx` 推送
+5. **参与者列表依赖宿主上下文**：`getPluginHostContext()` 由 `App.tsx` 推送
    （`setPluginHostContext`）。若宿主未接线，`sessionMessages` 为空数组，面板只显示
    两个兜底键 `user` / `AI助手` —— 面板本身不报错、不阻塞，属"依赖未接"而非本插件缺陷。
-5. **单块装饰上限 200 个**、单次合成上限 1000 字符（与 ext-host 侧限制一致）。
+6. **单块装饰上限 200 个**、单次合成上限 1000 字符（与 ext-host 侧限制一致）。
 
 ## 7. 自测
 
@@ -116,7 +168,7 @@ npm run build    # vite build
 ```
 
 dev 测试服（`NyaaChat/dev-server`）：`python tools/rebuild-dev.py --up` →
-`http://localhost:4095/` → 聊天头部「扩展」→ 选中「引用朗读」→
+`http://localhost:4095/` → 聊天头部「扩展」→ 选中「语音朗读」→
 启用 → 面板列出参与者 → 切换音色 → 刷新页面后仍生效 → 含引号的消息出现 🔊。
 （⚠️ 要**听到声音**还需在 `dev-server/.env` 配 `PLUGIN_QUOTE_TTS_UPSTREAM_URL` —— 必须是**基地址**，
 ext-host 会自行追加 `/v1/audio/speech`；未配置时点 🔊 得 503。见 `ext-host/src/server.js` L119。）

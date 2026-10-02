@@ -23,7 +23,9 @@ import { setDefaultEnvProvider } from "../lib/regex/macros";
 import { renderPluginDecorations } from "../plugins/decorators";
 import type { DecorationRenderInput } from "../plugins/decorators";
 import { emitPluginEvent, getPluginRuntimeSnapshot, subscribePluginRuntime } from "../plugins/runtime";
+import { callPluginBackend } from "../plugins/backend";
 import { devInfo, devWarn } from "../plugins/pluginLog";
+import QuoteTtsBubbleButton from "../../plugins/quote-tts/QuoteTtsBubbleButton";
 import { FrontendCard, splitFrontendContent } from "../lib/frontendCard";
 import type { RegexScript } from "../types";
 
@@ -212,6 +214,18 @@ export function toFlagalacEditDisplay(stored: string, enabled: boolean): string 
 /** 编辑框显示形态（明文）→ 交给 onEdit 的**存储形态**（重新转义）。未启用时恒等。 */
 export function fromFlagalacEditDisplay(display: string, enabled: boolean): string {
   return enabled ? encodeFlagalacUnicodeEscapes(display) : display;
+}
+
+const QUOTE_TTS_PLUGIN_ID = "quote-tts";
+
+/** 把通用 `callPluginBackend(pluginId, capability, payload)` 翻转成装饰上下文同款的
+ *  `(capability, payload)` 形态（`QuoteTtsBubbleButton` 的 `PluginBackendCaller`）
+ *  —— 校验逻辑（未声明能力拒调 / path 前缀）都在 `src/plugins/backend.ts`，这里只
+ *  绑定插件 id。 */
+function callPluginBackendFor(
+  pluginId: string,
+): <T = unknown>(capability: string, payload?: unknown) => Promise<T> {
+  return (capability, payload) => callPluginBackend(pluginId, capability, payload);
 }
 
 interface MessageItemProps {
@@ -550,6 +564,31 @@ export const MessageItem = React.memo(function MessageItem({
     role: message.role,
     senderName: message.role === "user" ? resolvedUser : resolvedChar,
   };
+
+  // ─── quote-tts · 气泡「朗读消息」按钮（v1.1.0）───────────────────────────
+  //
+  // 显隐语义：**只随插件启用开关**。没启用语音朗读 ⇒ 按钮根本不挂载；启用后不需要
+  // 任何额外配置。「朗读对白」子开关只管内联引号按钮（装饰器侧门控），与本按钮无
+  // 关 —— 因此这里读的是 `enabled`，不是 config。
+  //
+  // 取值链与装饰器一致：上方 `useSyncExternalStore` 已订阅快照 ⇒ 启用/停用后本组件
+  // 立即重渲染，按钮即时出现/消失（与「启用开关即时生效」同一链路）。
+  // PluginState 的类型在 ../types（AppState 需要、不能反向依赖插件模块）。
+  const quoteTtsRuntime = getPluginRuntimeSnapshot()[QUOTE_TTS_PLUGIN_ID];
+  const quoteTtsEnabled = quoteTtsRuntime?.enabled === true;
+  // 朗读文本用**显示口径**（正则脚本处理之后、占位符替换之前），与复制按钮同源：
+  // 用户听到什么与页面上看到的内容一致。占位符交给后一句的 applyPlaceholders 补上。
+  // imageUrl / 编辑态 / system 消息不在本路径（system 提前 return，见挂载处条件）。
+  const quoteTtsText = applyPlaceholders(regexedContent, resolvedUser, resolvedChar);
+  // 说话名与「说话人类型」都按展示口径：user 气泡 → 当前用户角色名（兜底 "user"），
+  // 其余 → 当前角色名（兜底 "AI助手"）—— 与设置面板的键同一口径（README §4）。
+  const quoteTtsSpeaker = isUser ? resolvedUser : resolvedChar;
+  const quoteTtsSpeakerKind: "user" | "character" = isUser ? "user" : "character";
+  const quoteTtsSpeakable =
+    quoteTtsEnabled &&
+    !editing &&
+    !message.imageUrl &&
+    quoteTtsText.trim().length > 0;
 
   if (isSystem) {
     const systemText = applyPlaceholders(message.content, resolvedUser, resolvedChar);
@@ -955,6 +994,18 @@ export const MessageItem = React.memo(function MessageItem({
               >
                 {imageGenerating ? <Loader2 size={13} className="animate-spin" /> : <ImagePlus size={13} />}
               </button>
+            )}
+            {/* quote-tts 的「朗读消息」（v1.1.0）：只在语音朗读插件启用时挂载，
+                位置在「基于此消息生成图片」与「复制文本」之间。组件自带播放互斥、
+                object URL 回收与 ❌ 两秒回落（QuoteTtsBubbleButton.tsx）。 */}
+            {quoteTtsSpeakable && (
+              <QuoteTtsBubbleButton
+                text={quoteTtsText}
+                speakerName={quoteTtsSpeaker}
+                speakerKind={quoteTtsSpeakerKind}
+                config={quoteTtsRuntime?.config ?? {}}
+                callBackend={callPluginBackendFor(QUOTE_TTS_PLUGIN_ID)}
+              />
             )}
             {!editing && (
               <button onClick={handleCopyMsg} className="p-1 text-gray-400 hover:text-blue-500 transition-colors rounded" title="复制文本">
