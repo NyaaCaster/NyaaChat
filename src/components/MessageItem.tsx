@@ -1,11 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import Markdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import remarkMath from "remark-math";
-import rehypeRaw from "rehype-raw";
-import rehypeKatex from "rehype-katex";
-import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
-import type { PluggableList } from "unified";
+import { markdownRemarkPlugins, markdownRehypePlugins } from "../lib/markdownPlugins";
 import { Message } from "../types";
 import { motion } from "motion/react";
 import { Copy, Check, Trash2, RefreshCw, Pencil, X as XIcon, ImagePlus, Download, Loader2, FileText, Image as ImageIcon, ChevronLeft, ChevronRight } from "lucide-react";
@@ -55,19 +50,8 @@ setDefaultEnvProvider(() => {
   return { user: identity.user || "user", char: identity.char };
 });
 
-// rehype-sanitize schema: GitHub-flavored default + className passthrough so
-// our prose/markdown-body styles still apply. Anything not in the allowlist
-// (script, iframe, on*, javascript: URLs) is dropped.
-const sanitizeSchema = {
-  ...defaultSchema,
-  attributes: {
-    ...defaultSchema.attributes,
-    "*": [...(defaultSchema.attributes?.["*"] || []), "className"],
-  },
-};
-
-const markdownRemarkPlugins: PluggableList = [remarkGfm, remarkMath];
-const markdownRehypePlugins: PluggableList = [rehypeRaw, rehypeKatex, [rehypeSanitize, sanitizeSchema]];
+// 插件链（remark/rehype 顺序契约与 schema 说明见 ../lib/markdownPlugins.ts ——
+// 三处渲染点的 SSOT：对话气泡 / 版本公告 / ComfyUI 配置文档）。
 
 // navigator.clipboard requires a secure context (HTTPS or localhost). When the
 // app is served from a plain-HTTP IP/host, the modern API is unavailable, so

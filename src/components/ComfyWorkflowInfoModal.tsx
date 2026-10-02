@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
-import Markdown from "react-markdown";
 import { FileText } from "lucide-react";
 import { BaseModal } from "./BaseModal";
+// 全站通用 markdown 渲染组件（插件链 + prose 基底 + 链接新标签一体），见
+// UnifiedMarkdown.tsx / ../lib/markdownPlugins.ts。
+import UnifiedMarkdown from "./UnifiedMarkdown";
 
 interface ComfyWorkflowInfoModalProps {
   isOpen: boolean;
@@ -62,27 +64,26 @@ export function ComfyWorkflowInfoModal({
             加载中…
           </div>
         ) : (
-          <div className="prose prose-sm md:prose-base max-w-none dark:prose-invert prose-a:text-blue-600 dark:prose-a:text-blue-400 prose-headings:tracking-tight">
-            <Markdown
-              components={{
-                a: ({ href, children }) => {
-                  const isLocalAsset = !!href && href.startsWith("/comfyui/");
-                  return (
-                    <a
-                      href={href}
-                      target={isLocalAsset ? undefined : "_blank"}
-                      rel="noopener noreferrer"
-                      download={isLocalAsset ? "" : undefined}
-                    >
-                      {children}
-                    </a>
-                  );
-                },
-              }}
-            >
-              {content}
-            </Markdown>
-          </div>
+          <UnifiedMarkdown
+            className="prose-headings:tracking-tight"
+            components={{
+              a: ({ href, children }) => {
+                const isLocalAsset = !!href && href.startsWith("/comfyui/");
+                return (
+                  <a
+                    href={href}
+                    target={isLocalAsset ? undefined : "_blank"}
+                    rel="noopener noreferrer"
+                    download={isLocalAsset ? "" : undefined}
+                  >
+                    {children}
+                  </a>
+                );
+              },
+            }}
+          >
+            {content}
+          </UnifiedMarkdown>
         )}
       </div>
     </BaseModal>

@@ -1,7 +1,9 @@
 import { useState } from "react";
-import Markdown from "react-markdown";
 import { Tag, History } from "lucide-react";
 import { BaseModal } from "./BaseModal";
+// 全站通用 markdown 渲染组件（插件链 + prose 基底 + 链接新标签一体），见
+// UnifiedMarkdown.tsx / ../lib/markdownPlugins.ts。
+import UnifiedMarkdown from "./UnifiedMarkdown";
 // VERSION.md is the single source of truth for the *current* version content.
 // Vite's ?raw suffix inlines its text at build time, so the modal renders the
 // exact same file the build reads the version number from — no double
@@ -21,19 +23,9 @@ type VersionTab = "current" | "history";
 // navigate away from the running app.
 function VersionMarkdown({ children }: { children: string }) {
   return (
-    <div className="prose prose-sm md:prose-base max-w-none dark:prose-invert prose-a:text-blue-600 dark:prose-a:text-blue-400 prose-headings:tracking-tight">
-      <Markdown
-        components={{
-          a: ({ href, children }) => (
-            <a href={href} target="_blank" rel="noopener noreferrer">
-              {children}
-            </a>
-          ),
-        }}
-      >
-        {children}
-      </Markdown>
-    </div>
+    <UnifiedMarkdown className="prose-headings:tracking-tight">
+      {children}
+    </UnifiedMarkdown>
   );
 }
 
