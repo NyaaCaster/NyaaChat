@@ -244,8 +244,8 @@ export const flagalacTargets: readonly FlagalacTarget[] = [
   },
   {
     id: "gemini37flash",
-    label: "gemini3.7flash & 3.8flash",
-    description: "对应 gemini3.7flash / 3.8flash 的拦截机制。",
+    label: "gemini3.8flash & 4argon",
+    description: "对应 gemini3.8flash / 4argon 的拦截机制。",
     // 来源说明要求关流式（其导出配置为开，取说明）。
     requiresStreaming: false,
     options: [
