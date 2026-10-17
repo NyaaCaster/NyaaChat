@@ -60,6 +60,8 @@ export interface ApiSettings {
   isStreaming?: boolean;
   apiFormat?: ApiFormat;
   apiProvider?: ApiProvider;
+  /** Original v2 provider kind, retained for provider-specific URL validation. */
+  llmProviderKind?: LlmProviderKind;
   /** Stable per-chat identifier required by the OpenCode Go gateway. */
   opencodeSessionId?: string;
   autoConnect?: boolean;

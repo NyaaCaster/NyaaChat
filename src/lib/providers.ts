@@ -322,6 +322,7 @@ export function providerToApiSettings(
 ): ApiSettings {
   return {
     baseUrl: provider.baseUrl,
+    llmProviderKind: provider.kind,
     // Ollama: API key is optional at the config layer — always send a
     // non-empty placeholder so the Authorization header is never blank
     // (checked elsewhere as `if (apiKey)`).

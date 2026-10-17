@@ -567,12 +567,11 @@ export function routeApiProxyUrl(baseUrl: string, path: string): string {
 }
 
 /**
- * Reject anything that's not https:// (or http:// to a loopback host for
- * local dev). Without this, a malicious / mistyped config could send the
- * Authorization header to an attacker-controlled http endpoint, or trigger
- * non-http schemes via fetch.
+ * Allow http:// for Ollama, including LAN endpoints; other providers require
+ * https:// (or http:// to a loopback host for local dev), so their Authorization
+ * headers aren't sent over plain HTTP. Non-http schemes are always rejected.
  */
-function assertSafeBaseUrl(baseUrl: string): URL {
+function assertSafeBaseUrl(baseUrl: string, providerKind?: ApiSettings['llmProviderKind']): URL {
   let parsed: URL;
   try {
     parsed = new URL(baseUrl);
@@ -586,9 +585,11 @@ function assertSafeBaseUrl(baseUrl: string): URL {
     host === '[::1]' ||
     host === '::1';
   if (parsed.protocol === 'https:') return parsed;
-  if (parsed.protocol === 'http:' && isLoopback) return parsed;
+  if (parsed.protocol === 'http:' && (isLoopback || providerKind === 'ollama')) return parsed;
   throw new Error(
-    `不允许的 API 协议: ${parsed.protocol}。仅支持 https://，本地调试可使用 http://localhost`,
+    providerKind === 'ollama'
+      ? `不允许的 API 协议: ${parsed.protocol}。Ollama 仅支持 https:// 或 http://`
+      : `不允许的 API 协议: ${parsed.protocol}。仅支持 https://，本地调试可使用 http://localhost`,
   );
 }
 
@@ -688,7 +689,7 @@ async function callOpenAIOnce(
 }> {
   const { apiKey, model, isStreaming } = settings;
   const baseUrl = normalizeBaseUrl(settings.baseUrl);
-  assertSafeBaseUrl(baseUrl);
+  assertSafeBaseUrl(baseUrl, settings.llmProviderKind);
   const url = routeApiProxyUrl(baseUrl, "chat/completions");
 
   const requestBody: any = {
@@ -1218,7 +1219,7 @@ async function callAnthropicOnce(
 ): Promise<AnthropicTurnResult> {
   const { apiKey, model, isStreaming } = settings;
   const baseUrl = normalizeBaseUrl(settings.baseUrl);
-  assertSafeBaseUrl(baseUrl);
+  assertSafeBaseUrl(baseUrl, settings.llmProviderKind);
   const url = routeApiProxyUrl(baseUrl, "messages");
 
   // Prompt cache: only enable on the official Anthropic host. Third-party
@@ -1579,7 +1580,7 @@ export async function fetchModels(
   // don't require auth and would otherwise be unreachable. The downstream
   // request still 401s on real-Auth providers (OpenAI/Anthropic), giving
   // the user a precise error from the server.
-  assertSafeBaseUrl(baseUrl);
+  assertSafeBaseUrl(baseUrl, settings.llmProviderKind);
 
   const url = routeApiProxyUrl(baseUrl, "models");
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
