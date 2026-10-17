@@ -650,6 +650,7 @@ function PluginDetail({
             key={meta.id}
             pluginId={meta.id}
             config={state.config}
+            enabled={state.enabled}
             updateConfig={updateConfig}
             callBackend={callBackend}
           />

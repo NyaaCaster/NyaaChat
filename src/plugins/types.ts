@@ -98,6 +98,8 @@ export interface PluginContext {
 }
 
 export interface PluginSettingsPanelProps {
+  /** 宿主只读总开关，插件不能经 config 写它。 */
+  enabled?: boolean;
   pluginId: string;
   config: Record<string, unknown>;
   updateConfig: (patch: Record<string, unknown>) => void;

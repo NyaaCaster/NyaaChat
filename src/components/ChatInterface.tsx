@@ -1,6 +1,8 @@
 import React, { useState, useRef, useEffect, useCallback, forwardRef, useImperativeHandle, useSyncExternalStore } from "react";
 import { Loader2, Sparkles } from "lucide-react";
 import { ApiSettings, Message, AppState, LogEntry, ChatSession } from "../types";
+import { resolveOutboundPolicy } from "../plugins/outbound";
+import { resolveFlagalacTarget, FLAGALAC_NONE_ID } from "../lib/FlagalacTemplates";
 import { fetchChatCompletion, type ApiMessage, type LlmTool, type ToolExecutor } from "../lib/api";
 import { generateImage } from "../lib/imageApi";
 import { generateComfyImage, type ComfyProgress } from "../lib/comfyuiApi";
@@ -41,7 +43,7 @@ import {
   buildKbSearchContext,
   buildMessageContent,
   buildPromptTextPrepareOptions,
-  buildRequestMessages,
+  buildRequestEnvelope,
   buildMemoryContext,
   buildSearchContext,
   collectLinkedKbIds,
@@ -1050,7 +1052,7 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
         };
       }
 
-      const messagesForApi = buildRequestMessages({
+      const envelope = buildRequestEnvelope({
         processedInput,
         messageContent,
         baseMessages,
@@ -1062,6 +1064,15 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
         memoryContext,
         mcpAdvertisedToolNames: advertisedToolNames,
       });
+
+      const plan = resolveOutboundPolicy({
+        purpose: 'chat', providerId: activeProvider?.id ?? '', modelId: activeApi.model,
+        apiFormat: activeApi.apiFormat || 'openai',
+        modelAvailable: !!activeProvider?.enabled && !!activeProvider.models.some(m => m.id === activeApi.model),
+        answererFlagalacActive: resolveFlagalacTarget(settings.bypass?.answererFlagalac?.target) !== FLAGALAC_NONE_ID,
+      });
+      const messagesForApi = plan ? plan.transform(envelope) : envelope.messages;
+      const prepared = plan ? { plan, messages: messagesForApi } : undefined;
 
       // SSOT §2.7：prompt 组装完成、真正发出请求之前发射 `generation:started`
       // （映射到脚本侧 GENERATION_STARTED）。MVU 靠它 + MESSAGE_SENT 做"变量初始化"的
@@ -1121,6 +1132,7 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
         },
         abortControllerRef.current.signal,
         mcpToolUseOptions,
+        prepared,
       );
 
       if (usageResult) {
