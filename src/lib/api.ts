@@ -1,3 +1,4 @@
+import { validateOutboundMessages, type PreparedOutboundRequest } from '../plugins/outbound';
 import { ApiSettings } from '../types';
 import {
   ANSWERER_FLAGALAC_ACTION_RESULT,
@@ -608,7 +609,11 @@ export async function fetchChatCompletion(
   onChunk: (chunk: string) => void,
   signal?: AbortSignal,
   toolUseOptions?: ToolUseOptions,
+  outbound?: PreparedOutboundRequest,
 ): Promise<ApiUsage | void> {
+  if (outbound && (settings.apiFormat === 'anthropic' || messages !== outbound.messages)) {
+    throw new Error('出站消息策略与请求不一致。');
+  }
   const format = settings.apiFormat || 'openai';
   // AnswererFlagalac (unicodeEncoding): NO decode on the way in. The message
   // must keep the model's raw escapes so the next request's history stays
@@ -618,7 +623,7 @@ export async function fetchChatCompletion(
   const result =
     format === 'anthropic'
       ? await fetchAnthropic(messages, settings, onChunk, signal, toolUseOptions)
-      : await fetchOpenAI(messages, settings, onChunk, signal, toolUseOptions);
+      : await fetchOpenAI(messages, settings, onChunk, signal, toolUseOptions, outbound);
   return result;
 }
 
@@ -681,12 +686,14 @@ async function callOpenAIOnce(
   signal: AbortSignal | undefined,
   tools: LlmTool[] | undefined,
   toolChoice?: 'required',
+  outbound?: PreparedOutboundRequest,
 ): Promise<{
   usage?: ApiUsage;
   assistantText: string;
   toolCalls: any[];
   finishReason: string | null;
 }> {
+  if (outbound) validateOutboundMessages(outbound.plan, messages);
   const { apiKey, model, isStreaming } = settings;
   const baseUrl = normalizeBaseUrl(settings.baseUrl);
   assertSafeBaseUrl(baseUrl, settings.llmProviderKind);
@@ -694,7 +701,11 @@ async function callOpenAIOnce(
 
   const requestBody: any = {
     model,
-    messages: messages.map((m) => ({ ...m, content: stripVolatileFlags(m.content) })),
+    messages: messages.map((m) => outbound ? ({
+      role: m.role, content: stripVolatileFlags(m.content),
+      ...(m.tool_call_id !== undefined ? { tool_call_id: m.tool_call_id } : {}),
+      ...(m.tool_calls !== undefined ? { tool_calls: m.tool_calls } : {}),
+    }) : ({ ...m, content: stripVolatileFlags(m.content) })),
     stream: !!isStreaming,
   };
   if (isStreaming) {
@@ -833,6 +844,7 @@ async function fetchOpenAI(
   onChunk: (chunk: string) => void,
   signal?: AbortSignal,
   toolUseOptions?: ToolUseOptions,
+  outbound?: PreparedOutboundRequest,
 ): Promise<ApiUsage | void> {
   const mcpTools = toolUseOptions?.tools;
   const executeTool = toolUseOptions?.executeTool;
@@ -872,7 +884,7 @@ async function fetchOpenAI(
   // `FLAGALAC_BYPASS_TAG` payload, keep it as a real `system` message — see
   // shouldKeepTailSystemAsSystem() above for why, and for why this deliberately
   // does NOT extend to the Anthropic fallback.
-  let currentMessages = shouldKeepTailSystemAsSystem(messages)
+  let currentMessages = outbound ? outbound.messages : shouldKeepTailSystemAsSystem(messages)
     ? messages
     : foldTailSystemIntoLatestUser(messages);
   let usage: ApiUsage | undefined;
@@ -908,6 +920,7 @@ async function fetchOpenAI(
         signal,
         requestTools,
         'required',
+        outbound,
       );
       usage = mergeUsage(usage, turn.usage);
       recycleAnswererFlagalacTurn(turn.toolCalls, collect);
@@ -946,6 +959,8 @@ async function fetchOpenAI(
       onChunk,
       signal,
       requestTools,
+      undefined,
+      outbound,
     );
     usage = mergeUsage(usage, turn.usage);
 
@@ -979,6 +994,8 @@ async function fetchOpenAI(
         onChunk,
         signal,
         undefined,
+        undefined,
+        outbound,
       );
       return mergeUsage(usage, finalTurn.usage);
     }

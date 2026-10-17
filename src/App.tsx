@@ -23,6 +23,7 @@ import { normalizePluginOrder, normalizePluginStates } from "./plugins/normalize
 import { emitPluginEvent, setPluginConfigWriter, setPluginHostContext, syncPluginRuntime } from "./plugins/runtime";
 import { setScriptHostApi } from "./plugins/scriptHost";
 import { characterApiFrom, createScriptHostApi } from "./plugins/scriptHostImpl";
+import { setPluginModelCatalog } from "./plugins/modelContext";
 import { installPluginErrorSafetyNet } from "./plugins/pluginLog";
 
 // Modals are rendered only when opened, so each one's chunk loads on-demand
@@ -941,6 +942,13 @@ export default function App() {
     // 只注册一次：writer 经 settingsRef 读取最新 settings，闭包不会过期，
     // 因此刻意不把 handleSaveSettings 放进依赖（它每次渲染都是新函数）。
   }, []);
+
+  useEffect(() => {
+    setPluginModelCatalog({ providers: settings.llmProviders.map(p => ({
+      id: p.id, name: p.name, enabled: p.enabled, apiFormat: p.apiFormat,
+      models: p.models.map(m => ({ id: m.id, name: m.name || m.id })),
+    })) });
+  }, [settings.llmProviders]);
 
   // 启用/停用 + setup 生命周期 + 快照通知：settings.plugins 变化即同步（含首次加载）。
   useEffect(() => {

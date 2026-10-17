@@ -1,0 +1,34 @@
+import { test, afterEach } from 'node:test';
+import assert from 'node:assert/strict';
+import { registerOutboundPolicy, resolveOutboundPolicy, resetOutboundPoliciesForTests, type OutboundPolicyPlan, type OutboundRequestContext } from './outbound';
+import { getPluginModelCatalog, setPluginModelCatalog, subscribePluginModelCatalog, resetPluginModelCatalogForTests } from './modelContext';
+const context: OutboundRequestContext = { purpose: 'chat', providerId: 'p', modelId: 'm', apiFormat: 'openai', modelAvailable: true, answererFlagalacActive: false };
+const plan: OutboundPolicyPlan = { pluginId: 'a', strategyId: 'test', handlesDynamicTail: true, transform: i => [...i.messages], validate: () => {} };
+afterEach(() => { resetOutboundPoliciesForTests(); resetPluginModelCatalogForTests(); });
+test('no registration, duplicate registration, disposal and conflicts', () => {
+  assert.equal(resolveOutboundPolicy(context), null);
+  const dispose = registerOutboundPolicy({ pluginId: 'a', resolve: () => plan });
+  assert.throws(() => registerOutboundPolicy({ pluginId: 'a', resolve: () => null }), /重复注册/);
+  const captured = resolveOutboundPolicy(context);
+  assert.ok(Object.isFrozen(captured));
+  registerOutboundPolicy({ pluginId: 'b', resolve: () => ({ ...plan, pluginId: 'b' }) });
+  assert.throws(() => resolveOutboundPolicy(context), /多个出站/);
+  dispose(); dispose();
+  assert.equal(resolveOutboundPolicy(context)?.pluginId, 'b');
+  assert.equal(captured?.pluginId, 'a');
+});
+test('catalog strips extra fields, freezes nested objects and keeps snapshot identity', () => {
+  let changes = 0;
+  const off = subscribePluginModelCatalog(() => changes++);
+  const p = { id: 'p', name: 'local', enabled: true, apiFormat: 'openai' as const, models: [{ id: 'm', name: 'M' }], apiKey: 'fixture-only', baseUrl: 'not-exported' };
+  setPluginModelCatalog({ providers: [p] });
+  const before = getPluginModelCatalog();
+  setPluginModelCatalog({ providers: [p] });
+  assert.equal(before, getPluginModelCatalog());
+  assert.equal(changes, 1);
+  assert.equal('apiKey' in before.providers[0], false);
+  assert.ok(Object.isFrozen(before.providers[0].models[0]));
+  p.models[0].name = 'changed';
+  assert.equal(before.providers[0].models[0].name, 'M');
+  off(); setPluginModelCatalog({ providers: [] }); assert.equal(changes, 1);
+});

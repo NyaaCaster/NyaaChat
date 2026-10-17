@@ -1,3 +1,4 @@
+import type { ChatPromptLayout } from "../plugins/outbound";
 import { ApiMessage, VOLATILE_PART_FLAG } from "./api";
 import { AppState, CharacterSettings, Message, Attachment, RegexScript, WorldInfoRule } from "../types";
 import { SearchResult } from "./searchApi";
@@ -791,6 +792,10 @@ export function buildVariableUpdateHiddenDisplayScripts(): readonly RegexScript[
  *     on every keyword-set change.
  */
 export function buildRequestMessages(args: BuildRequestArgs): ApiMessage[] {
+  return buildRequestEnvelope(args).messages;
+}
+
+export function buildRequestEnvelope(args: BuildRequestArgs): { messages: ApiMessage[]; layout: ChatPromptLayout } {
   const {
     processedInput,
     messageContent,
@@ -1104,7 +1109,12 @@ export function buildRequestMessages(args: BuildRequestArgs): ApiMessage[] {
       )
     : undefined;
 
-  return outbound ?? [...systemMessages, ...history, ...tailMessages];
+  const messages = outbound ?? [...systemMessages, ...history, ...tailMessages];
+  return { messages, layout: {
+    staticPrefixLength: systemMessages.length,
+    latestUserIndex: systemMessages.length + history.length - 1,
+    dynamicTailIndex: tailMessages.length ? messages.length - 1 : null,
+  } };
 }
 
 /**
