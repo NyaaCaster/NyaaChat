@@ -1,8 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildRequestEnvelope, buildRequestMessages } from './chatPipeline';
-import type { AppState, Message } from '../types';
+import { buildRequestEnvelope, buildRequestMessages, buildPromptTextPrepareOptions } from './chatPipeline';
+import type { AppState, Message, CharacterSettings, WorldInfoRule } from '../types';
 import { mergeSystemMessages } from '../../plugins/single-leading-system/normalizeMessages';
+import { preparePromptText, registerPromptTextRenderer, resetPromptTextForTests } from '../plugins/promptText';
 
 export function promptFixture() {
   return {
@@ -40,4 +41,20 @@ test('RosettaStone four combinations remain in latest user, never promoted to sy
     assert.equal(JSON.stringify(result.at(-1)).includes('COUNT_CUSTOM'), word);
     assert.equal(JSON.stringify(result.at(-1)).includes('LANG_CUSTOM'), language);
   }
+});
+test('prepared EJS stays dynamic; transforming and continuing cannot re-execute renderer', async () => {
+  let renders = 0;
+  const dispose = registerPromptTextRenderer({ pluginId: 'fixture-ejs', matches: text => text.includes('<%'), render: () => { renders++; return 'rendered-current-value'; } });
+  const rule = { id: 'ejs', enabled: true, triggerType: 'permanent', position: 'system', content: '<%= value %>' } as WorldInfoRule;
+  const args = { ...promptFixture(), currentCharacter: { id: 'c', name: 'C', description: '', worldInfo: [rule] } as CharacterSettings };
+  try {
+    await preparePromptText([rule], buildPromptTextPrepareOptions({ sessionId: 'fixture', turnId: 'one', identity: { user: 'User', char: 'C' }, character: { id: 'c', name: 'C' } }, args));
+    const merged = mergeSystemMessages(buildRequestEnvelope(args));
+    assert.equal(JSON.stringify(merged[0]).includes('rendered-current-value'), false);
+    assert.ok(JSON.stringify(merged.at(-1)).includes('rendered-current-value'));
+    assert.equal(JSON.stringify(merged).includes('<%='), false);
+    assert.equal(renders, 1);
+    const again = mergeSystemMessages({ messages: merged, layout: { staticPrefixLength: 1, latestUserIndex: merged.length - 1, dynamicTailIndex: null } });
+    assert.deepEqual(again, merged); assert.equal(renders, 1);
+  } finally { dispose(); resetPromptTextForTests(); }
 });

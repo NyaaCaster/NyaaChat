@@ -226,3 +226,17 @@ messages:
 | 授权锚点 | 静态前缀中委托动态规则块权威性的固定声明 |
 | 断点① / ② | Anthropic 显式缓存的两个 `cache_control` 位置：顶层 system 末尾 / 最新 user 真实文本末尾 |
 | 硬/软分档 | 设定条目按"是否允许压过用户当轮意图"的二分 |
+
+
+## NyaaChat 实现补充：按模型选择的消息结构兼容策略（2026-10-18）
+
+本节记录 NyaaChat 当前实现，不改写上文通用架构原则。完整开发事实来源为 [系统消息合并 SSOT](./plugin-system/插件开发_single-leading-system/开发计划-SSOT.md)。原文 provider 降级矩阵之外，当前主对话新增了显式模型配置的出站策略；不能仅看供应商分类判断最终消息排列。
+
+1. `buildRequestEnvelope()` 在一次组装中产出 messages 和 layout（静态前缀长度、最新 user 下标、可选动态尾下标）；原 `buildRequestMessages()` 保留兼容包装。EJS、变量、检索准备仍发生在既有层，转换和恢复不二次执行它们。
+2. 启用原生插件「系统消息合并」并选中 provider.id＋model.id 时，OpenAI 兼容主对话采用 `single-leading-system`。所有静态 system 按原相对顺序以双换行合为首条；永久 assistant 保留角色和彼此顺序，排列于首 system 与真实历史之间。这是用户确认的静态前缀重排，不改变真实聊天历史顺序。
+3. 动态尾 system 的完整内容追加到最新 user 的 text part，保留 `_volatile` 标记。动态世界书、RosettaStone 两项和 EJS 动态结果不提升至首 system；附件、检索、记忆及原有 content parts 保留。内部 `_volatile` 等字段经 API 白名单序列化剥离，不发送给服务。
+4. 每次主对话开始解析一次策略并固定计划，后续工具 assistant/tool 消息按协议追加；所有工具续轮、自动恢复、最终汇总发送前再次校验只有首条 system。静态内容不会因恢复重算，工具结果保留原文。
+5. 有效 AnswererFlagalac 目标存在时，该插件的转换与恢复均不介入，仅记录原因，沿用原请求流程；不自动关闭 Bypass。RosettaStone 两项仍受支持。未勾选模型、停用、不可用模型及 Anthropic 原生接口保持原路径。
+6. 此能力是消息布局兼容，不改变模型部署、thinking 或 token 配额。不承诺服务必然缓存、自然语言规则必然服从或恢复必然成功。有限恢复、完成事件与截断语义见对应 SSOT，不应通过重发已有工具调用来规避截断。
+
+该插件适用范围与官方模板核验证据见初始设计和审计报告，不能把它解释成全部 Qwen 系列的统一约束，也不能仅归因于 HauhauCS 量化版本。其他供应商接入已核验模板约束的模型同样可手动启用。

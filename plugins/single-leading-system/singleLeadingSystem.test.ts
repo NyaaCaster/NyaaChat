@@ -5,9 +5,24 @@ import { mergeSystemMessages, validateSingleLeadingSystem } from './normalizeMes
 import { registerMergePolicy, resolveMergePolicy } from './policy';
 import { resolveOutboundPolicy, resetOutboundPoliciesForTests, type OutboundRequestContext } from '../../src/plugins/outbound';
 import type { ApiMessage } from '../../src/lib/api';
+import plugin from './plugin';
+import { syncPluginRuntime, resetPluginRuntimeForTests } from '../../src/plugins/runtime';
+import { getRegisteredPlugins } from '../../src/plugins/registry';
 const context: OutboundRequestContext = { purpose: 'chat', providerId: 'p', modelId: 'm', apiFormat: 'openai', modelAvailable: true, answererFlagalacActive: false };
 const config = { schemaVersion: 1, models: [{ providerId: 'p', modelId: 'm', active: true }] };
 afterEach(resetOutboundPoliciesForTests);
+test('plugin and registry entrypoints load without cycles; runtime disable disposes policy', () => {
+  assert.ok(getRegisteredPlugins().some(p => p === plugin));
+  assert.equal(resolveOutboundPolicy(context), null);
+  try {
+    syncPluginRuntime({ 'single-leading-system': { enabled: true, config } });
+    assert.ok(resolveOutboundPolicy(context));
+    syncPluginRuntime({ 'single-leading-system': { enabled: true, config: { models: [] } } });
+    assert.equal(resolveOutboundPolicy(context), null);
+    syncPluginRuntime({ 'single-leading-system': { enabled: false, config } });
+    assert.equal(resolveOutboundPolicy(context), null);
+  } finally { resetPluginRuntimeForTests(); }
+});
 test('interleaved static roles, exact separators, dynamic parts and input immutability', () => {
   const messages: ApiMessage[] = [
     { role: 'system', content: ' A ' }, { role: 'assistant', content: 'B' }, { role: 'system', content: 'C' },
