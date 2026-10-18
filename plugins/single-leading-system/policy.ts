@@ -12,7 +12,7 @@ export function resolveMergePolicy(config: Record<string, unknown>, context: Rea
     pluginLogger(PLUGIN_ID).warn('outbound', 'AnswererFlagalac 已开启，本轮不应用系统消息合并及其恢复策略。');
     return null;
   }
-  return { pluginId: PLUGIN_ID, strategyId: PLUGIN_ID, handlesDynamicTail: true,
+  return { pluginId: PLUGIN_ID, strategyId: PLUGIN_ID, handlesDynamicTail: true, completionPolicy: 'bounded-recovery',
     transform: mergeSystemMessages, validate: validateSingleLeadingSystem };
 }
 export function registerMergePolicy(getConfig: () => Record<string, unknown>): () => void {

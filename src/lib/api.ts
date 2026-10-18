@@ -1,4 +1,5 @@
 import { validateOutboundMessages, type PreparedOutboundRequest } from '../plugins/outbound';
+import { parseProtectedCompletion, runBoundedCompletion, checkCompletionAbort, type CompletionTurn } from './chatCompletionPolicy';
 import { ApiSettings } from '../types';
 import {
   ANSWERER_FLAGALAC_ACTION_RESULT,
@@ -687,13 +688,8 @@ async function callOpenAIOnce(
   tools: LlmTool[] | undefined,
   toolChoice?: 'required',
   outbound?: PreparedOutboundRequest,
-): Promise<{
-  usage?: ApiUsage;
-  assistantText: string;
-  toolCalls: any[];
-  finishReason: string | null;
-}> {
-  if (outbound) validateOutboundMessages(outbound.plan, messages);
+): Promise<CompletionTurn> {
+  if (outbound) { checkCompletionAbort(signal); validateOutboundMessages(outbound.plan, messages); }
   const { apiKey, model, isStreaming } = settings;
   const baseUrl = normalizeBaseUrl(settings.baseUrl);
   assertSafeBaseUrl(baseUrl, settings.llmProviderKind);
@@ -738,6 +734,10 @@ async function callOpenAIOnce(
   if (!response.ok) {
     const errText = await response.text().catch(() => '');
     throw new ApiHttpError(response.status, errText);
+  }
+
+  if (outbound?.plan.completionPolicy === 'bounded-recovery') {
+    return parseProtectedCompletion(response, !!isStreaming, onChunk, signal);
   }
 
   // Non-streaming path — assistant message arrives whole.
@@ -838,6 +838,22 @@ async function callOpenAIOnce(
   return { usage: finalUsage, assistantText, toolCalls, finishReason };
 }
 
+function hasLeadingSystemTemplateError(body: string): boolean {
+  function inspect(value: unknown, depth: number): boolean {
+    if (depth > 3) return false;
+    if (typeof value === 'string') {
+      if (value.includes('System message must be at the beginning')) return true;
+      try { return inspect(JSON.parse(value), depth + 1); } catch { return false; }
+    }
+    if (value && typeof value === 'object') {
+      const error = value as { error?: unknown; message?: unknown };
+      return inspect(error.error, depth + 1) || inspect(error.message, depth + 1);
+    }
+    return false;
+  }
+  return inspect(body, 0);
+}
+
 async function fetchOpenAI(
   messages: ApiMessage[],
   settings: ApiSettings,
@@ -846,6 +862,19 @@ async function fetchOpenAI(
   toolUseOptions?: ToolUseOptions,
   outbound?: PreparedOutboundRequest,
 ): Promise<ApiUsage | void> {
+  if (outbound?.plan.completionPolicy === 'bounded-recovery') {
+    try {
+      return await runBoundedCompletion({ messages: outbound.messages, toolUseOptions, signal,
+        call: (current, tools) => callOpenAIOnce(current, settings, onChunk, signal, tools, undefined, outbound),
+      });
+    } catch (error) {
+      // 只识别有限层嵌套的已知模板错误，避免回显提示词或上游原始帧。
+      if (error instanceof ApiHttpError && hasLeadingSystemTemplateError(error.body)) {
+        throw new Error('模型聊天模板只允许首条系统消息。请检查所选模型的兼容配置及 Bypass 设置。');
+      }
+      throw error;
+    }
+  }
   const mcpTools = toolUseOptions?.tools;
   const executeTool = toolUseOptions?.executeTool;
   const maxRounds = toolUseOptions?.maxRounds ?? 5;

@@ -1,3 +1,4 @@
+import { ChatCompletionError } from "../lib/chatCompletionPolicy";
 import React, { useState, useRef, useEffect, useCallback, forwardRef, useImperativeHandle, useSyncExternalStore } from "react";
 import { Loader2, Sparkles } from "lucide-react";
 import { ApiSettings, Message, AppState, LogEntry, ChatSession } from "../types";
@@ -905,6 +906,7 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
     // Declared outside the try so the catch can report elapsed time too.
     let chatStartedAt = Date.now();
     try {
+      let protectCompletion = false;
       // MCP tools assembly. Done BEFORE buildRequestMessages so we can
       // pass the advertised tool name list through and let the system
       // prompt inject ONLY the rules for tools actually being advertised
@@ -972,6 +974,7 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
                   direction: e.result.ok ? "response" : "error",
                   content: `MCP tool ${e.name} (${e.result.ok ? "ok" : "fail"})`,
                   meta: {
+                    ...(protectCompletion ? { assistantCompletion: false } : {}),
                     round: e.round,
                     name: e.name,
                     args: e.args,
@@ -1073,6 +1076,7 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
       });
       const messagesForApi = plan ? plan.transform(envelope) : envelope.messages;
       const prepared = plan ? { plan, messages: messagesForApi } : undefined;
+      protectCompletion = plan?.completionPolicy === "bounded-recovery";
 
       // SSOT §2.7：prompt 组装完成、真正发出请求之前发射 `generation:started`
       // （映射到脚本侧 GENERATION_STARTED）。MVU 靠它 + MESSAGE_SENT 做"变量初始化"的
@@ -1156,7 +1160,7 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
       onAddLog({
         direction: "response",
         content: "Received chat completion stream fully",
-        meta: { response: fullResponse, usage: usageResult, durationMs: Date.now() - chatStartedAt },
+        meta: { ...(protectCompletion ? { assistantCompletion: true } : {}), response: fullResponse, usage: usageResult, durationMs: Date.now() - chatStartedAt },
       });
     } catch (error: any) {
       console.error(error);
@@ -1168,6 +1172,7 @@ export const ChatInterface = forwardRef<ChatInterfaceHandle, ChatInterfaceProps>
           ? "Chat completion aborted by user"
           : "Failed during chat completion request",
         meta: {
+          ...(error instanceof ChatCompletionError ? { code: error.code, finishReason: error.finishReason, round: error.round, recoveryUsed: error.recoveryUsed, usage: error.usage, hadVisibleText: error.hadVisibleText } : {}),
           error: error?.message || String(error),
           status: error?.status,
           durationMs: Date.now() - chatStartedAt,

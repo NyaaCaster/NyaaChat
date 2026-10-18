@@ -1,3 +1,4 @@
+import { shouldPublishAssistantCompletion } from "./lib/chatCompletionPolicy";
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -1078,7 +1079,7 @@ export default function App() {
     // 无法逐条观测，因此这里以日志落地为触发时机（P1 不改 ChatInterface 的
     // props 面；若将来需要逐条精确信号，可在 ChatInterface 增一个
     // onAssistantMessage 属性并把本发射点搬过去）。
-    if (logDraft.direction === "response") {
+    if (shouldPublishAssistantCompletion(logDraft.direction, meta as Record<string, unknown> | undefined)) {
       const response = (meta as Record<string, unknown> | undefined)?.response;
       emitPluginEvent("message:received", {
         text: typeof response === "string" ? response : "",
