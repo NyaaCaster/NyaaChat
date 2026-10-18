@@ -1,174 +1,57 @@
 {
   "id": "1b61be94-27a0-4357-8363-f8d4a4fae60c",
   "revision": 0,
-  "last_node_id": 119,
-  "last_link_id": 231,
+  "last_node_id": 128,
+  "last_link_id": 243,
   "nodes": [
     {
-      "id": 114,
-      "type": "SaveImage",
+      "id": 120,
+      "type": "UNETLoader",
       "pos": [
-        120,
-        1510
+        -1210,
+        2480
       ],
       "size": [
-        760,
-        870
-      ],
-      "flags": {},
-      "order": 11,
-      "mode": 0,
-      "inputs": [
-        {
-          "label": "images",
-          "name": "images",
-          "type": "IMAGE",
-          "link": 221
-        },
-        {
-          "label": "filename_prefix",
-          "name": "filename_prefix",
-          "type": "STRING",
-          "widget": {
-            "name": "filename_prefix"
-          },
-          "link": null
-        }
-      ],
-      "outputs": [
-        {
-          "name": "images",
-          "type": "IMAGE",
-          "links": null
-        }
-      ],
-      "properties": {
-        "cnr_id": "comfy-core",
-        "ver": "0.12.3",
-        "Node name for S&R": "SaveImage",
-        "ue_properties": {
-          "widget_ue_connectable": {},
-          "input_ue_unconnectable": {},
-          "version": "7.5.2"
-        }
-      },
-      "widgets_values": [
-        "NyaaChat/Comfyui"
-      ]
-    },
-    {
-      "id": 8,
-      "type": "VAEDecode",
-      "pos": [
-        -570,
-        1970
-      ],
-      "size": [
-        210,
-        50
-      ],
-      "flags": {
-        "collapsed": true
-      },
-      "order": 10,
-      "mode": 0,
-      "inputs": [
-        {
-          "label": "samples",
-          "name": "samples",
-          "type": "LATENT",
-          "link": 153
-        },
-        {
-          "label": "vae",
-          "name": "vae",
-          "type": "VAE",
-          "link": 156
-        }
-      ],
-      "outputs": [
-        {
-          "label": "IMAGE",
-          "name": "IMAGE",
-          "type": "IMAGE",
-          "slot_index": 0,
-          "links": [
-            221
-          ]
-        }
-      ],
-      "properties": {
-        "cnr_id": "comfy-core",
-        "ver": "0.3.40",
-        "Node name for S&R": "VAEDecode",
-        "ue_properties": {
-          "widget_ue_connectable": {},
-          "version": "7.5.2",
-          "input_ue_unconnectable": {}
-        }
-      },
-      "widgets_values": []
-    },
-    {
-      "id": 28,
-      "type": "EmptyLatentImage",
-      "pos": [
-        -870,
-        2020
-      ],
-      "size": [
-        270,
+        300,
         110
       ],
-      "flags": {
-        "collapsed": true
-      },
+      "flags": {},
       "order": 0,
       "mode": 0,
       "inputs": [
         {
-          "label": "width",
-          "name": "width",
-          "type": "INT",
+          "label": "unet_name",
+          "name": "unet_name",
+          "type": "COMBO",
           "widget": {
-            "name": "width"
+            "name": "unet_name"
           },
           "link": null
         },
         {
-          "label": "height",
-          "name": "height",
-          "type": "INT",
+          "label": "weight_dtype",
+          "name": "weight_dtype",
+          "type": "COMBO",
           "widget": {
-            "name": "height"
-          },
-          "link": null
-        },
-        {
-          "label": "batch_size",
-          "name": "batch_size",
-          "type": "INT",
-          "widget": {
-            "name": "batch_size"
+            "name": "weight_dtype"
           },
           "link": null
         }
       ],
       "outputs": [
         {
-          "label": "LATENT",
-          "name": "LATENT",
-          "type": "LATENT",
+          "label": "MODEL",
+          "name": "MODEL",
+          "type": "MODEL",
           "links": [
-            145
+            232
           ]
         }
       ],
-      "title": "尺寸",
       "properties": {
         "cnr_id": "comfy-core",
-        "ver": "0.3.40",
-        "Node name for S&R": "EmptyLatentImage",
+        "ver": "0.11.0",
+        "Node name for S&R": "UNETLoader",
         "ue_properties": {
           "widget_ue_connectable": {},
           "version": "7.5.2",
@@ -176,49 +59,212 @@
         }
       },
       "widgets_values": [
-        1024,
-        1536,
-        1
+        "Krea2DarkBeast1.1-INT8-Convrot-ComfyUI.safetensors",
+        "default"
       ]
     },
     {
-      "id": 19,
-      "type": "KSampler",
+      "id": 121,
+      "type": "LoraLoader",
       "pos": [
-        -750,
-        1510
+        -890,
+        2480
       ],
       "size": [
         300,
-        270
+        150
       ],
       "flags": {},
-      "order": 9,
+      "order": 4,
       "mode": 0,
       "inputs": [
         {
           "label": "model",
           "name": "model",
           "type": "MODEL",
-          "link": 231
+          "link": 232
+        },
+        {
+          "label": "clip",
+          "name": "clip",
+          "type": "CLIP",
+          "link": 233
+        },
+        {
+          "label": "lora_name",
+          "name": "lora_name",
+          "type": "COMBO",
+          "widget": {
+            "name": "lora_name"
+          },
+          "link": null
+        },
+        {
+          "label": "strength_model",
+          "name": "strength_model",
+          "type": "FLOAT",
+          "widget": {
+            "name": "strength_model"
+          },
+          "link": null
+        },
+        {
+          "label": "strength_clip",
+          "name": "strength_clip",
+          "type": "FLOAT",
+          "widget": {
+            "name": "strength_clip"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "label": "MODEL",
+          "name": "MODEL",
+          "type": "MODEL",
+          "links": [
+            234
+          ]
+        },
+        {
+          "label": "CLIP",
+          "name": "CLIP",
+          "type": "CLIP",
+          "links": [
+            241
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.76",
+        "Node name for S&R": "LoraLoader",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.5.2"
+        },
+        "widget_ue_connectable": {
+          "lora_name": true,
+          "strength_model": true,
+          "strength_clip": true
+        }
+      },
+      "widgets_values": [
+        "Detailer-KREA2.safetensors",
+        0.7,
+        1
+      ]
+    },
+    {
+      "id": 122,
+      "type": "CLIPLoader",
+      "pos": [
+        -1210,
+        2640
+      ],
+      "size": [
+        300,
+        130
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [
+        {
+          "label": "clip_name",
+          "name": "clip_name",
+          "type": "COMBO",
+          "widget": {
+            "name": "clip_name"
+          },
+          "link": null
+        },
+        {
+          "label": "type",
+          "name": "type",
+          "type": "COMBO",
+          "widget": {
+            "name": "type"
+          },
+          "link": null
+        },
+        {
+          "label": "device",
+          "name": "device",
+          "shape": 7,
+          "type": "COMBO",
+          "widget": {
+            "name": "device"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "label": "CLIP",
+          "name": "CLIP",
+          "type": "CLIP",
+          "links": [
+            233
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.11.0",
+        "Node name for S&R": "CLIPLoader",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.5.2",
+          "input_ue_unconnectable": {}
+        }
+      },
+      "widgets_values": [
+        "qwen3vl_4b_bf16.safetensors",
+        "krea2",
+        "default"
+      ]
+    },
+    {
+      "id": 123,
+      "type": "KSampler",
+      "pos": [
+        -570,
+        2480
+      ],
+      "size": [
+        300,
+        270
+      ],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [
+        {
+          "label": "model",
+          "name": "model",
+          "type": "MODEL",
+          "link": 234
         },
         {
           "label": "positive",
           "name": "positive",
           "type": "CONDITIONING",
-          "link": 188
+          "link": 235
         },
         {
           "label": "negative",
           "name": "negative",
           "type": "CONDITIONING",
-          "link": 224
+          "link": 236
         },
         {
           "label": "latent_image",
           "name": "latent_image",
           "type": "LATENT",
-          "link": 145
+          "link": 237
         },
         {
           "label": "seed",
@@ -282,7 +328,7 @@
           "type": "LATENT",
           "slot_index": 0,
           "links": [
-            153
+            238
           ]
         }
       ],
@@ -297,7 +343,7 @@
         }
       },
       "widgets_values": [
-        305724818958318,
+        622538295893605,
         "randomize",
         10,
         1,
@@ -307,18 +353,90 @@
       ]
     },
     {
-      "id": 15,
+      "id": 124,
+      "type": "EmptyLatentImage",
+      "pos": [
+        -860,
+        2680
+      ],
+      "size": [
+        270,
+        110
+      ],
+      "flags": {
+        "collapsed": false
+      },
+      "order": 2,
+      "mode": 0,
+      "inputs": [
+        {
+          "label": "width",
+          "name": "width",
+          "type": "INT",
+          "widget": {
+            "name": "width"
+          },
+          "link": null
+        },
+        {
+          "label": "height",
+          "name": "height",
+          "type": "INT",
+          "widget": {
+            "name": "height"
+          },
+          "link": null
+        },
+        {
+          "label": "batch_size",
+          "name": "batch_size",
+          "type": "INT",
+          "widget": {
+            "name": "batch_size"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "label": "LATENT",
+          "name": "LATENT",
+          "type": "LATENT",
+          "links": [
+            237
+          ]
+        }
+      ],
+      "title": "尺寸",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.40",
+        "Node name for S&R": "EmptyLatentImage",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.5.2",
+          "input_ue_unconnectable": {}
+        }
+      },
+      "widgets_values": [
+        1024,
+        1536,
+        1
+      ]
+    },
+    {
+      "id": 125,
       "type": "VAELoader",
       "pos": [
-        -730,
-        1820
+        -860,
+        2830
       ],
       "size": [
         270,
         90
       ],
       "flags": {},
-      "order": 1,
+      "order": 3,
       "mode": 0,
       "inputs": [
         {
@@ -337,7 +455,7 @@
           "name": "VAE",
           "type": "VAE",
           "links": [
-            156
+            239
           ]
         }
       ],
@@ -356,601 +474,244 @@
       ]
     },
     {
-      "id": 44,
-      "type": "UNETLoader",
+      "id": 126,
+      "type": "VAEDecode",
       "pos": [
-        -1080,
-        1510
-      ],
-      "size": [
-        300,
-        110
-      ],
-      "flags": {},
-      "order": 2,
-      "mode": 0,
-      "inputs": [
-        {
-          "label": "unet_name",
-          "name": "unet_name",
-          "type": "COMBO",
-          "widget": {
-            "name": "unet_name"
-          },
-          "link": null
-        },
-        {
-          "label": "weight_dtype",
-          "name": "weight_dtype",
-          "type": "COMBO",
-          "widget": {
-            "name": "weight_dtype"
-          },
-          "link": null
-        }
-      ],
-      "outputs": [
-        {
-          "label": "MODEL",
-          "name": "MODEL",
-          "type": "MODEL",
-          "links": [
-            230
-          ]
-        }
-      ],
-      "properties": {
-        "cnr_id": "comfy-core",
-        "ver": "0.11.0",
-        "Node name for S&R": "UNETLoader",
-        "ue_properties": {
-          "widget_ue_connectable": {},
-          "version": "7.5.2",
-          "input_ue_unconnectable": {}
-        }
-      },
-      "widgets_values": [
-        "Krea2DarkBeast1.1-INT8-Convrot-ComfyUI.safetensors",
-        "default"
-      ]
-    },
-    {
-      "id": 119,
-      "type": "LoraLoader",
-      "pos": [
-        -1080,
-        1660
-      ],
-      "size": [
-        300,
-        150
-      ],
-      "flags": {},
-      "order": 6,
-      "mode": 0,
-      "inputs": [
-        {
-          "label": "model",
-          "name": "model",
-          "type": "MODEL",
-          "link": 230
-        },
-        {
-          "label": "clip",
-          "name": "clip",
-          "type": "CLIP",
-          "link": 228
-        },
-        {
-          "label": "lora_name",
-          "name": "lora_name",
-          "type": "COMBO",
-          "widget": {
-            "name": "lora_name"
-          },
-          "link": null
-        },
-        {
-          "label": "strength_model",
-          "name": "strength_model",
-          "type": "FLOAT",
-          "widget": {
-            "name": "strength_model"
-          },
-          "link": null
-        },
-        {
-          "label": "strength_clip",
-          "name": "strength_clip",
-          "type": "FLOAT",
-          "widget": {
-            "name": "strength_clip"
-          },
-          "link": null
-        }
-      ],
-      "outputs": [
-        {
-          "label": "MODEL",
-          "name": "MODEL",
-          "type": "MODEL",
-          "links": [
-            231
-          ]
-        },
-        {
-          "label": "CLIP",
-          "name": "CLIP",
-          "type": "CLIP",
-          "links": [
-            229
-          ]
-        }
-      ],
-      "properties": {
-        "cnr_id": "comfy-core",
-        "ver": "0.3.76",
-        "Node name for S&R": "LoraLoader",
-        "ue_properties": {
-          "widget_ue_connectable": {},
-          "input_ue_unconnectable": {},
-          "version": "7.5.2"
-        },
-        "widget_ue_connectable": {
-          "lora_name": true,
-          "strength_model": true,
-          "strength_clip": true
-        }
-      },
-      "widgets_values": [
-        "Detailer-KREA2.safetensors",
-        0.7,
-        1
-      ]
-    },
-    {
-      "id": 45,
-      "type": "CLIPLoader",
-      "pos": [
-        -1080,
-        1850
-      ],
-      "size": [
-        300,
-        130
-      ],
-      "flags": {},
-      "order": 3,
-      "mode": 0,
-      "inputs": [
-        {
-          "label": "clip_name",
-          "name": "clip_name",
-          "type": "COMBO",
-          "widget": {
-            "name": "clip_name"
-          },
-          "link": null
-        },
-        {
-          "label": "type",
-          "name": "type",
-          "type": "COMBO",
-          "widget": {
-            "name": "type"
-          },
-          "link": null
-        },
-        {
-          "label": "device",
-          "name": "device",
-          "shape": 7,
-          "type": "COMBO",
-          "widget": {
-            "name": "device"
-          },
-          "link": null
-        }
-      ],
-      "outputs": [
-        {
-          "label": "CLIP",
-          "name": "CLIP",
-          "type": "CLIP",
-          "links": [
-            228
-          ]
-        }
-      ],
-      "properties": {
-        "cnr_id": "comfy-core",
-        "ver": "0.11.0",
-        "Node name for S&R": "CLIPLoader",
-        "ue_properties": {
-          "widget_ue_connectable": {},
-          "version": "7.5.2",
-          "input_ue_unconnectable": {}
-        }
-      },
-      "widgets_values": [
-        "qwen3vl_4b_bf16.safetensors",
-        "krea2",
-        "default"
-      ]
-    },
-    {
-      "id": 92,
-      "type": "CR Prompt Text",
-      "pos": [
-        -410,
-        1510
-      ],
-      "size": [
-        500,
-        280
-      ],
-      "flags": {},
-      "order": 4,
-      "mode": 0,
-      "inputs": [
-        {
-          "label": "prompt",
-          "name": "prompt",
-          "type": "STRING",
-          "widget": {
-            "name": "prompt"
-          },
-          "link": null
-        }
-      ],
-      "outputs": [
-        {
-          "label": "prompt",
-          "name": "prompt",
-          "type": "STRING",
-          "links": [
-            194
-          ]
-        },
-        {
-          "label": "show_help",
-          "name": "show_help",
-          "type": "STRING"
-        }
-      ],
-      "title": "✍️ 提示词-输入",
-      "properties": {
-        "cnr_id": "ComfyUI_Comfyroll_CustomNodes",
-        "ver": "d78b780ae43fcf8c6b7c6505e6ffb4584281ceca",
-        "Node name for S&R": "CR Prompt Text",
-        "aux_id": "Suzie1/ComfyUI_Comfyroll_CustomNodes",
-        "ue_properties": {
-          "version": "7.5.2",
-          "widget_ue_connectable": {},
-          "input_ue_unconnectable": {}
-        }
-      },
-      "widgets_values": [
-        "A realistic, intimate home photograph of a young adult East Asian woman in her early 20s, lying on her back on a soft rug and white faux-fur blanket. She is captured from a high-angle overhead perspective with a slight diagonal tilt, her body stretching upward in the frame while her bent knees are positioned close to the lens, creating a strong foreground perspective. Her head is near the upper part of the frame, supported by a pink cushion.\nShe has a quiet, gentle, and relaxed expression as if just waking from a nap — half-open sleepy eyes with a soft hazy gaze looking lazily toward the camera, lips naturally slightly parted in a tender, drowsy manner. Her deep brown-black long hair is naturally spread out across the rug and blanket, with some strands falling messily across her cheeks and forehead, catching soft backlit highlights.\nShe is wearing a pale pink and white short-sleeved floral dress with a low round neckline and tiny pink floral prints. The light, soft fabric naturally drapes and wrinkles around her body. Her legs are bent upward, with white mid-calf slouch socks featuring relaxed folds. A small delicate necklace and a slim bracelet on her wrist catch subtle light.\nVisible skin areas include her face, neck, collarbones, upper chest, shoulders, arms, hands, knees, and large portions of her thighs, all rendered with a natural fair warm ivory tone that glows softly in the sunlight and turns slightly cool in shadows. The skin has a delicate, velvety texture with realistic natural variations, not airbrushed.\nStrong natural window sunlight pours in from the upper left, creating bright highlight patches on her forehead, hair, arms, knees, and legs, with gentle overexposure and soft haze, while shadows retain subtle depth and film-like grain. The background consists of a coarse beige woven rug, white faux-fur blanket, pink cushion, scattered books or magazines, and a few pieces of fruit, giving a lived-in, cozy afternoon atmosphere.\nThe overall mood is lazy, soft, private, and intimate — like a quiet, casual moment in warm afternoon light, with a realistic snapshot feel: slight imperfections, natural messiness in the hair and background, medium depth of field, and authentic home photography qualities."
-      ],
-      "color": "#232",
-      "bgcolor": "#353"
-    },
-    {
-      "id": 99,
-      "type": "CR Text Concatenate",
-      "pos": [
-        -630,
-        2080
+        -480,
+        2810
       ],
       "size": [
         210,
-        90
+        50
       ],
       "flags": {
-        "collapsed": true
+        "collapsed": false
       },
       "order": 7,
       "mode": 0,
       "inputs": [
         {
-          "label": "text1",
-          "name": "text1",
-          "shape": 7,
-          "type": "STRING",
-          "link": 222
+          "label": "samples",
+          "name": "samples",
+          "type": "LATENT",
+          "link": 238
         },
         {
-          "label": "text2",
-          "name": "text2",
-          "shape": 7,
-          "type": "STRING",
-          "link": 194
-        },
-        {
-          "label": "separator",
-          "name": "separator",
-          "shape": 7,
-          "type": "STRING",
-          "widget": {
-            "name": "separator"
-          },
-          "link": null
+          "label": "vae",
+          "name": "vae",
+          "type": "VAE",
+          "link": 239
         }
       ],
       "outputs": [
         {
-          "label": "STRING",
-          "name": "STRING",
-          "type": "*",
-          "links": [
-            225
-          ]
-        },
-        {
-          "label": "show_help",
-          "name": "show_help",
-          "type": "STRING",
-          "links": []
-        }
-      ],
-      "title": "正向提示词-前合并",
-      "properties": {
-        "cnr_id": "ComfyUI_Comfyroll_CustomNodes",
-        "ver": "d78b780ae43fcf8c6b7c6505e6ffb4584281ceca",
-        "Node name for S&R": "CR Text Concatenate",
-        "aux_id": "Suzie1/ComfyUI_Comfyroll_CustomNodes",
-        "ue_properties": {
-          "version": "7.5.2",
-          "widget_ue_connectable": {},
-          "input_ue_unconnectable": {}
-        }
-      },
-      "widgets_values": [
-        ""
-      ],
-      "color": "#232",
-      "bgcolor": "#353"
-    },
-    {
-      "id": 80,
-      "type": "CLIPTextEncode",
-      "pos": [
-        -610,
-        2020
-      ],
-      "size": [
-        210,
-        90
-      ],
-      "flags": {
-        "collapsed": true
-      },
-      "order": 8,
-      "mode": 0,
-      "inputs": [
-        {
-          "label": "clip",
-          "name": "clip",
-          "type": "CLIP",
-          "link": 229
-        },
-        {
-          "label": "text",
-          "name": "text",
-          "type": "STRING",
-          "widget": {
-            "name": "text"
-          },
-          "link": 225
-        }
-      ],
-      "outputs": [
-        {
-          "label": "CONDITIONING",
-          "name": "CONDITIONING",
-          "type": "CONDITIONING",
+          "label": "IMAGE",
+          "name": "IMAGE",
+          "type": "IMAGE",
           "slot_index": 0,
           "links": [
-            188,
-            224
+            240
           ]
         }
       ],
-      "title": "⚙️ 正向提示词",
       "properties": {
         "cnr_id": "comfy-core",
-        "ver": "0.3.76",
-        "Node name for S&R": "CLIPTextEncode",
+        "ver": "0.3.40",
+        "Node name for S&R": "VAEDecode",
         "ue_properties": {
           "widget_ue_connectable": {},
           "version": "7.5.2",
           "input_ue_unconnectable": {}
-        },
-        "widget_ue_connectable": {
-          "text": true
         }
       },
-      "widgets_values": [
-        ""
-      ],
-      "color": "#232",
-      "bgcolor": "#353"
+      "widgets_values": []
     },
     {
-      "id": 83,
-      "type": "CR Prompt Text",
+      "id": 128,
+      "type": "CLIPTextEncode",
       "pos": [
-        -1090,
-        2130
+        -240,
+        2420
       ],
       "size": [
-        630,
-        250
+        410,
+        870
       ],
       "flags": {},
       "order": 5,
       "mode": 0,
       "inputs": [
         {
-          "label": "prompt",
-          "name": "prompt",
+          "name": "clip",
+          "type": "CLIP",
+          "link": 241
+        }
+      ],
+      "outputs": [
+        {
+          "name": "CONDITIONING",
+          "type": "CONDITIONING",
+          "links": [
+            235,
+            236
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.27.0",
+        "Node name for S&R": "CLIPTextEncode"
+      },
+      "widgets_values": [
+        "masterpiece,highres, atmospheric,\n漂亮的中国女孩。\n面貌：明星气质，五官神态自然，带有刚醒时的朦胧与不修边幅的真实美感。真实的肤质，避免皮肤胶化处理。\n体型：身材苗条，身体曲线优美\n皮肤：皮肤白皙娇嫩，光滑无瑕，皮肤带有天鹅绒般的细腻纹理，自然的白皙暖象牙色，水润细腻、保留逼真的自然纹理与变化，未经过度磨皮处理，在阳光下散发着柔和的光泽，阴影处留有微妙的深度。\n表情：脸红，羞怯，眼神恍惚，嘴自然微张，嘴唇水润，整体呈现出一种诱人的性感和煽情气氛，娇喘，羞耻感，背德感。\n画面：优先保持艺术照一般的美感，优先保持视觉上的美感，柔和的逆光高光，光线和阴影柔和。让背景和极端前景带有自然的软化过渡，POV,景深模糊，背景虚化，画面干净整洁。\n\n---\n\nA realistic, intimate home photograph of a young adult East Asian woman in her early 20s, lying on her back on a soft rug and white faux-fur blanket. She is captured from a high-angle overhead perspective with a slight diagonal tilt, her body stretching upward in the frame while her bent knees are positioned close to the lens, creating a strong foreground perspective. Her head is near the upper part of the frame, supported by a pink cushion.\nShe has a quiet, gentle, and relaxed expression as if just waking from a nap — half-open sleepy eyes with a soft hazy gaze looking lazily toward the camera, lips naturally slightly parted in a tender, drowsy manner. Her deep brown-black long hair is naturally spread out across the rug and blanket, with some strands falling messily across her cheeks and forehead, catching soft backlit highlights.\nShe is wearing a pale pink and white short-sleeved floral dress with a low round neckline and tiny pink floral prints. The light, soft fabric naturally drapes and wrinkles around her body. Her legs are bent upward, with white mid-calf slouch socks featuring relaxed folds. A small delicate necklace and a slim bracelet on her wrist catch subtle light.\nVisible skin areas include her face, neck, collarbones, upper chest, shoulders, arms, hands, knees, and large portions of her thighs, all rendered with a natural fair warm ivory tone that glows softly in the sunlight and turns slightly cool in shadows. The skin has a delicate, velvety texture with realistic natural variations, not airbrushed.\nStrong natural window sunlight pours in from the upper left, creating bright highlight patches on her forehead, hair, arms, knees, and legs, with gentle overexposure and soft haze, while shadows retain subtle depth and film-like grain. The background consists of a coarse beige woven rug, white faux-fur blanket, pink cushion, scattered books or magazines, and a few pieces of fruit, giving a lived-in, cozy afternoon atmosphere.\nThe overall mood is lazy, soft, private, and intimate — like a quiet, casual moment in warm afternoon light, with a realistic snapshot feel: slight imperfections, natural messiness in the hair and background, medium depth of field, and authentic home photography qualities."
+      ],
+      "color": "#232",
+      "bgcolor": "#353"
+    },
+    {
+      "id": 127,
+      "type": "SaveImage",
+      "pos": [
+        180,
+        2420
+      ],
+      "size": [
+        760,
+        870
+      ],
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "inputs": [
+        {
+          "label": "images",
+          "name": "images",
+          "type": "IMAGE",
+          "link": 240
+        },
+        {
+          "label": "filename_prefix",
+          "name": "filename_prefix",
           "type": "STRING",
           "widget": {
-            "name": "prompt"
+            "name": "filename_prefix"
           },
           "link": null
         }
       ],
       "outputs": [
         {
-          "label": "prompt",
-          "name": "prompt",
-          "type": "STRING",
-          "links": [
-            222
-          ]
-        },
-        {
-          "label": "show_help",
-          "name": "show_help",
-          "type": "STRING"
+          "name": "images",
+          "type": "IMAGE",
+          "links": null
         }
       ],
-      "title": "✍️ 正向提示词-前",
       "properties": {
-        "cnr_id": "ComfyUI_Comfyroll_CustomNodes",
-        "ver": "d78b780ae43fcf8c6b7c6505e6ffb4584281ceca",
-        "Node name for S&R": "CR Prompt Text",
-        "aux_id": "Suzie1/ComfyUI_Comfyroll_CustomNodes",
+        "cnr_id": "comfy-core",
+        "ver": "0.12.3",
+        "Node name for S&R": "SaveImage",
         "ue_properties": {
-          "version": "7.5.2",
           "widget_ue_connectable": {},
-          "input_ue_unconnectable": {}
+          "input_ue_unconnectable": {},
+          "version": "7.5.2"
         }
       },
       "widgets_values": [
-        "masterpiece,highres, atmospheric,\n漂亮的中国女孩。\n面貌：明星气质，五官神态自然，带有刚醒时的朦胧与不修边幅的真实美感。真实的肤质，避免皮肤胶化处理。\n体型：身材苗条，身体曲线优美\n皮肤：皮肤白皙娇嫩，光滑无瑕，皮肤带有天鹅绒般的细腻纹理，自然的白皙暖象牙色，水润细腻、保留逼真的自然纹理与变化，未经过度磨皮处理，在阳光下散发着柔和的光泽，阴影处留有微妙的深度。\n表情：脸红，羞怯，眼神恍惚，嘴自然微张，嘴唇水润，整体呈现出一种诱人的性感和煽情气氛，娇喘，羞耻感，背德感。\n画面：优先保持艺术照一般的美感，优先保持视觉上的美感，柔和的逆光高光，光线和阴影柔和。让背景和极端前景带有自然的软化过渡，POV,景深模糊，背景虚化，画面干净整洁。\n"
-      ],
-      "color": "#2a363b",
-      "bgcolor": "#3f5159"
+        "NyaaChat/Comfyui"
+      ]
     }
   ],
   "links": [
     [
-      145,
-      28,
+      232,
+      120,
       0,
-      19,
-      3,
-      "LATENT"
+      121,
+      0,
+      "MODEL"
     ],
     [
-      153,
-      19,
+      233,
+      122,
       0,
-      8,
-      0,
-      "LATENT"
-    ],
-    [
-      156,
-      15,
-      0,
-      8,
+      121,
       1,
-      "VAE"
+      "CLIP"
     ],
     [
-      188,
-      80,
+      234,
+      121,
       0,
-      19,
+      123,
+      0,
+      "MODEL"
+    ],
+    [
+      235,
+      128,
+      0,
+      123,
       1,
       "CONDITIONING"
     ],
     [
-      194,
-      92,
+      236,
+      128,
       0,
-      99,
-      1,
-      "STRING"
-    ],
-    [
-      221,
-      8,
-      0,
-      114,
-      0,
-      "IMAGE"
-    ],
-    [
-      222,
-      83,
-      0,
-      99,
-      0,
-      "STRING"
-    ],
-    [
-      224,
-      80,
-      0,
-      19,
+      123,
       2,
       "CONDITIONING"
     ],
     [
-      225,
-      99,
+      237,
+      124,
       0,
-      80,
-      1,
-      "STRING"
+      123,
+      3,
+      "LATENT"
     ],
     [
-      228,
-      45,
+      238,
+      123,
       0,
-      119,
+      126,
+      0,
+      "LATENT"
+    ],
+    [
+      239,
+      125,
+      0,
+      126,
       1,
+      "VAE"
+    ],
+    [
+      240,
+      126,
+      0,
+      127,
+      0,
+      "IMAGE"
+    ],
+    [
+      241,
+      121,
+      1,
+      128,
+      0,
       "CLIP"
-    ],
-    [
-      229,
-      119,
-      1,
-      80,
-      0,
-      "CLIP"
-    ],
-    [
-      230,
-      44,
-      0,
-      119,
-      0,
-      "MODEL"
-    ],
-    [
-      231,
-      119,
-      0,
-      19,
-      0,
-      "MODEL"
     ]
   ],
   "groups": [
     {
-      "id": 4,
+      "id": 5,
       "title": "工程流",
       "bounding": [
-        -1100,
-        1420,
-        670,
-        970
+        -1230,
+        2390,
+        970,
+        540
       ],
       "color": "#88A",
       "flags": {}
@@ -959,10 +720,10 @@
   "config": {},
   "extra": {
     "ds": {
-      "scale": 0.6830134553650705,
+      "scale": 0.5644739300537778,
       "offset": [
-        1557.4746600564304,
-        -1183.2969977404955
+        1937.6414400230296,
+        -2052.541107554797
       ]
     },
     "workflowRendererVersion": "LG",

@@ -43,13 +43,6 @@ interface ArtListFile {
   options: ArtStyleOption[];
 }
 
-// Node ids in Anima-Nyaa.api.json that carry the substitutable inputs.
-const NODE_SIZE = "28";
-const NODE_PROMPT = "92";
-const NODE_ART_P = "100";
-const NODE_ART_N = "106";
-const NODE_SEED = "19";
-
 // Overall safety ceiling. anima-turbo is ~8 steps so renders are fast; this
 // mainly catches a stuck queue / dead server.
 const OVERALL_TIMEOUT_MS = 300_000;
@@ -207,27 +200,41 @@ function buildGraph(
     art: ArtStyleOption | undefined;
   },
 ): Record<string, any> {
-  // Deep clone so repeated generations don't mutate the cached template.
-  const graph = JSON.parse(JSON.stringify(template)) as Record<string, any>;
-
   const { width, height } = splitSize(opts.size);
-  if (graph[NODE_SIZE]?.inputs) {
-    graph[NODE_SIZE].inputs.width = width;
-    graph[NODE_SIZE].inputs.height = height;
-  }
-  if (graph[NODE_PROMPT]?.inputs) {
-    graph[NODE_PROMPT].inputs.prompt = opts.prompt;
-  }
-  if (opts.art && graph[NODE_ART_P]?.inputs) {
-    graph[NODE_ART_P].inputs.prompt = opts.art.p;
-  }
-  if (opts.art && graph[NODE_ART_N]?.inputs) {
-    graph[NODE_ART_N].inputs.prompt = opts.art.n;
-  }
-  if (graph[NODE_SEED]?.inputs) {
-    graph[NODE_SEED].inputs.seed = randomSeed();
-  }
-  return graph;
+  const replacements: Record<string, string | number> = {
+    "%prompt%": opts.prompt,
+    "%artlist_p%": opts.art?.p ?? "",
+    "%artlist_n%": opts.art?.n ?? "",
+    "%width%": width,
+    "%height%": height,
+    "%seed%": randomSeed(),
+  };
+
+  // Walk values rather than serialized JSON so prompt quotes, backslashes and
+  // newlines stay intact. Node ids and input names are entirely template-owned.
+  const substitute = (value: any): any => {
+    if (typeof value === "string") {
+      // Standalone numeric placeholders must remain numbers for ComfyUI inputs.
+      if (Object.prototype.hasOwnProperty.call(replacements, value)) {
+        return replacements[value];
+      }
+      // One pass: placeholder-like text inside injected prompts stays literal.
+      return value.replace(
+        /%(?:prompt|artlist_p|artlist_n|width|height|seed)%/g,
+        (placeholder) => String(replacements[placeholder]),
+      );
+    }
+    if (Array.isArray(value)) return value.map(substitute);
+    if (value !== null && typeof value === "object") {
+      return Object.fromEntries(
+        Object.entries(value).map(([key, child]) => [key, substitute(child)]),
+      );
+    }
+    return value;
+  };
+
+  // Build a fresh graph so repeated generations never mutate the template.
+  return substitute(template);
 }
 
 // ---------------------------------------------------------------------------

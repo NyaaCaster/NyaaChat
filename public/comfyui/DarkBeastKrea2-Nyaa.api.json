@@ -1,71 +1,5 @@
 {
-  "8": {
-    "inputs": {
-      "samples": [
-        "19",
-        0
-      ],
-      "vae": [
-        "15",
-        0
-      ]
-    },
-    "class_type": "VAEDecode",
-    "_meta": {
-      "title": "VAE解码"
-    }
-  },
-  "15": {
-    "inputs": {
-      "vae_name": "qwen_image_vae.safetensors"
-    },
-    "class_type": "VAELoader",
-    "_meta": {
-      "title": "加载VAE"
-    }
-  },
-  "19": {
-    "inputs": {
-      "seed": "%seed%",
-      "steps": 10,
-      "cfg": 1,
-      "sampler_name": "er_sde",
-      "scheduler": "simple",
-      "denoise": 1,
-      "model": [
-        "119",
-        0
-      ],
-      "positive": [
-        "80",
-        0
-      ],
-      "negative": [
-        "80",
-        0
-      ],
-      "latent_image": [
-        "28",
-        0
-      ]
-    },
-    "class_type": "KSampler",
-    "_meta": {
-      "title": "K采样器"
-    }
-  },
-  "28": {
-    "inputs": {
-      "width": "%width%",
-      "height": "%height%",
-      "batch_size": 1
-    },
-    "class_type": "EmptyLatentImage",
-    "_meta": {
-      "title": "尺寸"
-    }
-  },
-  "44": {
+  "120": {
     "inputs": {
       "unet_name": "Krea2DarkBeast1.1-INT8-Convrot-ComfyUI.safetensors",
       "weight_dtype": "default"
@@ -75,7 +9,26 @@
       "title": "UNet加载器"
     }
   },
-  "45": {
+  "121": {
+    "inputs": {
+      "lora_name": "Detailer-KREA2.safetensors",
+      "strength_model": 0.7,
+      "strength_clip": 1,
+      "model": [
+        "120",
+        0
+      ],
+      "clip": [
+        "122",
+        0
+      ]
+    },
+    "class_type": "LoraLoader",
+    "_meta": {
+      "title": "加载LoRA"
+    }
+  },
+  "122": {
     "inputs": {
       "clip_name": "qwen3vl_4b_bf16.safetensors",
       "type": "krea2",
@@ -86,62 +39,77 @@
       "title": "加载CLIP"
     }
   },
-  "80": {
+  "123": {
     "inputs": {
-      "text": [
-        "99",
+      "seed": "%seed%",
+      "steps": 10,
+      "cfg": 1,
+      "sampler_name": "er_sde",
+      "scheduler": "simple",
+      "denoise": 1,
+      "model": [
+        "121",
         0
       ],
-      "clip": [
-        "119",
-        1
-      ]
-    },
-    "class_type": "CLIPTextEncode",
-    "_meta": {
-      "title": "⚙️ 正向提示词"
-    }
-  },
-  "83": {
-    "inputs": {
-      "prompt": "masterpiece,highres, atmospheric,\n漂亮的中国女孩。\n面貌：明星气质，五官神态自然，带有刚醒时的朦胧与不修边幅的真实美感。真实的肤质，避免皮肤胶化处理。\n体型：身材苗条，身体曲线优美\n皮肤：皮肤白皙娇嫩，光滑无瑕，皮肤带有天鹅绒般的细腻纹理，自然的白皙暖象牙色，水润细腻、保留逼真的自然纹理与变化，未经过度磨皮处理，在阳光下散发着柔和的光泽，阴影处留有微妙的深度。\n表情：脸红，羞怯，眼神恍惚，嘴自然微张，嘴唇水润，整体呈现出一种诱人的性感和煽情气氛，娇喘，羞耻感，背德感。\n画面：优先保持艺术照一般的美感，优先保持视觉上的美感，柔和的逆光高光，光线和阴影柔和。让背景和极端前景带有自然的软化过渡，POV,景深模糊，背景虚化，画面干净整洁。\n"
-    },
-    "class_type": "CR Prompt Text",
-    "_meta": {
-      "title": "✍️ 正向提示词-前"
-    }
-  },
-  "92": {
-    "inputs": {
-      "prompt": "%prompt%"
-    },
-    "class_type": "CR Prompt Text",
-    "_meta": {
-      "title": "✍️ 提示词-输入"
-    }
-  },
-  "99": {
-    "inputs": {
-      "separator": "",
-      "text1": [
-        "83",
+      "positive": [
+        "128",
         0
       ],
-      "text2": [
-        "92",
+      "negative": [
+        "128",
+        0
+      ],
+      "latent_image": [
+        "124",
         0
       ]
     },
-    "class_type": "CR Text Concatenate",
+    "class_type": "KSampler",
     "_meta": {
-      "title": "正向提示词-前合并"
+      "title": "K采样器"
     }
   },
-  "114": {
+  "124": {
     "inputs": {
-      "filename_prefix": "NyaaChat/DarkBeast/DarkBeastK2",
+      "width": "%width%",
+      "height": "%height%",
+      "batch_size": 1
+    },
+    "class_type": "EmptyLatentImage",
+    "_meta": {
+      "title": "尺寸"
+    }
+  },
+  "125": {
+    "inputs": {
+      "vae_name": "qwen_image_vae.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "加载VAE"
+    }
+  },
+  "126": {
+    "inputs": {
+      "samples": [
+        "123",
+        0
+      ],
+      "vae": [
+        "125",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE解码"
+    }
+  },
+  "127": {
+    "inputs": {
+      "filename_prefix": "NyaaChat/Comfyui",
       "images": [
-        "8",
+        "126",
         0
       ]
     },
@@ -150,23 +118,17 @@
       "title": "保存图像"
     }
   },
-  "119": {
+  "128": {
     "inputs": {
-      "lora_name": "Detailer-KREA2.safetensors",
-      "strength_model": 0.7,
-      "strength_clip": 1,
-      "model": [
-        "44",
-        0
-      ],
+      "text": "masterpiece,highres, atmospheric,\n漂亮的中国女孩。\n面貌：明星气质，五官神态自然，带有刚醒时的朦胧与不修边幅的真实美感。真实的肤质，避免皮肤胶化处理。\n体型：身材苗条，身体曲线优美\n皮肤：皮肤白皙娇嫩，光滑无瑕，皮肤带有天鹅绒般的细腻纹理，自然的白皙暖象牙色，水润细腻、保留逼真的自然纹理与变化，未经过度磨皮处理，在阳光下散发着柔和的光泽，阴影处留有微妙的深度。\n表情：脸红，羞怯，眼神恍惚，嘴自然微张，嘴唇水润，整体呈现出一种诱人的性感和煽情气氛，娇喘，羞耻感，背德感。\n画面：优先保持艺术照一般的美感，优先保持视觉上的美感，柔和的逆光高光，光线和阴影柔和。让背景和极端前景带有自然的软化过渡，POV,景深模糊，背景虚化，画面干净整洁。\n\n---\n\n%prompt%",
       "clip": [
-        "45",
-        0
+        "121",
+        1
       ]
     },
-    "class_type": "LoraLoader",
+    "class_type": "CLIPTextEncode",
     "_meta": {
-      "title": "加载LoRA"
+      "title": "CLIP文本编码"
     }
   }
 }

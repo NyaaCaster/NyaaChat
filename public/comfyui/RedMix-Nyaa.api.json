@@ -27,7 +27,7 @@
   "19": {
     "inputs": {
       "seed": "%seed%",
-      "steps": 8,
+      "steps": 10,
       "cfg": 1,
       "sampler_name": "euler",
       "scheduler": "simple",
@@ -37,11 +37,11 @@
         0
       ],
       "positive": [
-        "80",
+        "120",
         0
       ],
       "negative": [
-        "80",
+        "120",
         0
       ],
       "latent_image": [
@@ -86,60 +86,9 @@
       "title": "加载CLIP"
     }
   },
-  "80": {
-    "inputs": {
-      "text": [
-        "99",
-        0
-      ],
-      "clip": [
-        "119",
-        1
-      ]
-    },
-    "class_type": "CLIPTextEncode",
-    "_meta": {
-      "title": "⚙️ 正向提示词"
-    }
-  },
-  "83": {
-    "inputs": {
-      "prompt": "masterpiece,highres, atmospheric,\n漂亮的中国女孩，明星气质，五官精致，皮肤白皙光滑无瑕，淡妆中唇色光泽，眼线淡雅，皮肤质感细腻、带有天鹅绒般的触感，全部呈现出自然的白皙暖象牙肤色，保留了真实的自然纹理，而非刻意的磨皮效果，整体呈现出一种青春美感。\n这是一张真实、具有亲密感的生活照片，营造出一种充满生活气息、温馨舒适的午后氛围，带着一种安静、温柔且放松的气氛，阴影处则保留了微妙的细节层次与胶片般的颗粒感。\n空气中有光线颗粒感，整体色调与情绪显得慵懒、柔和、私密且亲密——就像温暖午后光影里一个安静、随性的瞬间，充满了真实抓拍的质感：带着细微的不完美、发丝与背景自然流露的凌乱感、中等景深，以及地道的居家摄影特质。\n\nPOV,景深模糊，\nray tracing,see-through silhouette,volumetric lights,dappled sunlight,\nslender figure, masterpiece, best quality, amazing quality, \n\n"
-    },
-    "class_type": "CR Prompt Text",
-    "_meta": {
-      "title": "✍️ 正向提示词-前"
-    }
-  },
-  "92": {
-    "inputs": {
-      "prompt": "%prompt%"
-    },
-    "class_type": "CR Prompt Text",
-    "_meta": {
-      "title": "✍️ 提示词-输入"
-    }
-  },
-  "99": {
-    "inputs": {
-      "separator": "",
-      "text1": [
-        "83",
-        0
-      ],
-      "text2": [
-        "92",
-        0
-      ]
-    },
-    "class_type": "CR Text Concatenate",
-    "_meta": {
-      "title": "正向提示词-前合并"
-    }
-  },
   "114": {
     "inputs": {
-      "filename_prefix": "NyaaChat/RedMix/RedMixK2",
+      "filename_prefix": "NyaaChat/Comfyui",
       "images": [
         "8",
         0
@@ -167,6 +116,19 @@
     "class_type": "LoraLoader",
     "_meta": {
       "title": "加载LoRA"
+    }
+  },
+  "120": {
+    "inputs": {
+      "text": "masterpiece,highres, atmospheric,\n漂亮的中国女孩，明星气质，五官精致，皮肤白皙光滑无瑕，淡妆中唇色光泽，眼线淡雅，皮肤质感细腻、带有天鹅绒般的触感，全部呈现出自然的白皙暖象牙肤色，保留了真实的自然纹理，而非刻意的磨皮效果，整体呈现出一种青春美感。\n这是一张真实、具有亲密感的生活照片，营造出一种充满生活气息、温馨舒适的午后氛围，带着一种安静、温柔且放松的气氛，阴影处则保留了微妙的细节层次与胶片般的颗粒感。\n空气中有光线颗粒感，整体色调与情绪显得慵懒、柔和、私密且亲密——就像温暖午后光影里一个安静、随性的瞬间，充满了真实抓拍的质感：带着细微的不完美、发丝与背景自然流露的凌乱感、中等景深，以及地道的居家摄影特质。\n\nPOV,景深模糊，\nray tracing,see-through silhouette,volumetric lights,dappled sunlight,\nslender figure, masterpiece, best quality, amazing quality, \n\n---\n\n%prompt%",
+      "clip": [
+        "119",
+        1
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP文本编码"
     }
   }
 }

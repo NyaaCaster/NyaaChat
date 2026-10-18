@@ -1,667 +1,9 @@
 {
   "id": "698d6041-886e-41cb-ad1f-e7ec3f99f334",
   "revision": 0,
-  "last_node_id": 114,
-  "last_link_id": 221,
+  "last_node_id": 117,
+  "last_link_id": 230,
   "nodes": [
-    {
-      "id": 82,
-      "type": "CR Prompt Text",
-      "pos": [
-        -1500,
-        1820
-      ],
-      "size": [
-        510,
-        150
-      ],
-      "flags": {},
-      "order": 0,
-      "mode": 0,
-      "inputs": [
-        {
-          "label": "prompt",
-          "name": "prompt",
-          "type": "STRING",
-          "widget": {
-            "name": "prompt"
-          },
-          "link": null
-        }
-      ],
-      "outputs": [
-        {
-          "label": "prompt",
-          "name": "prompt",
-          "type": "STRING",
-          "links": [
-            197
-          ]
-        },
-        {
-          "label": "show_help",
-          "name": "show_help",
-          "type": "STRING"
-        }
-      ],
-      "title": "✍️ 正向提示词-后",
-      "properties": {
-        "cnr_id": "ComfyUI_Comfyroll_CustomNodes",
-        "ver": "d78b780ae43fcf8c6b7c6505e6ffb4584281ceca",
-        "Node name for S&R": "CR Prompt Text",
-        "ue_properties": {
-          "version": "7.5.2",
-          "widget_ue_connectable": {},
-          "input_ue_unconnectable": {}
-        }
-      },
-      "widgets_values": [
-        "\n\nlight leaks,light rendering,light-rays,ray tracing,lens flare,volumetric lights,ray tracing,lens flare,see-through silhouette,\nrim lighting,volumetric lights,\nhigh-key and low-variance brightness scale,\nbokeh,blurry foreground,light particles,\nslender figure,  masterpiece, best quality, amazing quality,\n"
-      ],
-      "color": "#2a363b",
-      "bgcolor": "#3f5159"
-    },
-    {
-      "id": 99,
-      "type": "CR Text Concatenate",
-      "pos": [
-        -1500,
-        1700
-      ],
-      "size": [
-        240,
-        80
-      ],
-      "flags": {},
-      "order": 14,
-      "mode": 0,
-      "inputs": [
-        {
-          "label": "text1",
-          "name": "text1",
-          "shape": 7,
-          "type": "STRING",
-          "link": 205
-        },
-        {
-          "label": "text2",
-          "name": "text2",
-          "shape": 7,
-          "type": "STRING",
-          "link": 194
-        },
-        {
-          "label": "separator",
-          "name": "separator",
-          "shape": 7,
-          "type": "STRING",
-          "widget": {
-            "name": "separator"
-          },
-          "link": null
-        }
-      ],
-      "outputs": [
-        {
-          "label": "STRING",
-          "name": "STRING",
-          "type": "*",
-          "links": [
-            195
-          ]
-        },
-        {
-          "label": "show_help",
-          "name": "show_help",
-          "type": "STRING",
-          "links": []
-        }
-      ],
-      "title": "正向提示词-前合并",
-      "properties": {
-        "cnr_id": "ComfyUI_Comfyroll_CustomNodes",
-        "ver": "d78b780ae43fcf8c6b7c6505e6ffb4584281ceca",
-        "Node name for S&R": "CR Text Concatenate",
-        "ue_properties": {
-          "version": "7.5.2",
-          "widget_ue_connectable": {},
-          "input_ue_unconnectable": {}
-        }
-      },
-      "widgets_values": [
-        ""
-      ],
-      "color": "#232",
-      "bgcolor": "#353"
-    },
-    {
-      "id": 83,
-      "type": "CR Prompt Text",
-      "pos": [
-        -1500,
-        1510
-      ],
-      "size": [
-        510,
-        150
-      ],
-      "flags": {},
-      "order": 1,
-      "mode": 0,
-      "inputs": [
-        {
-          "label": "prompt",
-          "name": "prompt",
-          "type": "STRING",
-          "widget": {
-            "name": "prompt"
-          },
-          "link": null
-        }
-      ],
-      "outputs": [
-        {
-          "label": "prompt",
-          "name": "prompt",
-          "type": "STRING",
-          "links": [
-            204
-          ]
-        },
-        {
-          "label": "show_help",
-          "name": "show_help",
-          "type": "STRING"
-        }
-      ],
-      "title": "✍️ 正向提示词-前",
-      "properties": {
-        "cnr_id": "ComfyUI_Comfyroll_CustomNodes",
-        "ver": "d78b780ae43fcf8c6b7c6505e6ffb4584281ceca",
-        "Node name for S&R": "CR Prompt Text",
-        "ue_properties": {
-          "version": "7.5.2",
-          "widget_ue_connectable": {},
-          "input_ue_unconnectable": {}
-        }
-      },
-      "widgets_values": [
-        "masterpiece, best quality, score_7, safe, \nhighres,\n\n"
-      ],
-      "color": "#2a363b",
-      "bgcolor": "#3f5159"
-    },
-    {
-      "id": 84,
-      "type": "CR Text Concatenate",
-      "pos": [
-        -1230,
-        1700
-      ],
-      "size": [
-        240,
-        80
-      ],
-      "flags": {},
-      "order": 16,
-      "mode": 0,
-      "inputs": [
-        {
-          "label": "text1",
-          "name": "text1",
-          "shape": 7,
-          "type": "STRING",
-          "link": 195
-        },
-        {
-          "label": "text2",
-          "name": "text2",
-          "shape": 7,
-          "type": "STRING",
-          "link": 197
-        },
-        {
-          "label": "separator",
-          "name": "separator",
-          "shape": 7,
-          "type": "STRING",
-          "widget": {
-            "name": "separator"
-          },
-          "link": null
-        }
-      ],
-      "outputs": [
-        {
-          "label": "STRING",
-          "name": "STRING",
-          "type": "*",
-          "links": [
-            215
-          ]
-        },
-        {
-          "label": "show_help",
-          "name": "show_help",
-          "type": "STRING",
-          "links": []
-        }
-      ],
-      "title": "正向提示词-尾合并",
-      "properties": {
-        "cnr_id": "ComfyUI_Comfyroll_CustomNodes",
-        "ver": "d78b780ae43fcf8c6b7c6505e6ffb4584281ceca",
-        "Node name for S&R": "CR Text Concatenate",
-        "ue_properties": {
-          "version": "7.5.2",
-          "widget_ue_connectable": {},
-          "input_ue_unconnectable": {}
-        }
-      },
-      "widgets_values": [
-        ""
-      ],
-      "color": "#232",
-      "bgcolor": "#353"
-    },
-    {
-      "id": 87,
-      "type": "CR Text Concatenate",
-      "pos": [
-        -1230,
-        2220
-      ],
-      "size": [
-        240,
-        80
-      ],
-      "flags": {
-        "collapsed": false
-      },
-      "order": 15,
-      "mode": 0,
-      "inputs": [
-        {
-          "label": "text1",
-          "name": "text1",
-          "shape": 7,
-          "type": "STRING",
-          "link": 211
-        },
-        {
-          "label": "text2",
-          "name": "text2",
-          "shape": 7,
-          "type": "STRING",
-          "link": 212
-        },
-        {
-          "label": "separator",
-          "name": "separator",
-          "shape": 7,
-          "type": "STRING",
-          "widget": {
-            "name": "separator"
-          },
-          "link": null
-        }
-      ],
-      "outputs": [
-        {
-          "label": "STRING",
-          "name": "STRING",
-          "type": "*",
-          "slot_index": 0,
-          "links": [
-            216
-          ]
-        },
-        {
-          "label": "show_help",
-          "name": "show_help",
-          "type": "STRING",
-          "slot_index": 1,
-          "links": null
-        }
-      ],
-      "title": "反向提示词-合并",
-      "properties": {
-        "cnr_id": "ComfyUI_Comfyroll_CustomNodes",
-        "ver": "d78b780ae43fcf8c6b7c6505e6ffb4584281ceca",
-        "Node name for S&R": "CR Text Concatenate",
-        "ue_properties": {
-          "widget_ue_connectable": {},
-          "version": "7.5.2",
-          "input_ue_unconnectable": {}
-        }
-      },
-      "widgets_values": [
-        ""
-      ],
-      "color": "#322",
-      "bgcolor": "#533"
-    },
-    {
-      "id": 100,
-      "type": "CR Prompt Text",
-      "pos": [
-        -960,
-        1510
-      ],
-      "size": [
-        510,
-        150
-      ],
-      "flags": {},
-      "order": 2,
-      "mode": 0,
-      "inputs": [
-        {
-          "label": "prompt",
-          "name": "prompt",
-          "type": "STRING",
-          "widget": {
-            "name": "prompt"
-          },
-          "link": null
-        }
-      ],
-      "outputs": [
-        {
-          "label": "prompt",
-          "name": "prompt",
-          "type": "STRING",
-          "links": [
-            203
-          ]
-        },
-        {
-          "label": "show_help",
-          "name": "show_help",
-          "type": "STRING"
-        }
-      ],
-      "title": "✍️ 画师串-正面",
-      "properties": {
-        "cnr_id": "ComfyUI_Comfyroll_CustomNodes",
-        "ver": "d78b780ae43fcf8c6b7c6505e6ffb4584281ceca",
-        "Node name for S&R": "CR Prompt Text",
-        "ue_properties": {
-          "version": "7.5.2",
-          "widget_ue_connectable": {},
-          "input_ue_unconnectable": {}
-        }
-      },
-      "widgets_values": [
-        "(artist:herohero_(higashi_no_dou):3.0),ginhaha,atdan,hoprosuke,takiki,xipa,(mignon,artist:quasarcake,artist:houkisei,artist:kedama milk,40hara:0.6),piromizu,(ke-ta:0.95),(modare:0.95),year 2024,year 2025,"
-      ],
-      "color": "#2a363b",
-      "bgcolor": "#3f5159"
-    },
-    {
-      "id": 106,
-      "type": "CR Prompt Text",
-      "pos": [
-        -960,
-        1850
-      ],
-      "size": [
-        510,
-        150
-      ],
-      "flags": {},
-      "order": 3,
-      "mode": 0,
-      "inputs": [
-        {
-          "label": "prompt",
-          "name": "prompt",
-          "type": "STRING",
-          "widget": {
-            "name": "prompt"
-          },
-          "link": null
-        }
-      ],
-      "outputs": [
-        {
-          "label": "prompt",
-          "name": "prompt",
-          "type": "STRING",
-          "links": [
-            210
-          ]
-        },
-        {
-          "label": "show_help",
-          "name": "show_help",
-          "type": "STRING"
-        }
-      ],
-      "title": "✍️ 画师串-负面",
-      "properties": {
-        "cnr_id": "ComfyUI_Comfyroll_CustomNodes",
-        "ver": "d78b780ae43fcf8c6b7c6505e6ffb4584281ceca",
-        "Node name for S&R": "CR Prompt Text",
-        "ue_properties": {
-          "version": "7.5.2",
-          "widget_ue_connectable": {},
-          "input_ue_unconnectable": {}
-        }
-      },
-      "widgets_values": [
-        "artist collaboration:5.0),"
-      ],
-      "color": "#332922",
-      "bgcolor": "#593930"
-    },
-    {
-      "id": 107,
-      "type": "CR Text Concatenate",
-      "pos": [
-        -690,
-        1700
-      ],
-      "size": [
-        240,
-        80
-      ],
-      "flags": {
-        "collapsed": false
-      },
-      "order": 13,
-      "mode": 0,
-      "inputs": [
-        {
-          "label": "text1",
-          "name": "text1",
-          "shape": 7,
-          "type": "STRING",
-          "link": 209
-        },
-        {
-          "label": "text2",
-          "name": "text2",
-          "shape": 7,
-          "type": "STRING",
-          "link": 210
-        },
-        {
-          "label": "separator",
-          "name": "separator",
-          "shape": 7,
-          "type": "STRING",
-          "widget": {
-            "name": "separator"
-          },
-          "link": null
-        }
-      ],
-      "outputs": [
-        {
-          "label": "STRING",
-          "name": "STRING",
-          "type": "*",
-          "slot_index": 0,
-          "links": [
-            211
-          ]
-        },
-        {
-          "label": "show_help",
-          "name": "show_help",
-          "type": "STRING",
-          "slot_index": 1,
-          "links": null
-        }
-      ],
-      "title": "✍️ 画师串-负面合并",
-      "properties": {
-        "cnr_id": "ComfyUI_Comfyroll_CustomNodes",
-        "ver": "d78b780ae43fcf8c6b7c6505e6ffb4584281ceca",
-        "Node name for S&R": "CR Text Concatenate",
-        "ue_properties": {
-          "widget_ue_connectable": {},
-          "version": "7.5.2",
-          "input_ue_unconnectable": {}
-        }
-      },
-      "widgets_values": [
-        ""
-      ],
-      "color": "#322",
-      "bgcolor": "#533"
-    },
-    {
-      "id": 101,
-      "type": "CR Text Concatenate",
-      "pos": [
-        -960,
-        1700
-      ],
-      "size": [
-        240,
-        80
-      ],
-      "flags": {},
-      "order": 11,
-      "mode": 0,
-      "inputs": [
-        {
-          "label": "text1",
-          "name": "text1",
-          "shape": 7,
-          "type": "STRING",
-          "link": 204
-        },
-        {
-          "label": "text2",
-          "name": "text2",
-          "shape": 7,
-          "type": "STRING",
-          "link": 203
-        },
-        {
-          "label": "separator",
-          "name": "separator",
-          "shape": 7,
-          "type": "STRING",
-          "widget": {
-            "name": "separator"
-          },
-          "link": null
-        }
-      ],
-      "outputs": [
-        {
-          "label": "STRING",
-          "name": "STRING",
-          "type": "*",
-          "links": [
-            205
-          ]
-        },
-        {
-          "label": "show_help",
-          "name": "show_help",
-          "type": "STRING",
-          "links": []
-        }
-      ],
-      "title": "✍️ 画师串-正面合并",
-      "properties": {
-        "cnr_id": "ComfyUI_Comfyroll_CustomNodes",
-        "ver": "d78b780ae43fcf8c6b7c6505e6ffb4584281ceca",
-        "Node name for S&R": "CR Text Concatenate",
-        "ue_properties": {
-          "version": "7.5.2",
-          "widget_ue_connectable": {},
-          "input_ue_unconnectable": {}
-        }
-      },
-      "widgets_values": [
-        ""
-      ],
-      "color": "#232",
-      "bgcolor": "#353"
-    },
-    {
-      "id": 93,
-      "type": "CR Prompt Text",
-      "pos": [
-        -420,
-        1850
-      ],
-      "size": [
-        500,
-        150
-      ],
-      "flags": {},
-      "order": 4,
-      "mode": 0,
-      "inputs": [
-        {
-          "label": "prompt",
-          "name": "prompt",
-          "type": "STRING",
-          "widget": {
-            "name": "prompt"
-          },
-          "link": null
-        }
-      ],
-      "outputs": [
-        {
-          "label": "prompt",
-          "name": "prompt",
-          "type": "STRING",
-          "links": [
-            212
-          ]
-        },
-        {
-          "label": "show_help",
-          "name": "show_help",
-          "type": "STRING"
-        }
-      ],
-      "title": "✍️ 反向提示词-输入",
-      "properties": {
-        "cnr_id": "ComfyUI_Comfyroll_CustomNodes",
-        "ver": "d78b780ae43fcf8c6b7c6505e6ffb4584281ceca",
-        "Node name for S&R": "CR Prompt Text",
-        "ue_properties": {
-          "version": "7.5.2",
-          "widget_ue_connectable": {},
-          "input_ue_unconnectable": {}
-        }
-      },
-      "widgets_values": [
-        ""
-      ],
-      "color": "#322",
-      "bgcolor": "#533"
-    },
     {
       "id": 53,
       "type": "LoraLoader",
@@ -674,7 +16,7 @@
         150
       ],
       "flags": {},
-      "order": 12,
+      "order": 4,
       "mode": 0,
       "inputs": [
         {
@@ -731,8 +73,8 @@
           "name": "CLIP",
           "type": "CLIP",
           "links": [
-            186,
-            187
+            222,
+            223
           ]
         }
       ],
@@ -754,218 +96,22 @@
       "widgets_values": [
         "anima-turbo-lora-v0.2.safetensors",
         0.7,
-        1,
-        null
+        1
       ]
-    },
-    {
-      "id": 45,
-      "type": "CLIPLoader",
-      "pos": [
-        -950,
-        970
-      ],
-      "size": [
-        300,
-        130
-      ],
-      "flags": {},
-      "order": 5,
-      "mode": 0,
-      "inputs": [
-        {
-          "label": "clip_name",
-          "name": "clip_name",
-          "type": "COMBO",
-          "widget": {
-            "name": "clip_name"
-          },
-          "link": null
-        },
-        {
-          "label": "type",
-          "name": "type",
-          "type": "COMBO",
-          "widget": {
-            "name": "type"
-          },
-          "link": null
-        },
-        {
-          "label": "device",
-          "name": "device",
-          "shape": 7,
-          "type": "COMBO",
-          "widget": {
-            "name": "device"
-          },
-          "link": null
-        }
-      ],
-      "outputs": [
-        {
-          "label": "CLIP",
-          "name": "CLIP",
-          "type": "CLIP",
-          "links": [
-            108
-          ]
-        }
-      ],
-      "properties": {
-        "cnr_id": "comfy-core",
-        "ver": "0.11.0",
-        "Node name for S&R": "CLIPLoader",
-        "ue_properties": {
-          "widget_ue_connectable": {},
-          "version": "7.5.2",
-          "input_ue_unconnectable": {}
-        }
-      },
-      "widgets_values": [
-        "anima_baseV10_txt.safetensors",
-        "stable_diffusion",
-        "default",
-        null
-      ]
-    },
-    {
-      "id": 80,
-      "type": "CLIPTextEncode",
-      "pos": [
-        -490,
-        1020
-      ],
-      "size": [
-        210,
-        88
-      ],
-      "flags": {},
-      "order": 18,
-      "mode": 0,
-      "inputs": [
-        {
-          "label": "clip",
-          "name": "clip",
-          "type": "CLIP",
-          "link": 186
-        },
-        {
-          "label": "text",
-          "name": "text",
-          "type": "STRING",
-          "widget": {
-            "name": "text"
-          },
-          "link": 215
-        }
-      ],
-      "outputs": [
-        {
-          "label": "CONDITIONING",
-          "name": "CONDITIONING",
-          "type": "CONDITIONING",
-          "slot_index": 0,
-          "links": [
-            188
-          ]
-        }
-      ],
-      "title": "⚙️ 正向提示词",
-      "properties": {
-        "cnr_id": "comfy-core",
-        "ver": "0.3.76",
-        "Node name for S&R": "CLIPTextEncode",
-        "ue_properties": {
-          "widget_ue_connectable": {},
-          "version": "7.5.2",
-          "input_ue_unconnectable": {}
-        },
-        "widget_ue_connectable": {
-          "text": true
-        }
-      },
-      "widgets_values": [
-        ""
-      ],
-      "color": "#232",
-      "bgcolor": "#353"
-    },
-    {
-      "id": 91,
-      "type": "CLIPTextEncode",
-      "pos": [
-        -490,
-        1150
-      ],
-      "size": [
-        210,
-        88
-      ],
-      "flags": {},
-      "order": 17,
-      "mode": 0,
-      "inputs": [
-        {
-          "label": "clip",
-          "name": "clip",
-          "type": "CLIP",
-          "link": 187
-        },
-        {
-          "label": "text",
-          "name": "text",
-          "type": "STRING",
-          "widget": {
-            "name": "text"
-          },
-          "link": 216
-        }
-      ],
-      "outputs": [
-        {
-          "label": "CONDITIONING",
-          "name": "CONDITIONING",
-          "type": "CONDITIONING",
-          "slot_index": 0,
-          "links": [
-            189
-          ]
-        }
-      ],
-      "title": "⚙️ 反向面提示词",
-      "properties": {
-        "cnr_id": "comfy-core",
-        "ver": "0.3.76",
-        "Node name for S&R": "CLIPTextEncode",
-        "ue_properties": {
-          "widget_ue_connectable": {},
-          "version": "7.5.2",
-          "input_ue_unconnectable": {}
-        },
-        "widget_ue_connectable": {
-          "text": true
-        }
-      },
-      "widgets_values": [
-        ""
-      ],
-      "color": "#322",
-      "bgcolor": "#533"
     },
     {
       "id": 28,
       "type": "EmptyLatentImage",
       "pos": [
-        -550,
-        1290
+        -540,
+        1010
       ],
       "size": [
         270,
-        106
+        110
       ],
       "flags": {},
-      "order": 6,
+      "order": 0,
       "mode": 0,
       "inputs": [
         {
@@ -1023,18 +169,70 @@
       ]
     },
     {
+      "id": 114,
+      "type": "SaveImage",
+      "pos": [
+        100,
+        770
+      ],
+      "size": [
+        760,
+        870
+      ],
+      "flags": {},
+      "order": 9,
+      "mode": 0,
+      "inputs": [
+        {
+          "label": "images",
+          "name": "images",
+          "type": "IMAGE",
+          "link": 221
+        },
+        {
+          "label": "filename_prefix",
+          "name": "filename_prefix",
+          "type": "STRING",
+          "widget": {
+            "name": "filename_prefix"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.12.3",
+        "Node name for S&R": "SaveImage",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "input_ue_unconnectable": {},
+          "version": "7.5.2"
+        }
+      },
+      "widgets_values": [
+        "NyaaChat/Comfyui"
+      ]
+    },
+    {
       "id": 15,
       "type": "VAELoader",
       "pos": [
-        -210,
-        1130
+        -540,
+        1160
       ],
       "size": [
         270,
-        82
+        90
       ],
       "flags": {},
-      "order": 7,
+      "order": 1,
       "mode": 0,
       "inputs": [
         {
@@ -1068,9 +266,59 @@
         }
       },
       "widgets_values": [
-        "qwen_image_vae.safetensors",
-        null
+        "qwen_image_vae.safetensors"
       ]
+    },
+    {
+      "id": 8,
+      "type": "VAEDecode",
+      "pos": [
+        -140,
+        1130
+      ],
+      "size": [
+        210,
+        50
+      ],
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "inputs": [
+        {
+          "label": "samples",
+          "name": "samples",
+          "type": "LATENT",
+          "link": 153
+        },
+        {
+          "label": "vae",
+          "name": "vae",
+          "type": "VAE",
+          "link": 156
+        }
+      ],
+      "outputs": [
+        {
+          "label": "IMAGE",
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "slot_index": 0,
+          "links": [
+            221
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.40",
+        "Node name for S&R": "VAEDecode",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.5.2",
+          "input_ue_unconnectable": {}
+        }
+      },
+      "widgets_values": []
     },
     {
       "id": 44,
@@ -1080,11 +328,11 @@
         820
       ],
       "size": [
-        307.5999755859375,
-        106
+        310,
+        110
       ],
       "flags": {},
-      "order": 8,
+      "order": 2,
       "mode": 0,
       "inputs": [
         {
@@ -1128,171 +376,157 @@
       },
       "widgets_values": [
         "anima_baseV10.safetensors",
-        "default",
-        null
+        "default"
       ]
     },
     {
-      "id": 89,
-      "type": "CR Prompt Text",
+      "id": 45,
+      "type": "CLIPLoader",
       "pos": [
-        -1500,
-        2020
+        -950,
+        970
       ],
       "size": [
-        510,
-        150
+        310,
+        130
       ],
       "flags": {},
-      "order": 9,
+      "order": 3,
       "mode": 0,
       "inputs": [
         {
-          "label": "prompt",
-          "name": "prompt",
-          "type": "STRING",
+          "label": "clip_name",
+          "name": "clip_name",
+          "type": "COMBO",
           "widget": {
-            "name": "prompt"
+            "name": "clip_name"
+          },
+          "link": null
+        },
+        {
+          "label": "type",
+          "name": "type",
+          "type": "COMBO",
+          "widget": {
+            "name": "type"
+          },
+          "link": null
+        },
+        {
+          "label": "device",
+          "name": "device",
+          "shape": 7,
+          "type": "COMBO",
+          "widget": {
+            "name": "device"
           },
           "link": null
         }
       ],
       "outputs": [
         {
-          "label": "prompt",
-          "name": "prompt",
-          "type": "STRING",
+          "label": "CLIP",
+          "name": "CLIP",
+          "type": "CLIP",
           "links": [
-            209
-          ]
-        },
-        {
-          "label": "show_help",
-          "name": "show_help",
-          "type": "STRING"
-        }
-      ],
-      "title": "✍️ 反向提示词-前",
-      "properties": {
-        "cnr_id": "ComfyUI_Comfyroll_CustomNodes",
-        "ver": "d78b780ae43fcf8c6b7c6505e6ffb4584281ceca",
-        "Node name for S&R": "CR Prompt Text",
-        "ue_properties": {
-          "version": "7.5.2",
-          "widget_ue_connectable": {},
-          "input_ue_unconnectable": {}
-        }
-      },
-      "widgets_values": [
-        "worst quality, low quality, score_1, score_2, score_3, artist name,\nfat, thick leg, thick thigh, low quality, worst qualitylow quality, worst quality, bad anatomy, bad hands, missing fingers, extra digits, blurry, ugly, deformed, realistic, photorealistic, modern clothes, aggressive, energetic,bun,\n"
-      ],
-      "color": "#332922",
-      "bgcolor": "#593930"
-    },
-    {
-      "id": 8,
-      "type": "VAEDecode",
-      "pos": [
-        -150,
-        1300
-      ],
-      "size": [
-        210,
-        46
-      ],
-      "flags": {},
-      "order": 20,
-      "mode": 0,
-      "inputs": [
-        {
-          "label": "samples",
-          "name": "samples",
-          "type": "LATENT",
-          "link": 153
-        },
-        {
-          "label": "vae",
-          "name": "vae",
-          "type": "VAE",
-          "link": 156
-        }
-      ],
-      "outputs": [
-        {
-          "label": "IMAGE",
-          "name": "IMAGE",
-          "type": "IMAGE",
-          "slot_index": 0,
-          "links": [
-            221
+            108
           ]
         }
       ],
       "properties": {
         "cnr_id": "comfy-core",
-        "ver": "0.3.40",
-        "Node name for S&R": "VAEDecode",
+        "ver": "0.11.0",
+        "Node name for S&R": "CLIPLoader",
         "ue_properties": {
           "widget_ue_connectable": {},
           "version": "7.5.2",
-          "input_ue_unconnectable": {}
-        }
-      },
-      "widgets_values": []
-    },
-    {
-      "id": 92,
-      "type": "CR Prompt Text",
-      "pos": [
-        -420,
-        1510
-      ],
-      "size": [
-        500,
-        280
-      ],
-      "flags": {},
-      "order": 10,
-      "mode": 0,
-      "inputs": [
-        {
-          "label": "prompt",
-          "name": "prompt",
-          "type": "STRING",
-          "widget": {
-            "name": "prompt"
-          },
-          "link": null
-        }
-      ],
-      "outputs": [
-        {
-          "label": "prompt",
-          "name": "prompt",
-          "type": "STRING",
-          "links": [
-            194
-          ]
-        },
-        {
-          "label": "show_help",
-          "name": "show_help",
-          "type": "STRING"
-        }
-      ],
-      "title": "✍️ 提示词-输入",
-      "properties": {
-        "cnr_id": "ComfyUI_Comfyroll_CustomNodes",
-        "ver": "d78b780ae43fcf8c6b7c6505e6ffb4584281ceca",
-        "Node name for S&R": "CR Prompt Text",
-        "ue_properties": {
-          "version": "7.5.2",
-          "widget_ue_connectable": {},
           "input_ue_unconnectable": {}
         }
       },
       "widgets_values": [
-        "A realistic, intimate home photograph of a young adult East Asian woman in her early 20s, lying on her back on a soft rug and white faux-fur blanket. She is captured from a high-angle overhead perspective with a slight diagonal tilt, her body stretching upward in the frame while her bent knees are positioned close to the lens, creating a strong foreground perspective. Her head is near the upper part of the frame, supported by a pink cushion.\nShe has a quiet, gentle, and relaxed expression as if just waking from a nap — half-open sleepy eyes with a soft hazy gaze looking lazily toward the camera, lips naturally slightly parted in a tender, drowsy manner. Her deep brown-black long hair is naturally spread out across the rug and blanket, with some strands falling messily across her cheeks and forehead, catching soft backlit highlights.\nShe is wearing a pale pink and white short-sleeved floral dress with a low round neckline and tiny pink floral prints. The light, soft fabric naturally drapes and wrinkles around her body. Her legs are bent upward, with white mid-calf slouch socks featuring relaxed folds. A small delicate necklace and a slim bracelet on her wrist catch subtle light.\nVisible skin areas include her face, neck, collarbones, upper chest, shoulders, arms, hands, knees, and large portions of her thighs, all rendered with a natural fair warm ivory tone that glows softly in the sunlight and turns slightly cool in shadows. The skin has a delicate, velvety texture with realistic natural variations, not airbrushed.\nStrong natural window sunlight pours in from the upper left, creating bright highlight patches on her forehead, hair, arms, knees, and legs, with gentle overexposure and soft haze, while shadows retain subtle depth and film-like grain. The background consists of a coarse beige woven rug, white faux-fur blanket, pink cushion, scattered books or magazines, and a few pieces of fruit, giving a lived-in, cozy afternoon atmosphere.\nThe overall mood is lazy, soft, private, and intimate — like a quiet, casual moment in warm afternoon light, with a realistic snapshot feel: slight imperfections, natural messiness in the hair and background, medium depth of field, and authentic home photography qualities."
+        "anima_baseV10_txt.safetensors",
+        "stable_diffusion",
+        "default"
+      ]
+    },
+    {
+      "id": 117,
+      "type": "CLIPTextEncode",
+      "pos": [
+        -320,
+        1300
+      ],
+      "size": [
+        400,
+        200
+      ],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 223
+        }
+      ],
+      "outputs": [
+        {
+          "name": "CONDITIONING",
+          "type": "CONDITIONING",
+          "links": [
+            225
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.27.0",
+        "Node name for S&R": "CLIPTextEncode"
+      },
+      "widgets_values": [
+        "worst quality, low quality, score_1, score_2, score_3, artist name,\nfat, thick leg, thick thigh, low quality, worst qualitylow quality, worst quality, bad anatomy, bad hands, missing fingers, extra digits, blurry, ugly, deformed, realistic, photorealistic, modern clothes, aggressive, energetic,bun,\n\n---\n\n\n---\n\nartist collaboration:5.0),\n\n\n"
+      ],
+      "color": "#322",
+      "bgcolor": "#533"
+    },
+    {
+      "id": 116,
+      "type": "CLIPTextEncode",
+      "pos": [
+        -970,
+        1300
+      ],
+      "size": [
+        630,
+        750
+      ],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 222
+        }
+      ],
+      "outputs": [
+        {
+          "name": "CONDITIONING",
+          "type": "CONDITIONING",
+          "links": [
+            224
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.27.0",
+        "Node name for S&R": "CLIPTextEncode"
+      },
+      "widgets_values": [
+        "masterpiece, best quality, score_7, safe, \nhighres,\n\n---\n\n(artist:herohero_(higashi_no_dou):3.0),ginhaha,atdan,hoprosuke,takiki,xipa,(mignon,artist:quasarcake,artist:houkisei,artist:kedama milk,40hara:0.6),piromizu,(ke-ta:0.95),(modare:0.95),year 2024,year 2025,\n\n---\n\nA young woman in her early twenties nestles into a well-worn single-seat sofa by a rain-streaked window, her legs tucked up beneath a draped throw blanket. She has shoulder-length black hair with softly curled ends, amber-brown eyes half-lidded behind round gold-rimmed glasses that have slipped slightly down her nose. A faded red cord bracelet sits loosely on her right wrist, its color muted against her pale skin.\n\nHer expression is quiet and distant — not quite looking at anything, lips barely curved in an unconscious, gentle smile. She leans her temple against the sofa's armrest, one hand tucked under her head, the other hanging limp over the cushion edge with fingertips still loosely resting on ose is weightless, suspended somewhere between daydreaming and a nap that never quitearrived.\n\nShe wears a creamy off-white open-front knit cardigan, its sleeves slightly too long and swallowing her hands, layered over a soft grey cotton camisole with thin straps visible at the collarbone. Dark navy lounge shorts peek out beneath the hem. A sketchbook lies open across her lap, pages curling at the corner, a stray pencil resting in the crease without its cap.\n\nSeen from a slightly elevated angle as if from someone standing in the doorway, the composition frames her diagonally — the sofa anchoring the lower right, the rain-streaked window filling the upper\nleft. The window glass blurs the city outside into soft smears of grey, green, and muteside the sofa sits a half-empty ceramic mug, its contents long cold, a forgotten propin a lazy afternoon.\n\nThe light is diffuse and overcast, filtered through thick rain clouds — cool grey ambient fill with a faint silver highlight tracing the edge of her cardigan and the bridge of her glasses. No hard shadows, no direct sun, just the gentle wrap of an overcast afternoon. The texture is soft and lived-in: knit wool, worn cotton, slightly rumpled cushions, the subtle grain of rain trails on glass.\n\nThe mood is still, tender, and deeply intimate — a stolen quiet moment on a rainy weekday, the kind that asks nothing and holds everything. The color palette is muted and harmonious: oatmeal cream, heather grey, navy blue, and the washed-out green-grey of rain-soaked glass, with the single warm note of the red bracelet anchoring the whole frame. It feels like a photograph you took of someone you love without them noticing.\n\n---\n\nlight leaks,light rendering,light-rays,ray tracing,lens flare,volumetric lights,ray tracing,lens flare,see-through silhouette,\nrim lighting,volumetric lights,\nhigh-key and low-variance brightness scale,\nbokeh,blurry foreground,light particles,\nslender figure,  masterpiece, best quality, amazing quality,\n"
       ],
       "color": "#232",
       "bgcolor": "#353"
@@ -1305,11 +539,11 @@
         820
       ],
       "size": [
-        297.15631103515625,
-        266.5079040527344
+        300,
+        270
       ],
       "flags": {},
-      "order": 19,
+      "order": 7,
       "mode": 0,
       "inputs": [
         {
@@ -1322,13 +556,13 @@
           "label": "positive",
           "name": "positive",
           "type": "CONDITIONING",
-          "link": 188
+          "link": 224
         },
         {
           "label": "negative",
           "name": "negative",
           "type": "CONDITIONING",
-          "link": 189
+          "link": 225
         },
         {
           "label": "latent_image",
@@ -1413,59 +647,13 @@
         }
       },
       "widgets_values": [
-        202533919692483,
+        834756990797081,
         "randomize",
-        8,
+        16,
         1,
         "er_sde",
         "beta",
         1
-      ]
-    },
-    {
-      "id": 114,
-      "type": "SaveImage",
-      "pos": [
-        130,
-        1450
-      ],
-      "size": [
-        760,
-        870
-      ],
-      "flags": {},
-      "order": 21,
-      "mode": 0,
-      "inputs": [
-        {
-          "label": "images",
-          "name": "images",
-          "type": "IMAGE",
-          "link": 221
-        },
-        {
-          "label": "filename_prefix",
-          "name": "filename_prefix",
-          "type": "STRING",
-          "widget": {
-            "name": "filename_prefix"
-          },
-          "link": null
-        }
-      ],
-      "outputs": [],
-      "properties": {
-        "cnr_id": "comfy-core",
-        "ver": "0.12.3",
-        "Node name for S&R": "SaveImage",
-        "ue_properties": {
-          "widget_ue_connectable": {},
-          "input_ue_unconnectable": {},
-          "version": "7.5.2"
-        }
-      },
-      "widgets_values": [
-        "NyaaChat/Comfyui"
       ]
     }
   ],
@@ -1519,182 +707,47 @@
       "MODEL"
     ],
     [
-      186,
-      53,
-      1,
-      80,
-      0,
-      "CLIP"
-    ],
-    [
-      187,
-      53,
-      1,
-      91,
-      0,
-      "CLIP"
-    ],
-    [
-      188,
-      80,
-      0,
-      19,
-      1,
-      "CONDITIONING"
-    ],
-    [
-      189,
-      91,
-      0,
-      19,
-      2,
-      "CONDITIONING"
-    ],
-    [
-      194,
-      92,
-      0,
-      99,
-      1,
-      "STRING"
-    ],
-    [
-      195,
-      99,
-      0,
-      84,
-      0,
-      "STRING"
-    ],
-    [
-      197,
-      82,
-      0,
-      84,
-      1,
-      "STRING"
-    ],
-    [
-      203,
-      100,
-      0,
-      101,
-      1,
-      "STRING"
-    ],
-    [
-      204,
-      83,
-      0,
-      101,
-      0,
-      "STRING"
-    ],
-    [
-      205,
-      101,
-      0,
-      99,
-      0,
-      "STRING"
-    ],
-    [
-      209,
-      89,
-      0,
-      107,
-      0,
-      "STRING"
-    ],
-    [
-      210,
-      106,
-      0,
-      107,
-      1,
-      "STRING"
-    ],
-    [
-      211,
-      107,
-      0,
-      87,
-      0,
-      "STRING"
-    ],
-    [
-      212,
-      93,
-      0,
-      87,
-      1,
-      "STRING"
-    ],
-    [
-      215,
-      84,
-      0,
-      80,
-      1,
-      "STRING"
-    ],
-    [
-      216,
-      87,
-      0,
-      91,
-      1,
-      "STRING"
-    ],
-    [
       221,
       8,
       0,
       114,
       0,
       "IMAGE"
+    ],
+    [
+      222,
+      53,
+      1,
+      116,
+      0,
+      "CLIP"
+    ],
+    [
+      223,
+      53,
+      1,
+      117,
+      0,
+      "CLIP"
+    ],
+    [
+      224,
+      116,
+      0,
+      19,
+      1,
+      "CONDITIONING"
+    ],
+    [
+      225,
+      117,
+      0,
+      19,
+      2,
+      "CONDITIONING"
     ]
   ],
   "groups": [
-    {
-      "id": 1,
-      "title": "固定提示词",
-      "bounding": [
-        -1510,
-        1430,
-        530,
-        890
-      ],
-      "color": "#b06634",
-      "font_size": 24,
-      "flags": {}
-    },
-    {
-      "id": 2,
-      "title": "输入",
-      "bounding": [
-        -430,
-        1430,
-        520,
-        580
-      ],
-      "color": "#3f789e",
-      "font_size": 24,
-      "flags": {}
-    },
-    {
-      "id": 3,
-      "title": "画师串",
-      "bounding": [
-        -970,
-        1430,
-        530,
-        580
-      ],
-      "color": "#a1309b",
-      "font_size": 24,
-      "flags": {}
-    },
     {
       "id": 4,
       "title": "工程流",
@@ -1702,24 +755,23 @@
         -970,
         740,
         1060,
-        670
+        520
       ],
       "color": "#88A",
-      "font_size": 24,
       "flags": {}
     }
   ],
   "config": {},
   "extra": {
     "ds": {
-      "scale": 0.7513148009015777,
+      "scale": 0.6830134553650705,
       "offset": [
-        930.7091466943027,
-        -828.5574268535237
+        1174.2634714110225,
+        -603.687954535046
       ]
     },
     "workflowRendererVersion": "LG",
-    "frontendVersion": "1.38.13",
+    "frontendVersion": "1.45.20",
     "VHS_latentpreview": false,
     "VHS_latentpreviewrate": 0,
     "VHS_MetadataImage": true,
