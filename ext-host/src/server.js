@@ -185,9 +185,8 @@ const T2I_AGENT_ENV_KEYS = [
   "COMFYUI_FIXED_T2I_AGENT_API_MODEL",
 ];
 
-// Optional tunables. Deliberately NOT part of T2I_AGENT_ENV_KEYS: that array is
-// destructured positionally by the "not configured" guard below, so adding
-// optional keys there would silently break the required-three validation.
+// Keep the array order: it is destructured below. Only base URL and model are
+// required; self-hosted OpenAI-compatible services may not need an API key.
 function clampInt(raw, min, max, fallback) {
   const n = Number.parseInt(raw ?? "", 10);
   return Number.isFinite(n) ? Math.min(Math.max(n, min), max) : fallback;
@@ -220,16 +219,17 @@ const T2I_REASONING = (process.env.COMFYUI_FIXED_T2I_AGENT_API_REASONING || "off
   .toLowerCase();
 
 function t2iAgentConfigured() {
-  return T2I_AGENT_ENV_KEYS.every((key) => Boolean(process.env[key]));
+  return [T2I_AGENT_ENV_KEYS[0], T2I_AGENT_ENV_KEYS[2]]
+    .every((key) => Boolean(process.env[key]?.trim()));
 }
 
 async function proxyT2iAgent(request) {
   const [baseURL, apiKey, model] = T2I_AGENT_ENV_KEYS.map((k) => process.env[k]);
-  if (!baseURL || !apiKey || !model) {
+  if (!t2iAgentConfigured()) {
     return errorResponse(
       503,
       "t2i_agent_not_configured",
-      "T2I agent is not configured. Set COMFYUI_FIXED_T2I_AGENT_API_BASEURL, _APIKEY, and _MODEL in .env.",
+      "T2I agent is not configured. Set COMFYUI_FIXED_T2I_AGENT_API_BASEURL and _MODEL in .env.",
     );
   }
 
@@ -245,11 +245,13 @@ async function proxyT2iAgent(request) {
     upstreamBody.reasoning_effort = "none";
   }
 
-  const upstream = await fetch(`${baseURL.replace(/\/$/, "")}/v1/chat/completions`, {
+  const base = baseURL.trim().replace(/\/+$/, "");
+  const endpoint = `${base.endsWith("/v1") ? base : `${base}/v1`}/chat/completions`;
+  const upstream = await fetch(endpoint, {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      authorization: `Bearer ${apiKey}`,
+      ...(apiKey?.trim() ? { authorization: `Bearer ${apiKey.trim()}` } : {}),
       "user-agent": "NyaaChat-Ext-Host",
     },
     body: JSON.stringify(upstreamBody),
