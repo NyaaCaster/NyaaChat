@@ -32,7 +32,7 @@ COMPOSE_FILES_UP = [
 
 def run(cmd: list[str], check: bool = True) -> subprocess.CompletedProcess:
     print(f"  -> {' '.join(cmd)}")
-    return subprocess.run(cmd)
+    return subprocess.run(cmd, check=check)
 
 
 def ensure_network():
@@ -51,6 +51,7 @@ def ensure_network():
 def main():
     parser = argparse.ArgumentParser(description=f"Restart {PROJECT}")
     parser.add_argument("--no-pull", action="store_true", help="Skip docker compose pull")
+    parser.add_argument("--skip-cleanup", action="store_true", help="Keep rollback images")
     args = parser.parse_args()
 
     here = Path(__file__).resolve().parent
@@ -66,10 +67,11 @@ def main():
         for cf in COMPOSE_FILES_UP:
             cp = run(["docker", "compose", "-f", cf, "pull"], check=False)
             if cp.returncode != 0:
-                print(f"[WARN] Pull failed for {cf}, continuing with existing image...")
+                print(f"[ERROR] Pull failed for {cf}; existing containers remain running.")
                 all_ok = False
-        if all_ok:
-            print("All pulls successful.")
+        if not all_ok:
+            raise SystemExit(1)
+        print("All pulls successful.")
     else:
         print("[1/5] Skipping pull (--no-pull).")
 
@@ -85,7 +87,8 @@ def main():
 
     # ---- 4. prune dangling images ----
     print("[4/5] Cleaning up dangling images...")
-    run(["docker", "image", "prune", "-f"])
+    if not args.skip_cleanup:
+        run(["docker", "image", "prune", "-f"])
 
     # ---- 5. status report ----
     print(f"\n=== {PROJECT} status ===")

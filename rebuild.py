@@ -20,6 +20,7 @@ Neither value is ever hardcoded in this file.
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -109,7 +110,7 @@ def docker_build(host: str, image_cfg: dict, sha: str, no_cache: bool, secrets: 
     dockerfile = image_cfg["dockerfile"]
     ctx = image_cfg["context"]
     tags = [f"{host}/{name}:{sha}", f"{host}/{name}:latest"]
-    cmd = ["docker", "build", "-f", dockerfile]
+    cmd = ["docker", "build", "--pull", "-f", dockerfile]
     if no_cache:
         cmd.append("--no-cache")
     for t in tags:
@@ -289,6 +290,8 @@ def main():
                         help="Local build only (offline / debugging)")
     parser.add_argument("--only", type=str, metavar="NAME", default=None,
                         help="Build and push only a single image (e.g. nyaachat-shared)")
+    parser.add_argument("--tag", help="Explicit release tag for an uncommitted maintenance build")
+    parser.add_argument("--skip-cleanup", action="store_true", help="Keep previous images for rollback")
     args = parser.parse_args()
 
     env = load_env()
@@ -302,7 +305,9 @@ def main():
         url = f"http://{host}"
 
     secrets = [host, url]
-    sha = get_git_sha()
+    sha = args.tag or get_git_sha()
+    if not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}", sha):
+        parser.error("Invalid Docker image tag")
 
     # filter images if --only is specified
     if args.only:
@@ -315,7 +320,7 @@ def main():
         targets = list(IMAGES)
 
     print(f"=== {PROJECT} rebuild ===")
-    print(f"  SHA:       {sha}")
+    print(f"  Tag:       {sha}")
     print(f"  Registry:  <PRIVATE_REGISTRY>")
     if args.only:
         print(f"  Only:      {args.only}")
@@ -341,10 +346,12 @@ def main():
 
     # 4. registry keep-only-latest
     for image_cfg in targets:
-        registry_cleanup(url, host, image_cfg["name"], sha, secrets)
+        if not args.skip_cleanup:
+            registry_cleanup(url, host, image_cfg["name"], sha, secrets)
 
     # 5. local cleanup
-    local_cleanup(host, sha, secrets, args.only)
+    if not args.skip_cleanup:
+        local_cleanup(host, sha, secrets, args.only)
 
     print(f"\n=== {PROJECT} rebuild done ===")
     for image_cfg in targets:
